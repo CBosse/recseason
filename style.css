@@ -539,3 +539,175 @@ main {
   color: #718096;
   cursor: not-allowed;
 }
+
+/* ── Standings Table ─────────────────────────────────────────────────────── */
+
+.standings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+.standings-table thead tr {
+  background: #1a5c2a;
+  color: #fff;
+}
+
+.standings-table thead th {
+  padding: 0.55rem 0.75rem;
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+}
+
+.standings-table thead th:nth-child(2) {
+  text-align: left;
+}
+
+.standings-table tbody tr {
+  border-bottom: 1px solid #e2e8e2;
+}
+
+.standings-table tbody tr:nth-child(even) {
+  background: #f7faf7;
+}
+
+.standings-table tbody tr:nth-child(odd) {
+  background: #fff;
+}
+
+.standings-table tbody td {
+  padding: 0.5rem 0.75rem;
+  text-align: center;
+  color: #2d3748;
+}
+
+.standings-table tbody td:nth-child(2) {
+  text-align: left;
+  font-weight: 600;
+  color: #1a2332;
+}
+
+.standings-rank {
+  text-align: center;
+  font-weight: 700;
+  color: #4a5568;
+  width: 2rem;
+}
+
+.standings-leader {
+  background: #e6f4ea !important;
+}
+
+.standings-leader td {
+  color: #1a5c2a;
+}
+
+.standings-leader td:nth-child(2) {
+  color: #1a5c2a;
+  font-weight: 700;
+}
+
+/* ── Identity Bar ────────────────────────────────────────────────────────── */
+
+.identity-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: #f7f7f7;
+  border-bottom: 1px solid #e2e8e2;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  color: #4a5568;
+  margin: -1.5rem -1.5rem 1rem -1.5rem;
+  border-radius: 0 6px 0 0;
+  flex-wrap: wrap;
+}
+
+.identity-bar span {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── RSVP Buttons ────────────────────────────────────────────────────────── */
+
+.rsvp-buttons {
+  display: flex;
+  gap: 0.4rem;
+  width: 100%;
+  margin-top: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.rsvp-btn {
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid #cbd5e0;
+  background: #fff;
+  color: #4a5568;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.rsvp-btn:hover {
+  border-color: #a0aec0;
+  background: #f0f4f0;
+}
+
+.rsvp-btn.going.active {
+  background: #1a5c2a;
+  color: #fff;
+  border-color: #1a5c2a;
+}
+
+.rsvp-btn.maybe.active {
+  background: #d97706;
+  color: #fff;
+  border-color: #d97706;
+}
+
+.rsvp-btn.not_going.active {
+  background: #c53030;
+  color: #fff;
+  border-color: #c53030;
+}
+
+/* ── RSVP Summary ────────────────────────────────────────────────────────── */
+
+.rsvp-summary {
+  width: 100%;
+  font-size: 0.78rem;
+  color: #718096;
+  margin-top: 0.3rem;
+  padding-top: 0.25rem;
+  border-top: 1px dashed #e2e8e2;
+}
+
+/* ── Team Upcoming Games ─────────────────────────────────────────────────── */
+
+.team-upcoming-games {
+  margin-top: 0;
+}
+
+.team-upcoming-games .item-list li {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.team-upcoming-games .item-list li .info {
+  width: 100%;
+}
+
+.team-upcoming-games .rsvp-summary {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0.1rem;
+  display: inline;
+}

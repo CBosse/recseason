@@ -35,13 +35,42 @@ const state = {
   players:        [],   // [{ id, name, number, phone, teamId }]
   fields:         [],   // [{ id, name, availableDays, openTime, closeTime }]
   games:          [],   // [{ id, date, time, fieldId, fieldName, homeTeamId, homeName, awayTeamId, awayName, homeScore, awayScore, status }]
+  rsvps:          [],   // [{ id, gameId, playerId, playerName, teamId, status }]
   scheduleConfig: { gameDuration: 90, bufferMinutes: 15, startDate: '', endDate: '', rounds: 1 },
-  _ready: { teams: false, players: false, fields: false, games: false, scheduleConfig: false },
+  _ready: { teams: false, players: false, fields: false, games: false, scheduleConfig: false, rsvps: false },
 };
 
 const ADMIN_PASSWORD = 'ump-admin';
 let isAdminMode = false;
 let _viewingTeamId = null;
+
+// ── Player identity (localStorage) ────────────────────────────────────────
+
+let currentPlayerId   = localStorage.getItem('recseason_playerId')   || null;
+let currentPlayerName = localStorage.getItem('recseason_playerName') || null;
+let currentTeamId     = null; // resolved from state.players when identity is loaded
+
+function resolveCurrentTeamId() {
+  if (!currentPlayerId) { currentTeamId = null; return; }
+  const player = state.players.find(p => p.id === currentPlayerId);
+  currentTeamId = player ? player.teamId : null;
+}
+
+function setIdentity(playerId, playerName) {
+  currentPlayerId   = playerId;
+  currentPlayerName = playerName;
+  localStorage.setItem('recseason_playerId',   playerId);
+  localStorage.setItem('recseason_playerName', playerName);
+  resolveCurrentTeamId();
+}
+
+function clearIdentity() {
+  currentPlayerId   = null;
+  currentPlayerName = null;
+  currentTeamId     = null;
+  localStorage.removeItem('recseason_playerId');
+  localStorage.removeItem('recseason_playerName');
+}
 
 // ── Firestore write helpers ────────────────────────────────────────────────
 
@@ -121,6 +150,18 @@ function saveGame(game) {
   }));
 }
 
+function setRsvp(gameId, status) {
+  if (!currentPlayerId) return;
+  const rsvpId = `${gameId}_${currentPlayerId}`;
+  firestoreWrite(setDoc(doc(db, 'rsvps', rsvpId), {
+    gameId,
+    playerId:   currentPlayerId,
+    playerName: currentPlayerName,
+    teamId:     currentTeamId,
+    status,
+  }));
+}
+
 function genId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -129,7 +170,8 @@ function genId(prefix) {
 
 function allReady() {
   return state._ready.teams && state._ready.players &&
-         state._ready.fields && state._ready.games && state._ready.scheduleConfig;
+         state._ready.fields && state._ready.games &&
+         state._ready.scheduleConfig && state._ready.rsvps;
 }
 
 function checkReady() {
@@ -156,6 +198,7 @@ onSnapshot(collection(db, 'teams'), snap => {
   state.teams = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   state.teams.sort((a, b) => a.name.localeCompare(b.name));
   state._ready.teams = true;
+  resolveCurrentTeamId();
   checkReady();
   if (allReady()) renderCurrentTab();
 }, err => showDbError(err));
@@ -169,6 +212,7 @@ onSnapshot(collection(db, 'players'), snap => {
     return a.name.localeCompare(b.name);
   });
   state._ready.players = true;
+  resolveCurrentTeamId();
   checkReady();
   if (allReady()) renderCurrentTab();
 }, err => showDbError(err));
@@ -188,6 +232,13 @@ onSnapshot(collection(db, 'games'), snap => {
     return a.time.localeCompare(b.time);
   });
   state._ready.games = true;
+  checkReady();
+  if (allReady()) renderCurrentTab();
+}, err => showDbError(err));
+
+onSnapshot(collection(db, 'rsvps'), snap => {
+  state.rsvps = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  state._ready.rsvps = true;
   checkReady();
   if (allReady()) renderCurrentTab();
 }, err => showDbError(err));
@@ -218,9 +269,10 @@ function activeTab() {
 
 function renderCurrentTab() {
   const tab = activeTab();
-  if (tab === 'teams')    renderTeamsTab();
-  if (tab === 'schedule') renderScheduleTab();
-  if (tab === 'settings') renderSettingsTab();
+  if (tab === 'teams')     renderTeamsTab();
+  if (tab === 'schedule')  renderScheduleTab();
+  if (tab === 'standings') renderStandings();
+  if (tab === 'settings')  renderSettingsTab();
   syncAdminUi();
 }
 
@@ -462,6 +514,44 @@ function showTeamDetail(team) {
     });
   }
 
+  // ── Upcoming games section for this team ──────────────────────────────
+  const upcomingSection = document.getElementById('team-upcoming-section');
+  const today = new Date().toISOString().slice(0, 10);
+  const upcomingGames = state.games
+    .filter(g => g.status !== 'completed' &&
+                 g.date >= today &&
+                 (g.homeTeamId === team.id || g.awayTeamId === team.id))
+    .slice(0, 5);
+
+  if (upcomingGames.length === 0) {
+    upcomingSection.innerHTML = '';
+  } else {
+    let html = '<div class="section-divider"></div><h3 class="section-heading">Upcoming Games</h3><ul class="item-list">';
+    for (const game of upcomingGames) {
+      const isHome   = game.homeTeamId === team.id;
+      const opponent = isHome ? game.awayName : game.homeName;
+      const role     = isHome ? 'vs' : '@';
+
+      const gameRsvps = state.rsvps.filter(r => r.gameId === game.id && r.teamId === team.id);
+      const going    = gameRsvps.filter(r => r.status === 'going').length;
+      const maybe    = gameRsvps.filter(r => r.status === 'maybe').length;
+      const notGoing = gameRsvps.filter(r => r.status === 'not_going').length;
+      const rsvpLine = (going + maybe + notGoing > 0)
+        ? `<span class="rsvp-summary">${going} going &middot; ${maybe} maybe &middot; ${notGoing} out</span>`
+        : '';
+
+      html += `
+        <li>
+          <span class="info">
+            <span class="name">${escHtml(formatDateHeader(game.date))} ${escHtml(formatTime(game.time))} &mdash; ${escHtml(role)} ${escHtml(opponent)}</span>
+            <span class="sub">${escHtml(game.fieldName)}${rsvpLine ? ' &bull; ' : ''}${rsvpLine}</span>
+          </span>
+        </li>`;
+    }
+    html += '</ul>';
+    upcomingSection.innerHTML = html;
+  }
+
   syncAdminUi();
 }
 
@@ -469,6 +559,112 @@ document.getElementById('team-back-btn').addEventListener('click', () => {
   _viewingTeamId = null;
   renderTeamsTab();
 });
+
+// ── Standings tab ──────────────────────────────────────────────────────────
+
+function computeStandings() {
+  // Build a map of teamId -> stats
+  const statsMap = new Map();
+
+  // Initialize all teams
+  for (const team of state.teams) {
+    statsMap.set(team.id, { teamId: team.id, name: team.name, GP: 0, W: 0, L: 0, T: 0, GF: 0, GA: 0, Pts: 0 });
+  }
+
+  // Process completed games
+  for (const game of state.games) {
+    if (game.status !== 'completed') continue;
+    const hs = Number(game.homeScore);
+    const as = Number(game.awayScore);
+    if (isNaN(hs) || isNaN(as)) continue;
+
+    const home = statsMap.get(game.homeTeamId);
+    const away = statsMap.get(game.awayTeamId);
+    if (!home || !away) continue;
+
+    home.GP++; away.GP++;
+    home.GF += hs; home.GA += as;
+    away.GF += as; away.GA += hs;
+
+    if (hs > as) {
+      home.W++; home.Pts += 3;
+      away.L++;
+    } else if (as > hs) {
+      away.W++; away.Pts += 3;
+      home.L++;
+    } else {
+      home.T++; home.Pts += 1;
+      away.T++; away.Pts += 1;
+    }
+  }
+
+  const rows = Array.from(statsMap.values());
+  rows.sort((a, b) => {
+    if (b.Pts !== a.Pts) return b.Pts - a.Pts;
+    const gdA = a.GF - a.GA;
+    const gdB = b.GF - b.GA;
+    if (gdB !== gdA) return gdB - gdA;
+    if (b.GF !== a.GF) return b.GF - a.GF;
+    return a.name.localeCompare(b.name);
+  });
+
+  return rows;
+}
+
+function renderStandings() {
+  const container = document.getElementById('standings-container');
+  if (!container) return;
+
+  const hasCompleted = state.games.some(g => g.status === 'completed');
+
+  if (state.teams.length === 0 || !hasCompleted) {
+    container.innerHTML = '<p class="muted" style="padding:1rem 0;">No completed games yet. Standings will appear here once scores are recorded.</p>';
+    return;
+  }
+
+  const rows = computeStandings();
+
+  let html = `
+    <table class="standings-table">
+      <thead>
+        <tr>
+          <th class="standings-rank">#</th>
+          <th>Team</th>
+          <th>GP</th>
+          <th>W</th>
+          <th>L</th>
+          <th>T</th>
+          <th>GF</th>
+          <th>GA</th>
+          <th>GD</th>
+          <th>Pts</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  rows.forEach((row, idx) => {
+    const gd = row.GF - row.GA;
+    const gdStr = gd > 0 ? `+${gd}` : String(gd);
+    const leaderClass = idx === 0 ? ' class="standings-leader"' : '';
+    html += `
+      <tr${leaderClass}>
+        <td class="standings-rank">${idx + 1}</td>
+        <td>${escHtml(row.name)}</td>
+        <td>${row.GP}</td>
+        <td>${row.W}</td>
+        <td>${row.L}</td>
+        <td>${row.T}</td>
+        <td>${row.GF}</td>
+        <td>${row.GA}</td>
+        <td>${gdStr}</td>
+        <td><strong>${row.Pts}</strong></td>
+      </tr>`;
+  });
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
 
 // ── Schedule tab ───────────────────────────────────────────────────────────
 
@@ -488,7 +684,64 @@ function formatTime(timeStr) {
   return `${hour}:${String(min).padStart(2, '0')} ${ampm}`;
 }
 
+function renderIdentityBar() {
+  const bar = document.getElementById('identity-bar');
+  if (!bar) return;
+
+  if (currentPlayerId && currentPlayerName) {
+    // Check player still exists
+    const player = state.players.find(p => p.id === currentPlayerId);
+    const team   = player ? state.teams.find(t => t.id === player.teamId) : null;
+    const teamName = team ? team.name : 'Unknown team';
+
+    bar.innerHTML = `
+      <div class="identity-bar">
+        <span>Viewing as: <strong>${escHtml(currentPlayerName)}</strong> (${escHtml(teamName)})</span>
+        <button id="identity-change-btn" class="btn-secondary" style="font-size:0.8rem;padding:0.2rem 0.6rem;">Change</button>
+      </div>`;
+    bar.querySelector('#identity-change-btn').addEventListener('click', () => {
+      clearIdentity();
+      renderScheduleTab();
+    });
+  } else {
+    // Build grouped dropdown
+    let optionsHtml = '<option value="">-- select player --</option>';
+    for (const team of state.teams) {
+      const teamPlayers = state.players.filter(p => p.teamId === team.id);
+      if (teamPlayers.length === 0) continue;
+      optionsHtml += `<optgroup label="${escHtml(team.name)}">` +
+        teamPlayers.map(p => `<option value="${escHtml(p.id)}">${escHtml(p.name)}</option>`).join('') +
+        '</optgroup>';
+    }
+    // Players without a team
+    const noTeamPlayers = state.players.filter(p => !state.teams.find(t => t.id === p.teamId));
+    if (noTeamPlayers.length > 0) {
+      optionsHtml += '<optgroup label="(No Team)">' +
+        noTeamPlayers.map(p => `<option value="${escHtml(p.id)}">${escHtml(p.name)}</option>`).join('') +
+        '</optgroup>';
+    }
+
+    bar.innerHTML = `
+      <div class="identity-bar">
+        <span>Who are you?</span>
+        <select id="identity-select" style="font-size:0.85rem;padding:0.2rem 0.4rem;border:1px solid #cbd5e0;border-radius:4px;">${optionsHtml}</select>
+        <button id="identity-set-btn" class="btn-primary" style="font-size:0.8rem;padding:0.2rem 0.6rem;">Set</button>
+      </div>`;
+    bar.querySelector('#identity-set-btn').addEventListener('click', () => {
+      const sel = bar.querySelector('#identity-select');
+      const playerId = sel.value;
+      if (!playerId) { alert('Please select a player.'); return; }
+      const player = state.players.find(p => p.id === playerId);
+      if (!player) return;
+      setIdentity(player.id, player.name);
+      renderScheduleTab();
+    });
+  }
+}
+
 function renderScheduleTab() {
+  renderIdentityBar();
+
   const container = document.getElementById('schedule-container');
   if (!container) return;
 
@@ -518,6 +771,8 @@ function renderScheduleTab() {
     container.appendChild(empty);
     return;
   }
+
+  const today = new Date().toISOString().slice(0, 10);
 
   // Group games by date
   const byDate = new Map();
@@ -566,6 +821,54 @@ function renderScheduleTab() {
         li.querySelector('.edit-score-btn').addEventListener('click', () => {
           showInlineScoreEdit(li, game);
         });
+      }
+
+      // ── RSVP section (upcoming games only) ──────────────────────────
+      if (game.status !== 'completed') {
+        // RSVP buttons for current player if their team is in this game
+        if (currentPlayerId && currentTeamId &&
+            (game.homeTeamId === currentTeamId || game.awayTeamId === currentTeamId)) {
+          const existingRsvp = state.rsvps.find(
+            r => r.gameId === game.id && r.playerId === currentPlayerId
+          );
+          const currentStatus = existingRsvp ? existingRsvp.status : null;
+
+          const rsvpDiv = document.createElement('div');
+          rsvpDiv.className = 'rsvp-buttons';
+          rsvpDiv.innerHTML = `
+            <button class="rsvp-btn going${currentStatus === 'going' ? ' active' : ''}" data-status="going">Going</button>
+            <button class="rsvp-btn maybe${currentStatus === 'maybe' ? ' active' : ''}" data-status="maybe">Maybe</button>
+            <button class="rsvp-btn not_going${currentStatus === 'not_going' ? ' active' : ''}" data-status="not_going">Can't Make It</button>
+          `;
+          rsvpDiv.querySelectorAll('.rsvp-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+              setRsvp(game.id, btn.dataset.status);
+            });
+          });
+          li.appendChild(rsvpDiv);
+        }
+
+        // RSVP summary line (visible to all if any RSVPs exist)
+        const homeTeamRsvps = state.rsvps.filter(r => r.gameId === game.id && r.teamId === game.homeTeamId);
+        const awayTeamRsvps = state.rsvps.filter(r => r.gameId === game.id && r.teamId === game.awayTeamId);
+        const hasAnySummary = homeTeamRsvps.length > 0 || awayTeamRsvps.length > 0;
+
+        if (hasAnySummary) {
+          const homeGoing    = homeTeamRsvps.filter(r => r.status === 'going').length;
+          const homeMaybe    = homeTeamRsvps.filter(r => r.status === 'maybe').length;
+          const homeNotGoing = homeTeamRsvps.filter(r => r.status === 'not_going').length;
+          const awayGoing    = awayTeamRsvps.filter(r => r.status === 'going').length;
+          const awayMaybe    = awayTeamRsvps.filter(r => r.status === 'maybe').length;
+          const awayNotGoing = awayTeamRsvps.filter(r => r.status === 'not_going').length;
+
+          const summaryDiv = document.createElement('div');
+          summaryDiv.className = 'rsvp-summary';
+          summaryDiv.innerHTML =
+            `<strong>${escHtml(game.homeName)}:</strong> ${homeGoing} going &middot; ${homeMaybe} maybe &middot; ${homeNotGoing} out` +
+            ` &nbsp;|&nbsp; ` +
+            `<strong>${escHtml(game.awayName)}:</strong> ${awayGoing} going &middot; ${awayMaybe} maybe &middot; ${awayNotGoing} out`;
+          li.appendChild(summaryDiv);
+        }
       }
 
       gamesList.appendChild(li);

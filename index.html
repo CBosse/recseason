@@ -16,6 +16,7 @@
     <nav class="tabs">
       <button class="tab active" data-tab="teams">Teams</button>
       <button class="tab" data-tab="schedule">Schedule</button>
+      <button class="tab" data-tab="standings">Standings</button>
       <button class="tab" data-tab="settings">Settings</button>
     </nav>
 
@@ -56,13 +57,22 @@
 
         <ul id="roster-list" class="item-list"></ul>
         <p id="no-roster-msg" class="muted" style="display:none;">No players on this roster yet.</p>
+
+        <!-- Team upcoming games + RSVP summary -->
+        <div id="team-upcoming-section" class="team-upcoming-games"></div>
       </div>
 
     </section>
 
     <!-- Schedule Tab -->
     <section id="tab-schedule" class="tab-content">
+      <div id="identity-bar"></div>
       <div id="schedule-container"></div>
+    </section>
+
+    <!-- Standings Tab -->
+    <section id="tab-standings" class="tab-content">
+      <div id="standings-container"></div>
     </section>
 
     <!-- Settings Tab -->
