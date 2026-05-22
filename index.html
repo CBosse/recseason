@@ -3,84 +3,66 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Softball Ump Scheduler</title>
+  <title>RecSeason</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header>
-    <h1>⚾ Softball Ump Scheduler</h1>
+    <h1>&#127944; RecSeason</h1>
+    <p class="header-sub">Recreational League Manager</p>
   </header>
 
   <main>
     <nav class="tabs">
-      <button class="tab active" data-tab="schedule">Schedule</button>
-      <button class="tab" data-tab="umps">Umpires</button>
+      <button class="tab active" data-tab="teams">Teams</button>
+      <button class="tab" data-tab="schedule">Schedule</button>
       <button class="tab" data-tab="settings">Settings</button>
     </nav>
 
-    <!-- Schedule Tab -->
-    <section id="tab-schedule" class="tab-content active">
-      <div class="date-nav">
-        <button id="prev-day">&larr;</button>
-        <input type="date" id="schedule-date" />
-        <button id="next-day">&rarr;</button>
+    <!-- Teams Tab -->
+    <section id="tab-teams" class="tab-content active">
+
+      <!-- Team list view -->
+      <div id="team-list-view">
+        <div id="team-add-form" class="add-form" style="display:none;">
+          <input id="team-name-input" type="text" placeholder="Team name" maxlength="40" />
+          <input id="team-color-input" type="text" placeholder="Color (e.g. Red)" maxlength="30" />
+          <input id="team-homefield-input" type="text" placeholder="Home field (optional)" maxlength="40" />
+          <button id="add-team-btn" class="btn-primary">Add Team</button>
+        </div>
+        <ul id="team-list" class="item-list"></ul>
+        <p id="no-teams-msg" class="muted" style="display:none;">No teams added yet.</p>
+
+        <div class="section-divider"></div>
+        <h3 class="section-heading">All Players</h3>
+        <ul id="all-players-list" class="item-list"></ul>
+        <p id="no-players-msg" class="muted" style="display:none;">No players added yet.</p>
       </div>
-      <div class="schedule-grid-wrapper">
-        <table class="schedule-grid" id="schedule-table">
-          <thead id="schedule-head"></thead>
-          <tbody id="schedule-body"></tbody>
-        </table>
-        <p id="no-slots-msg" class="muted" style="display:none;"></p>
+
+      <!-- Team roster detail view -->
+      <div id="team-detail-view" style="display:none;">
+        <button id="team-back-btn" class="btn-secondary">&larr; Back to Teams</button>
+        <div class="team-detail-header">
+          <h2 id="team-detail-name" class="team-detail-heading"></h2>
+          <span id="team-detail-meta" class="team-detail-meta"></span>
+        </div>
+
+        <div id="player-add-form" class="add-form" style="display:none;">
+          <input id="player-name-input" type="text" placeholder="Player name" maxlength="40" />
+          <input id="player-number-input" type="text" placeholder="Jersey #" maxlength="5" />
+          <input id="player-phone-input" type="text" placeholder="Phone (optional)" maxlength="20" />
+          <button id="add-player-btn" class="btn-primary">Add Player</button>
+        </div>
+
+        <ul id="roster-list" class="item-list"></ul>
+        <p id="no-roster-msg" class="muted" style="display:none;">No players on this roster yet.</p>
       </div>
-      <div class="schedule-actions">
-        <button id="clear-day-btn" class="btn-danger">Clear This Day</button>
-        <button id="copy-prev-btn" class="btn-secondary">Copy Previous Week</button>
-        <button id="import-csv-btn" class="btn-secondary">Import CSV</button>
-        <button id="print-btn" class="btn-secondary">Print Schedule</button>
-        <input type="file" id="csv-file-input" accept=".csv" style="display:none" />
-      </div>
-      <p id="import-status" class="import-status" style="display:none;"></p>
+
     </section>
 
-    <!-- Umpires Tab -->
-    <section id="tab-umps" class="tab-content">
-      <!-- List view -->
-      <div id="ump-list-view">
-        <div class="add-form">
-          <input id="ump-name-input" type="text" placeholder="Umpire name" maxlength="40" />
-          <input id="ump-phone-input" type="text" placeholder="Phone (optional)" maxlength="20" />
-          <button id="add-ump-btn" class="btn-primary">Add Umpire</button>
-        </div>
-        <ul id="ump-list" class="item-list"></ul>
-        <p id="no-umps-msg" class="muted" style="display:none;">No umpires added yet.</p>
-      </div>
-      <!-- Schedule detail view -->
-      <div id="ump-detail-view" style="display:none;">
-        <button id="ump-back-btn" class="btn-secondary">&larr; Back</button>
-        <h3 id="ump-detail-name" class="ump-detail-heading"></h3>
-
-        <div class="ump-settings-section">
-          <div class="ump-settings-group">
-            <span class="ump-settings-label">Teams</span>
-            <div id="ump-teams-list" class="ump-tag-list"></div>
-            <div class="ump-add-row">
-              <input id="ump-team-input" type="text" placeholder="Team name" maxlength="40" list="schedule-teams-list" autocomplete="off" />
-              <datalist id="schedule-teams-list"></datalist>
-              <button id="ump-add-team-btn" class="btn-primary">Add</button>
-            </div>
-          </div>
-          <div class="ump-settings-group">
-            <span class="ump-settings-label">Unavailable Dates</span>
-            <div id="ump-unavail-list" class="ump-tag-list"></div>
-            <div class="ump-add-row">
-              <input id="ump-unavail-input" type="date" />
-              <button id="ump-add-unavail-btn" class="btn-primary">Add</button>
-            </div>
-          </div>
-        </div>
-
-        <div id="ump-detail-content"></div>
-      </div>
+    <!-- Schedule Tab -->
+    <section id="tab-schedule" class="tab-content">
+      <p class="muted" style="margin-top:0.5rem;">Schedule features coming soon.</p>
     </section>
 
     <!-- Settings Tab -->
@@ -99,53 +81,18 @@
       </div>
 
       <div class="settings-group">
-        <label>Fields</label>
-        <div class="add-form">
-          <input id="new-field-input" type="text" placeholder="Field name" maxlength="40" />
-          <button id="add-field-btn" class="btn-primary">Add Field</button>
-        </div>
-        <ul id="fields-list" class="item-list"></ul>
-        <p id="no-fields-msg" class="muted" style="display:none;">No fields added yet.</p>
-      </div>
-
-      <div class="settings-group">
-        <label>Game Times</label>
-        <div class="add-form">
-          <input id="new-time-input" type="time" />
-          <button id="add-time-btn" class="btn-primary">Add Time</button>
-        </div>
-        <ul id="times-list" class="item-list"></ul>
-        <p id="no-times-msg" class="muted" style="display:none;">No times added yet.</p>
+        <label>About</label>
+        <p class="muted">RecSeason &mdash; Recreational League Management Platform.</p>
       </div>
     </section>
   </main>
-
-  <!-- Game edit modal -->
-  <div id="game-edit-modal" class="modal" style="display:none;" role="dialog" aria-modal="true">
-    <div class="modal-overlay"></div>
-    <div class="modal-box">
-      <h3 class="modal-title">Edit Game</h3>
-      <div class="modal-field">
-        <label for="game-home-input">Home Team</label>
-        <input id="game-home-input" type="text" maxlength="40" autocomplete="off" />
-      </div>
-      <div class="modal-field">
-        <label for="game-away-input">Away Team</label>
-        <input id="game-away-input" type="text" maxlength="40" autocomplete="off" />
-      </div>
-      <div class="modal-actions">
-        <button id="game-edit-save" class="btn-primary">Save</button>
-        <button id="game-edit-cancel" class="btn-secondary">Cancel</button>
-      </div>
-    </div>
-  </div>
 
   <div id="db-banner" class="db-banner" style="display:none;"></div>
 
   <div id="loading-overlay">
     <div class="loading-box">
       <div class="spinner"></div>
-      <p>Connecting…</p>
+      <p>Connecting&hellip;</p>
     </div>
   </div>
 
