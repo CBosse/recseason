@@ -216,7 +216,7 @@ main {
 /* Settings groups */
 .settings-group { margin-bottom: 1.75rem; }
 
-.settings-group label {
+.settings-group > label {
   display: block;
   font-weight: 700;
   font-size: 0.85rem;
@@ -317,3 +317,225 @@ main {
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Schedule Tab ─────────────────────────────────────────────────────────── */
+
+#schedule-container {
+  min-height: 4rem;
+}
+
+#schedule-container > .schedule-actions {
+  margin-top: 0;
+  margin-bottom: 1.25rem;
+}
+
+.schedule-empty {
+  padding: 2rem 0;
+  text-align: center;
+}
+
+.schedule-date-group {
+  margin-bottom: 1.5rem;
+}
+
+.schedule-date-header {
+  font-size: 0.92rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #1a5c2a;
+  background: #f0f7f2;
+  border: 1px solid #c6e2cc;
+  border-radius: 4px;
+  padding: 0.35rem 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.schedule-games-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.schedule-game-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.85rem;
+  background: #f7faf7;
+  border: 1px solid #e2e8e2;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.game-time {
+  font-weight: 600;
+  color: #2d3748;
+  min-width: 5rem;
+  white-space: nowrap;
+}
+
+.game-field {
+  color: #718096;
+  font-size: 0.82rem;
+  min-width: 6rem;
+  white-space: nowrap;
+}
+
+.game-matchup {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.team-name-home,
+.team-name-away {
+  font-weight: 600;
+  color: #1a2332;
+}
+
+.score-display {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1a5c2a;
+  padding: 0 0.25rem;
+}
+
+.score-vs {
+  font-size: 0.85rem;
+  color: #a0aec0;
+  padding: 0 0.25rem;
+}
+
+.score-sep {
+  font-weight: 700;
+  color: #1a5c2a;
+  padding: 0 0.1rem;
+}
+
+.score-input {
+  width: 3.5rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid #cbd5e0;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.score-input:focus {
+  outline: none;
+  border-color: #1a5c2a;
+  box-shadow: 0 0 0 2px rgba(26,92,42,0.15);
+}
+
+.game-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+/* ── Fields Add Form ─────────────────────────────────────────────────────── */
+
+.field-add-form {
+  background: #f7faf7;
+  border: 1px solid #c6e2cc;
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.field-form-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.field-form-row input {
+  flex: 1;
+  min-width: 120px;
+  padding: 0.42rem 0.65rem;
+  border: 1px solid #cbd5e0;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.field-form-row input:focus {
+  outline: none;
+  border-color: #1a5c2a;
+  box-shadow: 0 0 0 2px rgba(26,92,42,0.15);
+}
+
+.day-checkboxes {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.day-cb {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #2d3748;
+  cursor: pointer;
+  user-select: none;
+}
+
+.day-cb input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: #1a5c2a;
+  cursor: pointer;
+}
+
+/* ── Schedule Config Grid ────────────────────────────────────────────────── */
+
+.schedule-config-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  max-width: 480px;
+}
+
+.cfg-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.cfg-label {
+  flex: 1;
+  font-size: 0.88rem;
+  color: #4a5568;
+}
+
+.cfg-input {
+  width: 9rem;
+  padding: 0.42rem 0.65rem;
+  border: 1px solid #cbd5e0;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  text-align: right;
+}
+
+.cfg-input:focus {
+  outline: none;
+  border-color: #1a5c2a;
+  box-shadow: 0 0 0 2px rgba(26,92,42,0.15);
+}
+
+.cfg-input:disabled {
+  background: #f7faf7;
+  color: #718096;
+  cursor: not-allowed;
+}

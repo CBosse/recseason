@@ -9,8 +9,10 @@ import {
   onSnapshot,
   setDoc,
   deleteDoc,
+  getDocs,
   query,
   where,
+  writeBatch,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 // ── Firebase ───────────────────────────────────────────────────────────────
@@ -29,9 +31,12 @@ const db = getFirestore(initializeApp(firebaseConfig), 'recseason');
 // ── State ──────────────────────────────────────────────────────────────────
 
 const state = {
-  teams:   [],   // [{ id, name, color, homefield }]
-  players: [],   // [{ id, name, number, phone, teamId }]
-  _ready: { teams: false, players: false },
+  teams:          [],   // [{ id, name, color, homefield }]
+  players:        [],   // [{ id, name, number, phone, teamId }]
+  fields:         [],   // [{ id, name, availableDays, openTime, closeTime }]
+  games:          [],   // [{ id, date, time, fieldId, fieldName, homeTeamId, homeName, awayTeamId, awayName, homeScore, awayScore, status }]
+  scheduleConfig: { gameDuration: 90, bufferMinutes: 15, startDate: '', endDate: '', rounds: 1 },
+  _ready: { teams: false, players: false, fields: false, games: false, scheduleConfig: false },
 };
 
 const ADMIN_PASSWORD = 'ump-admin';
@@ -77,6 +82,45 @@ function deletePlayer(id) {
   return firestoreWrite(deleteDoc(doc(db, 'players', id)));
 }
 
+function saveField(field) {
+  return firestoreWrite(setDoc(doc(db, 'fields', field.id), {
+    name:          field.name,
+    availableDays: field.availableDays,
+    openTime:      field.openTime,
+    closeTime:     field.closeTime,
+  }));
+}
+
+function deleteField(id) {
+  return firestoreWrite(deleteDoc(doc(db, 'fields', id)));
+}
+
+function saveScheduleConfig(cfg) {
+  return firestoreWrite(setDoc(doc(db, 'config', 'schedule'), {
+    gameDuration:  Number(cfg.gameDuration),
+    bufferMinutes: Number(cfg.bufferMinutes),
+    startDate:     cfg.startDate,
+    endDate:       cfg.endDate,
+    rounds:        Number(cfg.rounds),
+  }));
+}
+
+function saveGame(game) {
+  return firestoreWrite(setDoc(doc(db, 'games', game.id), {
+    date:        game.date,
+    time:        game.time,
+    fieldId:     game.fieldId,
+    fieldName:   game.fieldName,
+    homeTeamId:  game.homeTeamId,
+    homeName:    game.homeName,
+    awayTeamId:  game.awayTeamId,
+    awayName:    game.awayName,
+    homeScore:   game.homeScore  ?? null,
+    awayScore:   game.awayScore  ?? null,
+    status:      game.status,
+  }));
+}
+
 function genId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -84,7 +128,8 @@ function genId(prefix) {
 // ── Firestore listeners ────────────────────────────────────────────────────
 
 function allReady() {
-  return state._ready.teams && state._ready.players;
+  return state._ready.teams && state._ready.players &&
+         state._ready.fields && state._ready.games && state._ready.scheduleConfig;
 }
 
 function checkReady() {
@@ -124,6 +169,43 @@ onSnapshot(collection(db, 'players'), snap => {
     return a.name.localeCompare(b.name);
   });
   state._ready.players = true;
+  checkReady();
+  if (allReady()) renderCurrentTab();
+}, err => showDbError(err));
+
+onSnapshot(collection(db, 'fields'), snap => {
+  state.fields = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  state.fields.sort((a, b) => a.name.localeCompare(b.name));
+  state._ready.fields = true;
+  checkReady();
+  if (allReady()) renderCurrentTab();
+}, err => showDbError(err));
+
+onSnapshot(collection(db, 'games'), snap => {
+  state.games = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  state.games.sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return a.time.localeCompare(b.time);
+  });
+  state._ready.games = true;
+  checkReady();
+  if (allReady()) renderCurrentTab();
+}, err => showDbError(err));
+
+onSnapshot(doc(db, 'config', 'schedule'), snap => {
+  if (snap.exists()) {
+    const d = snap.data();
+    state.scheduleConfig = {
+      gameDuration:  d.gameDuration  ?? 90,
+      bufferMinutes: d.bufferMinutes ?? 15,
+      startDate:     d.startDate     ?? '',
+      endDate:       d.endDate       ?? '',
+      rounds:        d.rounds        ?? 1,
+    };
+  } else {
+    state.scheduleConfig = { gameDuration: 90, bufferMinutes: 15, startDate: '', endDate: '', rounds: 1 };
+  }
+  state._ready.scheduleConfig = true;
   checkReady();
   if (allReady()) renderCurrentTab();
 }, err => showDbError(err));
@@ -390,15 +472,538 @@ document.getElementById('team-back-btn').addEventListener('click', () => {
 
 // ── Schedule tab ───────────────────────────────────────────────────────────
 
+function formatDateHeader(dateStr) {
+  // dateStr is "YYYY-MM-DD"
+  // Parse as local date to avoid timezone shifting
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+function formatTime(timeStr) {
+  // timeStr is "HH:MM"
+  const [h, min] = timeStr.split(':').map(Number);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const hour = h % 12 || 12;
+  return `${hour}:${String(min).padStart(2, '0')} ${ampm}`;
+}
+
 function renderScheduleTab() {
-  // Placeholder — schedule features coming soon
+  const container = document.getElementById('schedule-container');
+  if (!container) return;
+
+  container.innerHTML = '';
+
+  // Admin action buttons
+  if (isAdminMode) {
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'schedule-actions';
+    actionsDiv.innerHTML = `
+      <button id="generate-schedule-btn" class="btn-primary">Generate Schedule</button>
+      <button id="clear-schedule-btn" class="btn-danger">Clear Schedule</button>
+    `;
+    container.appendChild(actionsDiv);
+
+    actionsDiv.querySelector('#generate-schedule-btn').addEventListener('click', handleGenerateSchedule);
+    actionsDiv.querySelector('#clear-schedule-btn').addEventListener('click', handleClearSchedule);
+  }
+
+  if (state.games.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'schedule-empty';
+    empty.innerHTML = `<p class="muted">No games scheduled yet.</p>`;
+    if (!isAdminMode) {
+      empty.innerHTML += `<p class="muted" style="margin-top:0.4rem;">Use <strong>Admin View</strong> and <strong>Generate Schedule</strong> to create a schedule.</p>`;
+    }
+    container.appendChild(empty);
+    return;
+  }
+
+  // Group games by date
+  const byDate = new Map();
+  for (const game of state.games) {
+    if (!byDate.has(game.date)) byDate.set(game.date, []);
+    byDate.get(game.date).push(game);
+  }
+
+  for (const [date, games] of byDate) {
+    const dateGroup = document.createElement('div');
+    dateGroup.className = 'schedule-date-group';
+
+    const header = document.createElement('div');
+    header.className = 'schedule-date-header';
+    header.textContent = formatDateHeader(date);
+    dateGroup.appendChild(header);
+
+    const gamesList = document.createElement('ul');
+    gamesList.className = 'schedule-games-list';
+
+    for (const game of games) {
+      const li = document.createElement('li');
+      li.className = 'schedule-game-row';
+      li.dataset.gameId = game.id;
+
+      const scoreDisplay = game.status === 'completed'
+        ? `<span class="score-display">${game.homeScore} &ndash; ${game.awayScore}</span>`
+        : `<span class="score-vs">vs</span>`;
+
+      const editBtnHtml = isAdminMode
+        ? `<button class="btn-secondary edit-score-btn" style="font-size:0.78rem;padding:0.2rem 0.5rem;">Edit Score</button>`
+        : '';
+
+      li.innerHTML = `
+        <span class="game-time">${escHtml(formatTime(game.time))}</span>
+        <span class="game-field">${escHtml(game.fieldName)}</span>
+        <span class="game-matchup">
+          <span class="team-name-home">${escHtml(game.homeName)}</span>
+          ${scoreDisplay}
+          <span class="team-name-away">${escHtml(game.awayName)}</span>
+        </span>
+        <span class="game-actions">${editBtnHtml}</span>
+      `;
+
+      if (isAdminMode) {
+        li.querySelector('.edit-score-btn').addEventListener('click', () => {
+          showInlineScoreEdit(li, game);
+        });
+      }
+
+      gamesList.appendChild(li);
+    }
+
+    dateGroup.appendChild(gamesList);
+    container.appendChild(dateGroup);
+  }
+}
+
+function showInlineScoreEdit(li, game) {
+  const actionsSpan = li.querySelector('.game-actions');
+  const matchupSpan = li.querySelector('.game-matchup');
+
+  // Replace score display with inputs
+  const scoreNode = matchupSpan.querySelector('.score-display, .score-vs');
+  const homeInput = document.createElement('input');
+  homeInput.type = 'number';
+  homeInput.min = '0';
+  homeInput.className = 'score-input';
+  homeInput.value = game.homeScore != null ? game.homeScore : '';
+  homeInput.placeholder = '0';
+
+  const sep = document.createElement('span');
+  sep.className = 'score-sep';
+  sep.textContent = '–';
+
+  const awayInput = document.createElement('input');
+  awayInput.type = 'number';
+  awayInput.min = '0';
+  awayInput.className = 'score-input';
+  awayInput.value = game.awayScore != null ? game.awayScore : '';
+  awayInput.placeholder = '0';
+
+  scoreNode.replaceWith(homeInput, sep, awayInput);
+
+  // Replace edit button with save button
+  actionsSpan.innerHTML = `<button class="btn-primary save-score-btn" style="font-size:0.78rem;padding:0.2rem 0.5rem;">Save</button>`;
+  actionsSpan.querySelector('.save-score-btn').addEventListener('click', () => {
+    const hs = parseInt(homeInput.value, 10);
+    const as = parseInt(awayInput.value, 10);
+    if (isNaN(hs) || isNaN(as)) { alert('Please enter valid scores.'); return; }
+    firestoreWrite(setDoc(doc(db, 'games', game.id), {
+      date:       game.date,
+      time:       game.time,
+      fieldId:    game.fieldId,
+      fieldName:  game.fieldName,
+      homeTeamId: game.homeTeamId,
+      homeName:   game.homeName,
+      awayTeamId: game.awayTeamId,
+      awayName:   game.awayName,
+      homeScore:  hs,
+      awayScore:  as,
+      status:     'completed',
+    }));
+  });
+}
+
+async function handleClearSchedule() {
+  if (!isAdminMode) return;
+  if (!confirm('Delete ALL games? This cannot be undone.')) return;
+  await clearAllGames();
+  showBanner('Schedule cleared.', 'success');
+}
+
+async function clearAllGames() {
+  const snap = await getDocs(collection(db, 'games'));
+  const CHUNK = 500;
+  const docs = snap.docs;
+  for (let i = 0; i < docs.length; i += CHUNK) {
+    const batch = writeBatch(db);
+    docs.slice(i, i + CHUNK).forEach(d => batch.delete(d.ref));
+    await batch.commit();
+  }
+}
+
+async function handleGenerateSchedule() {
+  if (!isAdminMode) return;
+
+  if (state.teams.length < 2) {
+    showBanner('Need at least 2 teams to generate a schedule.', 'error');
+    return;
+  }
+  if (state.fields.length === 0) {
+    showBanner('Add at least one field before generating a schedule.', 'error');
+    return;
+  }
+  const cfg = state.scheduleConfig;
+  if (!cfg.startDate || !cfg.endDate) {
+    showBanner('Set a season start and end date in Settings before generating.', 'error');
+    return;
+  }
+  if (cfg.startDate > cfg.endDate) {
+    showBanner('Season start date must be before end date.', 'error');
+    return;
+  }
+
+  const scheduledGames = state.games.filter(g => g.status === 'scheduled');
+  if (scheduledGames.length > 0) {
+    if (!confirm(`This will delete ${scheduledGames.length} existing scheduled game(s) and regenerate. Continue?`)) return;
+  }
+
+  const { games: newGames, skipped } = generateSchedule(state.teams, state.fields, cfg);
+
+  // Batch delete scheduled games, batch set new games
+  try {
+    // Delete existing scheduled games in chunks
+    const snapShot = await getDocs(query(collection(db, 'games'), where('status', '==', 'scheduled')));
+    const CHUNK = 500;
+    const toDelete = snapShot.docs;
+    for (let i = 0; i < toDelete.length; i += CHUNK) {
+      const batch = writeBatch(db);
+      toDelete.slice(i, i + CHUNK).forEach(d => batch.delete(d.ref));
+      await batch.commit();
+    }
+
+    // Write new games in chunks
+    for (let i = 0; i < newGames.length; i += CHUNK) {
+      const batch = writeBatch(db);
+      newGames.slice(i, i + CHUNK).forEach(game => {
+        const ref = doc(collection(db, 'games'));
+        batch.set(ref, {
+          date:       game.date,
+          time:       game.time,
+          fieldId:    game.fieldId,
+          fieldName:  game.fieldName,
+          homeTeamId: game.homeTeamId,
+          homeName:   game.homeName,
+          awayTeamId: game.awayTeamId,
+          awayName:   game.awayName,
+          homeScore:  null,
+          awayScore:  null,
+          status:     'scheduled',
+        });
+      });
+      await batch.commit();
+    }
+
+    if (skipped > 0) {
+      showBanner(`Schedule generated with ${newGames.length} game(s). ${skipped} matchup(s) could not be scheduled due to slot conflicts.`, 'error');
+    } else {
+      showBanner(`Schedule generated: ${newGames.length} game(s) scheduled.`, 'success');
+    }
+  } catch (err) {
+    showDbError(err);
+  }
+}
+
+// ── Auto-Scheduler ─────────────────────────────────────────────────────────
+
+function generateSchedule(teams, fields, config) {
+  // 1. Generate round-robin matchups
+  const matchups = [];
+  for (let i = 0; i < teams.length; i++) {
+    for (let j = i + 1; j < teams.length; j++) {
+      for (let r = 0; r < config.rounds; r++) {
+        // Alternate home/away based on round parity
+        if (r % 2 === 0) {
+          matchups.push({ home: teams[i], away: teams[j] });
+        } else {
+          matchups.push({ home: teams[j], away: teams[i] });
+        }
+        // Add the reverse fixture as well
+        if (r % 2 === 0) {
+          matchups.push({ home: teams[j], away: teams[i] });
+        } else {
+          matchups.push({ home: teams[i], away: teams[j] });
+        }
+      }
+    }
+  }
+
+  // Shuffle matchups
+  for (let i = matchups.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [matchups[i], matchups[j]] = [matchups[j], matchups[i]];
+  }
+
+  // 2. Generate all available time slots
+  const slots = [];
+  const gameDur    = Number(config.gameDuration)  || 90;
+  const bufferMins = Number(config.bufferMinutes) || 15;
+  const interval   = gameDur + bufferMins;
+
+  // Iterate dates from startDate to endDate inclusive
+  const [sy, sm, sd] = config.startDate.split('-').map(Number);
+  const [ey, em, ed] = config.endDate.split('-').map(Number);
+  const start = new Date(sy, sm - 1, sd);
+  const end   = new Date(ey, em - 1, ed);
+
+  for (let cur = new Date(start); cur <= end; cur.setDate(cur.getDate() + 1)) {
+    const dow      = cur.getDay(); // 0=Sun...6=Sat
+    const dateStr  = cur.toISOString().slice(0, 10); // might be UTC issue; build manually
+    // Build dateStr safely from local parts
+    const yy = cur.getFullYear();
+    const mm = String(cur.getMonth() + 1).padStart(2, '0');
+    const dd = String(cur.getDate()).padStart(2, '0');
+    const safeDateStr = `${yy}-${mm}-${dd}`;
+
+    for (const field of fields) {
+      const days = Array.isArray(field.availableDays) ? field.availableDays : [];
+      if (!days.includes(dow)) continue;
+
+      // Parse open/close times to minutes-since-midnight
+      const [oh, om] = field.openTime.split(':').map(Number);
+      const [ch, cm] = field.closeTime.split(':').map(Number);
+      const openMins  = oh * 60 + om;
+      const closeMins = ch * 60 + cm;
+
+      let slotStart = openMins;
+      while (slotStart + gameDur <= closeMins) {
+        const hh  = String(Math.floor(slotStart / 60)).padStart(2, '0');
+        const min = String(slotStart % 60).padStart(2, '0');
+        slots.push({
+          date:      safeDateStr,
+          time:      `${hh}:${min}`,
+          fieldId:   field.id,
+          fieldName: field.name,
+        });
+        slotStart += interval;
+      }
+    }
+  }
+
+  // Sort slots by date, time, fieldId
+  slots.sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    if (a.time !== b.time) return a.time.localeCompare(b.time);
+    return a.fieldId.localeCompare(b.fieldId);
+  });
+
+  // 3. Greedy assignment
+  // busyTeams: key = "date time", value = Set of teamIds
+  const busyTeams = new Map();
+  const assignedGames = [];
+  let skipped = 0;
+
+  for (const matchup of matchups) {
+    let assigned = false;
+    for (const slot of slots) {
+      const key = `${slot.date} ${slot.time}`;
+      if (!busyTeams.has(key)) busyTeams.set(key, new Set());
+      const busy = busyTeams.get(key);
+      if (!busy.has(matchup.home.id) && !busy.has(matchup.away.id)) {
+        busy.add(matchup.home.id);
+        busy.add(matchup.away.id);
+        assignedGames.push({
+          date:       slot.date,
+          time:       slot.time,
+          fieldId:    slot.fieldId,
+          fieldName:  slot.fieldName,
+          homeTeamId: matchup.home.id,
+          homeName:   matchup.home.name,
+          awayTeamId: matchup.away.id,
+          awayName:   matchup.away.name,
+        });
+        assigned = true;
+        break;
+      }
+    }
+    if (!assigned) skipped++;
+  }
+
+  return { games: assignedGames, skipped };
 }
 
 // ── Settings tab ───────────────────────────────────────────────────────────
 
 function renderSettingsTab() {
+  renderFieldsSection();
+  renderScheduleConfigSection();
   syncAdminUi();
 }
+
+// ── Fields section ─────────────────────────────────────────────────────────
+
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function renderFieldsSection() {
+  const section = document.getElementById('fields-section');
+  if (!section) return;
+
+  // Re-render the fields list
+  const list = document.getElementById('fields-list');
+  const noMsg = document.getElementById('no-fields-msg');
+  if (!list || !noMsg) return;
+
+  list.innerHTML = '';
+  if (state.fields.length === 0) {
+    noMsg.style.display = '';
+  } else {
+    noMsg.style.display = 'none';
+    state.fields.forEach(field => {
+      const days = Array.isArray(field.availableDays) ? field.availableDays : [];
+      const dayStr = days.map(d => DAY_LABELS[d]).join(', ');
+      const li = document.createElement('li');
+      li.innerHTML = `
+        <span class="info">
+          <span class="name">${escHtml(field.name)}</span>
+          <span class="sub">${dayStr || 'No days'} &bull; ${escHtml(field.openTime)} &ndash; ${escHtml(field.closeTime)}</span>
+        </span>
+        <button class="remove-btn" style="display:${isAdminMode ? '' : 'none'}">Remove</button>
+      `;
+      li.querySelector('.remove-btn').addEventListener('click', () => {
+        if (!isAdminMode) return;
+        if (!confirm('Remove this field?')) return;
+        deleteField(field.id);
+      });
+      list.appendChild(li);
+    });
+  }
+
+  // Show/hide add form
+  const addForm = document.getElementById('field-add-form');
+  if (addForm) addForm.style.display = isAdminMode ? '' : 'none';
+}
+
+function setupFieldAddForm() {
+  const btn = document.getElementById('add-field-btn');
+  if (!btn) return;
+  btn.addEventListener('click', addField);
+}
+
+function addField() {
+  if (!isAdminMode) return;
+  const nameEl  = document.getElementById('field-name-input');
+  const openEl  = document.getElementById('field-open-input');
+  const closeEl = document.getElementById('field-close-input');
+  const name = nameEl.value.trim();
+  if (!name) { alert('Please enter a field name.'); return; }
+  if (!openEl.value || !closeEl.value) { alert('Please set open and close times.'); return; }
+
+  const availableDays = [];
+  DAY_LABELS.forEach((_, i) => {
+    const cb = document.getElementById(`field-day-${i}`);
+    if (cb && cb.checked) availableDays.push(i);
+  });
+  if (availableDays.length === 0) { alert('Select at least one available day.'); return; }
+
+  const id = genId('field');
+  nameEl.value  = '';
+  openEl.value  = '';
+  closeEl.value = '';
+  DAY_LABELS.forEach((_, i) => {
+    const cb = document.getElementById(`field-day-${i}`);
+    if (cb) cb.checked = false;
+  });
+
+  saveField({ id, name, availableDays, openTime: openEl.value, closeTime: closeEl.value });
+}
+
+// Note: addField reads openEl.value AFTER clearing it; fix by capturing first
+function addFieldFixed() {
+  if (!isAdminMode) return;
+  const nameEl  = document.getElementById('field-name-input');
+  const openEl  = document.getElementById('field-open-input');
+  const closeEl = document.getElementById('field-close-input');
+  const name      = nameEl.value.trim();
+  const openTime  = openEl.value;
+  const closeTime = closeEl.value;
+  if (!name) { alert('Please enter a field name.'); return; }
+  if (!openTime || !closeTime) { alert('Please set open and close times.'); return; }
+
+  const availableDays = [];
+  DAY_LABELS.forEach((_, i) => {
+    const cb = document.getElementById(`field-day-${i}`);
+    if (cb && cb.checked) availableDays.push(i);
+  });
+  if (availableDays.length === 0) { alert('Select at least one available day.'); return; }
+
+  nameEl.value  = '';
+  openEl.value  = '';
+  closeEl.value = '';
+  DAY_LABELS.forEach((_, i) => {
+    const cb = document.getElementById(`field-day-${i}`);
+    if (cb) cb.checked = false;
+  });
+
+  const id = genId('field');
+  saveField({ id, name, availableDays, openTime, closeTime });
+}
+
+// ── Schedule Config section ────────────────────────────────────────────────
+
+function renderScheduleConfigSection() {
+  const cfg = state.scheduleConfig;
+
+  const durEl   = document.getElementById('cfg-game-duration');
+  const bufEl   = document.getElementById('cfg-buffer-minutes');
+  const startEl = document.getElementById('cfg-start-date');
+  const endEl   = document.getElementById('cfg-end-date');
+  const rndEl   = document.getElementById('cfg-rounds');
+
+  if (!durEl) return;
+
+  durEl.value   = cfg.gameDuration;
+  bufEl.value   = cfg.bufferMinutes;
+  startEl.value = cfg.startDate;
+  endEl.value   = cfg.endDate;
+  rndEl.value   = cfg.rounds;
+
+  const disabled = !isAdminMode;
+  [durEl, bufEl, startEl, endEl, rndEl].forEach(el => { el.disabled = disabled; });
+
+  // Hook up save-config button
+  const saveBtn = document.getElementById('save-config-btn');
+  if (saveBtn) {
+    saveBtn.style.display = isAdminMode ? '' : 'none';
+    // Remove old listeners by cloning
+    const newBtn = saveBtn.cloneNode(true);
+    saveBtn.parentNode.replaceChild(newBtn, saveBtn);
+    newBtn.addEventListener('click', () => {
+      if (!isAdminMode) return;
+      const newCfg = {
+        gameDuration:  Number(durEl.value)   || 90,
+        bufferMinutes: Number(bufEl.value)   || 15,
+        startDate:     startEl.value         || '',
+        endDate:       endEl.value           || '',
+        rounds:        Number(rndEl.value)   || 1,
+      };
+      saveScheduleConfig(newCfg).then(() => {
+        showBanner('Schedule config saved.', 'success');
+      });
+    });
+  }
+}
+
+// ── Init settings event listeners ─────────────────────────────────────────
+
+function initSettings() {
+  // Field add button
+  const addFieldBtn = document.getElementById('add-field-btn');
+  if (addFieldBtn) {
+    addFieldBtn.addEventListener('click', addFieldFixed);
+  }
+}
+
+initSettings();
 
 // ── Utilities ──────────────────────────────────────────────────────────────
 

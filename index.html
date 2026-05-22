@@ -62,7 +62,7 @@
 
     <!-- Schedule Tab -->
     <section id="tab-schedule" class="tab-content">
-      <p class="muted" style="margin-top:0.5rem;">Schedule features coming soon.</p>
+      <div id="schedule-container"></div>
     </section>
 
     <!-- Settings Tab -->
@@ -78,6 +78,60 @@
 
       <div id="settings-lock-msg" class="muted" style="display:none; margin-bottom:1rem;">
         Settings are locked in View Mode. Use <strong>Admin View</strong> to make changes.
+      </div>
+
+      <!-- Fields Section -->
+      <div id="fields-section" class="settings-group">
+        <label>Fields</label>
+
+        <div id="field-add-form" class="field-add-form" style="display:none;">
+          <div class="field-form-row">
+            <input id="field-name-input" type="text" placeholder="Field name" maxlength="50" />
+            <input id="field-open-input" type="time" title="Open time" />
+            <input id="field-close-input" type="time" title="Close time" />
+          </div>
+          <div class="day-checkboxes">
+            <label class="day-cb"><input type="checkbox" id="field-day-0" value="0" /><span>Sun</span></label>
+            <label class="day-cb"><input type="checkbox" id="field-day-1" value="1" /><span>Mon</span></label>
+            <label class="day-cb"><input type="checkbox" id="field-day-2" value="2" /><span>Tue</span></label>
+            <label class="day-cb"><input type="checkbox" id="field-day-3" value="3" /><span>Wed</span></label>
+            <label class="day-cb"><input type="checkbox" id="field-day-4" value="4" /><span>Thu</span></label>
+            <label class="day-cb"><input type="checkbox" id="field-day-5" value="5" /><span>Fri</span></label>
+            <label class="day-cb"><input type="checkbox" id="field-day-6" value="6" /><span>Sat</span></label>
+            <button id="add-field-btn" class="btn-primary">Add Field</button>
+          </div>
+        </div>
+
+        <ul id="fields-list" class="item-list"></ul>
+        <p id="no-fields-msg" class="muted">No fields added yet.</p>
+      </div>
+
+      <!-- Schedule Config Section -->
+      <div class="settings-group">
+        <label>Schedule Configuration</label>
+        <div class="schedule-config-grid">
+          <div class="cfg-row">
+            <label class="cfg-label" for="cfg-game-duration">Game duration (min)</label>
+            <input id="cfg-game-duration" type="number" min="1" value="90" class="cfg-input" />
+          </div>
+          <div class="cfg-row">
+            <label class="cfg-label" for="cfg-buffer-minutes">Buffer between games (min)</label>
+            <input id="cfg-buffer-minutes" type="number" min="0" value="15" class="cfg-input" />
+          </div>
+          <div class="cfg-row">
+            <label class="cfg-label" for="cfg-start-date">Season start date</label>
+            <input id="cfg-start-date" type="date" class="cfg-input" />
+          </div>
+          <div class="cfg-row">
+            <label class="cfg-label" for="cfg-end-date">Season end date</label>
+            <input id="cfg-end-date" type="date" class="cfg-input" />
+          </div>
+          <div class="cfg-row">
+            <label class="cfg-label" for="cfg-rounds">Rounds (times each team plays each other)</label>
+            <input id="cfg-rounds" type="number" min="1" value="1" class="cfg-input" />
+          </div>
+        </div>
+        <button id="save-config-btn" class="btn-primary" style="display:none; margin-top:0.75rem;">Save Config</button>
       </div>
 
       <div class="settings-group">
