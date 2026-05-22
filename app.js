@@ -5,9 +5,14 @@ import {
   getFirestore,
   doc,
   collection,
+  addDoc,
   onSnapshot,
   setDoc,
   deleteDoc,
+  getDocs,
+  query,
+  where,
+  writeBatch,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 // ── Firebase ───────────────────────────────────────────────────────────────
@@ -21,57 +26,50 @@ const firebaseConfig = {
   appId: "1:327987648702:web:b0a2337dc099e6772aa6ef",
 };
 
-const db = getFirestore(initializeApp(firebaseConfig), 'umpcalendar');
+const db = getFirestore(initializeApp(firebaseConfig), 'recseason');
 
 // ── State ──────────────────────────────────────────────────────────────────
 
 const state = {
-  fields:      ['Field 1', 'Field 2'],
-  times:       [],
-  umps:        [],
-  // { "YYYY-MM-DD": { "HH:MM": { "Field Name": { ump, home, away } } } }
-  assignments: {},
-  _ready: { settings: false, umps: false, assignments: false },
+  teams:          [],   // [{ id, name, color, homefield }]
+  players:        [],   // [{ id, name, number, phone, teamId }]
+  fields:         [],   // [{ id, name, availableDays, openTime, closeTime }]
+  games:          [],   // [{ id, date, time, fieldId, fieldName, homeTeamId, homeName, awayTeamId, awayName, homeScore, awayScore, status }]
+  rsvps:          [],   // [{ id, gameId, playerId, playerName, teamId, status }]
+  scheduleConfig: { gameDuration: 90, bufferMinutes: 15, startDate: '', endDate: '', rounds: 1 },
+  _ready: { teams: false, players: false, fields: false, games: false, scheduleConfig: false, rsvps: false },
 };
 
-let currentDate = todayKey();
 const ADMIN_PASSWORD = 'ump-admin';
 let isAdminMode = false;
-let adminDraft = null;
+let _viewingTeamId = null;
 
-// ── Data model helpers ─────────────────────────────────────────────────────
+// ── Player identity (localStorage) ────────────────────────────────────────
 
-function normalizeFieldSlot(raw) {
-  if (!raw || raw === '') return { ump: '', home: '', away: '' };
-  if (typeof raw === 'string') return { ump: raw, home: '', away: '' };
-  return { ump: raw.ump ?? '', home: raw.home ?? '', away: raw.away ?? '' };
+let currentPlayerId   = localStorage.getItem('recseason_playerId')   || null;
+let currentPlayerName = localStorage.getItem('recseason_playerName') || null;
+let currentTeamId     = null; // resolved from state.players when identity is loaded
+
+function resolveCurrentTeamId() {
+  if (!currentPlayerId) { currentTeamId = null; return; }
+  const player = state.players.find(p => p.id === currentPlayerId);
+  currentTeamId = player ? player.teamId : null;
 }
 
-function cloneAssignments(source) {
-  return JSON.parse(JSON.stringify(source ?? {}));
+function setIdentity(playerId, playerName) {
+  currentPlayerId   = playerId;
+  currentPlayerName = playerName;
+  localStorage.setItem('recseason_playerId',   playerId);
+  localStorage.setItem('recseason_playerName', playerName);
+  resolveCurrentTeamId();
 }
 
-function getScheduleModel() {
-  if (isAdminMode && adminDraft) return adminDraft;
-  return { fields: state.fields, times: state.times, assignments: state.assignments };
-}
-
-function getScheduleAssignments() {
-  return getScheduleModel().assignments;
-}
-
-function getFieldSlot(dateStr, time, fieldName) {
-  const raw = getScheduleAssignments()[dateStr]?.[time]?.[fieldName];
-  return normalizeFieldSlot(raw);
-}
-
-function setFieldSlot(dateStr, time, fieldName, patch) {
-  const assignments = getScheduleAssignments();
-  if (!assignments[dateStr])       assignments[dateStr] = {};
-  if (!assignments[dateStr][time]) assignments[dateStr][time] = {};
-  const cur = normalizeFieldSlot(assignments[dateStr][time][fieldName]);
-  assignments[dateStr][time][fieldName] = { ...cur, ...patch };
-  if (!isAdminMode) saveAssignment(dateStr, assignments[dateStr]);
+function clearIdentity() {
+  currentPlayerId   = null;
+  currentPlayerName = null;
+  currentTeamId     = null;
+  localStorage.removeItem('recseason_playerId');
+  localStorage.removeItem('recseason_playerName');
 }
 
 // ── Firestore write helpers ────────────────────────────────────────────────
@@ -88,78 +86,92 @@ function firestoreWrite(promise) {
   return promise.catch(showDbError);
 }
 
-function saveSettings() {
-  return saveSettingsFrom(state.fields, state.times);
-}
-
-function saveSettingsFrom(fields, times) {
-  return firestoreWrite(setDoc(doc(db, 'config', 'settings'), {
-    fields,
-    times,
+function saveTeam(team) {
+  return firestoreWrite(setDoc(doc(db, 'teams', team.id), {
+    name:      team.name,
+    color:     team.color     ?? '',
+    homefield: team.homefield ?? '',
   }));
 }
 
-function saveUmp(ump) {
-  return firestoreWrite(setDoc(doc(db, 'umps', ump.id), {
-    name:        ump.name,
-    phone:       ump.phone,
-    teams:       ump.teams       ?? [],
-    unavailable: ump.unavailable ?? [],
+function deleteTeam(id) {
+  return firestoreWrite(deleteDoc(doc(db, 'teams', id)));
+}
+
+function savePlayer(player) {
+  return firestoreWrite(setDoc(doc(db, 'players', player.id), {
+    name:   player.name,
+    number: player.number ?? '',
+    phone:  player.phone  ?? '',
+    teamId: player.teamId,
   }));
 }
 
-function deleteUmp(id) {
-  return firestoreWrite(deleteDoc(doc(db, 'umps', id)));
+function deletePlayer(id) {
+  return firestoreWrite(deleteDoc(doc(db, 'players', id)));
 }
 
-function saveAssignment(dateStr, slots) {
-  const op = Object.keys(slots).length === 0
-    ? deleteDoc(doc(db, 'assignments', dateStr))
-    : setDoc(doc(db, 'assignments', dateStr), slots);
-  return firestoreWrite(op);
+function saveField(field) {
+  return firestoreWrite(setDoc(doc(db, 'fields', field.id), {
+    name:          field.name,
+    availableDays: field.availableDays,
+    openTime:      field.openTime,
+    closeTime:     field.closeTime,
+  }));
 }
 
-// ── localStorage migration ─────────────────────────────────────────────────
+function deleteField(id) {
+  return firestoreWrite(deleteDoc(doc(db, 'fields', id)));
+}
 
-async function migrateFromLocalStorage() {
-  try {
-    const raw = localStorage.getItem('umpScheduler');
-    if (!raw) return;
-    const old = JSON.parse(raw);
-    if (!old || (!old.times?.length && !old.umps?.length)) return;
+function saveScheduleConfig(cfg) {
+  return firestoreWrite(setDoc(doc(db, 'config', 'schedule'), {
+    gameDuration:  Number(cfg.gameDuration),
+    bufferMinutes: Number(cfg.bufferMinutes),
+    startDate:     cfg.startDate,
+    endDate:       cfg.endDate,
+    rounds:        Number(cfg.rounds),
+  }));
+}
 
-    const fields = [old.field1Name || 'Field 1', old.field2Name || 'Field 2'];
-    const writes = [setDoc(doc(db, 'config', 'settings'), { fields, times: old.times ?? [] })];
+function saveGame(game) {
+  return firestoreWrite(setDoc(doc(db, 'games', game.id), {
+    date:        game.date,
+    time:        game.time,
+    fieldId:     game.fieldId,
+    fieldName:   game.fieldName,
+    homeTeamId:  game.homeTeamId,
+    homeName:    game.homeName,
+    awayTeamId:  game.awayTeamId,
+    awayName:    game.awayName,
+    homeScore:   game.homeScore  ?? null,
+    awayScore:   game.awayScore  ?? null,
+    status:      game.status,
+  }));
+}
 
-    (old.umps ?? []).forEach(u => {
-      writes.push(setDoc(doc(db, 'umps', u.id), { name: u.name, phone: u.phone ?? '' }));
-    });
+function setRsvp(gameId, status) {
+  if (!currentPlayerId) return;
+  const rsvpId = `${gameId}_${currentPlayerId}`;
+  firestoreWrite(setDoc(doc(db, 'rsvps', rsvpId), {
+    gameId,
+    playerId:   currentPlayerId,
+    playerName: currentPlayerName,
+    teamId:     currentTeamId,
+    status,
+  }));
+}
 
-    Object.entries(old.assignments ?? {}).forEach(([date, slots]) => {
-      const newSlots = {};
-      Object.entries(slots).forEach(([time, slot]) => {
-        newSlots[time] = {};
-        // Handle old f1/f2 keys and old {ump,home,away} or string formats
-        const raw0 = slot.f1 ?? slot[fields[0]];
-        const raw1 = slot.f2 ?? slot[fields[1]];
-        if (raw0 !== undefined) newSlots[time][fields[0]] = normalizeFieldSlot(raw0);
-        if (raw1 !== undefined) newSlots[time][fields[1]] = normalizeFieldSlot(raw1);
-      });
-      writes.push(setDoc(doc(db, 'assignments', date), newSlots));
-    });
-
-    await Promise.all(writes);
-    localStorage.removeItem('umpScheduler');
-    console.log('Migrated localStorage data to Firestore');
-  } catch (err) {
-    console.error('localStorage migration failed:', err);
-  }
+function genId(prefix) {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
 // ── Firestore listeners ────────────────────────────────────────────────────
 
 function allReady() {
-  return state._ready.settings && state._ready.umps && state._ready.assignments;
+  return state._ready.teams && state._ready.players &&
+         state._ready.fields && state._ready.games &&
+         state._ready.scheduleConfig && state._ready.rsvps;
 }
 
 function checkReady() {
@@ -174,7 +186,7 @@ const connectTimeout = setTimeout(() => {
   if (!allReady()) {
     document.getElementById('loading-overlay').style.display = 'none';
     showBanner(
-      'Could not connect to database. Check that the "umpcalendar" Firestore database ' +
+      'Could not connect to database. Check that the "recseason" Firestore database ' +
       'exists and its security rules allow reads and writes.',
       'error'
     );
@@ -182,110 +194,85 @@ const connectTimeout = setTimeout(() => {
   }
 }, 10000);
 
-let migrationAttempted = false;
+onSnapshot(collection(db, 'teams'), snap => {
+  state.teams = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  state.teams.sort((a, b) => a.name.localeCompare(b.name));
+  state._ready.teams = true;
+  resolveCurrentTeamId();
+  checkReady();
+  if (allReady()) renderCurrentTab();
+}, err => showDbError(err));
 
-onSnapshot(doc(db, 'config', 'settings'), snap => {
+onSnapshot(collection(db, 'players'), snap => {
+  state.players = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  state.players.sort((a, b) => {
+    const na = Number(a.number) || 0;
+    const nb = Number(b.number) || 0;
+    if (na !== nb) return na - nb;
+    return a.name.localeCompare(b.name);
+  });
+  state._ready.players = true;
+  resolveCurrentTeamId();
+  checkReady();
+  if (allReady()) renderCurrentTab();
+}, err => showDbError(err));
+
+onSnapshot(collection(db, 'fields'), snap => {
+  state.fields = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  state.fields.sort((a, b) => a.name.localeCompare(b.name));
+  state._ready.fields = true;
+  checkReady();
+  if (allReady()) renderCurrentTab();
+}, err => showDbError(err));
+
+onSnapshot(collection(db, 'games'), snap => {
+  state.games = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  state.games.sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return a.time.localeCompare(b.time);
+  });
+  state._ready.games = true;
+  checkReady();
+  if (allReady()) renderCurrentTab();
+}, err => showDbError(err));
+
+onSnapshot(collection(db, 'rsvps'), snap => {
+  state.rsvps = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  state._ready.rsvps = true;
+  checkReady();
+  if (allReady()) renderCurrentTab();
+}, err => showDbError(err));
+
+onSnapshot(doc(db, 'config', 'schedule'), snap => {
   if (snap.exists()) {
     const d = snap.data();
-    // Support both new (fields array) and old (field1Name/field2Name) formats
-    state.fields = Array.isArray(d.fields)
-      ? d.fields
-      : [d.field1Name || 'Field 1', d.field2Name || 'Field 2'];
-    state.times = d.times ?? [];
-  } else if (!snap.metadata.fromCache && !migrationAttempted) {
-    migrationAttempted = true;
-    migrateFromLocalStorage();
+    state.scheduleConfig = {
+      gameDuration:  d.gameDuration  ?? 90,
+      bufferMinutes: d.bufferMinutes ?? 15,
+      startDate:     d.startDate     ?? '',
+      endDate:       d.endDate       ?? '',
+      rounds:        d.rounds        ?? 1,
+    };
+  } else {
+    state.scheduleConfig = { gameDuration: 90, bufferMinutes: 15, startDate: '', endDate: '', rounds: 1 };
   }
-  state._ready.settings = true;
+  state._ready.scheduleConfig = true;
   checkReady();
   if (allReady()) renderCurrentTab();
 }, err => showDbError(err));
-
-onSnapshot(collection(db, 'umps'), snap => {
-  state.umps = snap.docs.map(d => ({ id: d.id, teams: [], unavailable: [], ...d.data() }));
-  state._ready.umps = true;
-  checkReady();
-  if (allReady()) renderCurrentTab();
-}, err => showDbError(err));
-
-onSnapshot(collection(db, 'assignments'), snap => {
-  state.assignments = {};
-  snap.docs.forEach(d => { state.assignments[d.id] = d.data(); });
-  state._ready.assignments = true;
-  checkReady();
-  if (allReady()) renderCurrentTab();
-}, err => showDbError(err));
-
-// ── Date helpers ───────────────────────────────────────────────────────────
-
-function dateKey(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-function todayKey() { return dateKey(new Date()); }
-
-function addDays(dateStr, n) {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const date = new Date(y, m - 1, d);
-  date.setDate(date.getDate() + n);
-  return dateKey(date);
-}
-
-function formatTime(hhmm) {
-  const [h, m] = hhmm.split(':').map(Number);
-  const period = h >= 12 ? 'PM' : 'AM';
-  const hour   = h % 12 || 12;
-  return `${hour}:${m.toString().padStart(2, '0')} ${period}`;
-}
-
-function hasScheduledGameData(raw) {
-  const slot = normalizeFieldSlot(raw);
-  return Boolean(slot.ump || slot.home || slot.away);
-}
-
-function dayHasScheduledGames(assignments, dateStr) {
-  const day = assignments[dateStr];
-  if (!day) return false;
-  return Object.values(day).some(timeSlot =>
-    Object.values(timeSlot).some(hasScheduledGameData)
-  );
-}
-
-function scheduledDates(assignments) {
-  return Object.keys(assignments)
-    .filter(dk => dayHasScheduledGames(assignments, dk))
-    .sort();
-}
-
-function findNearestScheduledDate(assignments, dateStr, direction = 1) {
-  const dates = scheduledDates(assignments);
-  if (dates.length === 0) return '';
-  if (direction < 0) {
-    for (let i = dates.length - 1; i >= 0; i--) {
-      if (dates[i] < dateStr) return dates[i];
-    }
-    return dates[dates.length - 1];
-  }
-  for (const dk of dates) {
-    if (dk > dateStr) return dk;
-  }
-  return dates[0];
-}
 
 // ── Tab routing ────────────────────────────────────────────────────────────
 
 function activeTab() {
-  return document.querySelector('.tab.active')?.dataset.tab ?? 'schedule';
+  return document.querySelector('.tab.active')?.dataset.tab ?? 'teams';
 }
 
 function renderCurrentTab() {
   const tab = activeTab();
-  if (tab === 'schedule') renderSchedule();
-  if (tab === 'umps')     renderUmps();
-  if (tab === 'settings') { renderFields(); renderTimes(); }
+  if (tab === 'teams')     renderTeamsTab();
+  if (tab === 'schedule')  renderScheduleTab();
+  if (tab === 'standings') renderStandings();
+  if (tab === 'settings')  renderSettingsTab();
   syncAdminUi();
 }
 
@@ -299,76 +286,43 @@ document.querySelectorAll('.tab').forEach(btn => {
   });
 });
 
+// ── Admin mode ─────────────────────────────────────────────────────────────
+
 function beginAdminMode() {
   isAdminMode = true;
-  adminDraft = {
-    fields: [...state.fields],
-    times: [...state.times],
-    assignments: cloneAssignments(state.assignments),
-  };
-  showBanner('Admin View enabled. Changes are pending until you save.', 'success');
+  showBanner('Admin View enabled.', 'success');
   renderCurrentTab();
 }
 
 function exitAdminMode() {
   isAdminMode = false;
-  adminDraft = null;
+  showBanner('Returned to View Mode.', 'success');
   renderCurrentTab();
 }
 
 function syncAdminUi() {
-  const status = document.getElementById('admin-status-msg');
+  const status   = document.getElementById('admin-status-msg');
   const enterBtn = document.getElementById('admin-view-btn');
-  const saveBtn = document.getElementById('admin-save-btn');
-  const lockMsg = document.getElementById('settings-lock-msg');
-  const editLocked = !isAdminMode;
+  const saveBtn  = document.getElementById('admin-save-btn');
+  const lockMsg  = document.getElementById('settings-lock-msg');
 
-  if (status) status.textContent = isAdminMode
-    ? 'Admin View is active. Save to apply and lock editing.'
+  if (status)   status.textContent = isAdminMode
+    ? 'Admin View is active.'
     : 'Settings are locked in View Mode.';
-  if (enterBtn) enterBtn.textContent = isAdminMode ? 'Admin View Active' : 'Admin View';
-  if (enterBtn) enterBtn.disabled = isAdminMode;
-  if (saveBtn) saveBtn.style.display = isAdminMode ? '' : 'none';
-  if (lockMsg) lockMsg.style.display = editLocked ? '' : 'none';
+  if (enterBtn) { enterBtn.textContent = isAdminMode ? 'Admin View Active' : 'Admin View'; enterBtn.disabled = isAdminMode; }
+  if (saveBtn)  saveBtn.style.display = isAdminMode ? '' : 'none';
+  if (lockMsg)  lockMsg.style.display = isAdminMode ? 'none' : '';
 
-  const settingsInputs = [
-    'new-field-input', 'add-field-btn',
-    'new-time-input', 'add-time-btn',
-  ];
-  settingsInputs.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.disabled = editLocked;
+  // Show/hide add forms
+  const teamAddForm   = document.getElementById('team-add-form');
+  const playerAddForm = document.getElementById('player-add-form');
+  if (teamAddForm)   teamAddForm.style.display   = isAdminMode ? '' : 'none';
+  if (playerAddForm) playerAddForm.style.display = isAdminMode ? '' : 'none';
+
+  // Show/hide all remove buttons
+  document.querySelectorAll('.remove-btn').forEach(btn => {
+    btn.style.display = isAdminMode ? '' : 'none';
   });
-
-  document.querySelectorAll('#fields-list .remove-btn, #times-list .remove-btn')
-    .forEach(btn => { btn.disabled = editLocked; });
-
-  document.getElementById('clear-day-btn').style.display = isAdminMode ? '' : 'none';
-  document.getElementById('copy-prev-btn').style.display = isAdminMode ? '' : 'none';
-  document.getElementById('import-csv-btn').style.display = isAdminMode ? '' : 'none';
-}
-
-async function saveAndExitAdminMode() {
-  if (!isAdminMode || !adminDraft) return;
-
-  const writes = [saveSettingsFrom(adminDraft.fields, adminDraft.times)];
-  const allDates = new Set([
-    ...Object.keys(state.assignments),
-    ...Object.keys(adminDraft.assignments),
-  ]);
-  allDates.forEach(dateStr => {
-    const before = state.assignments[dateStr] ?? null;
-    const after  = adminDraft.assignments[dateStr] ?? null;
-    if (JSON.stringify(before) !== JSON.stringify(after)) {
-      writes.push(after
-        ? saveAssignment(dateStr, after)
-        : firestoreWrite(deleteDoc(doc(db, 'assignments', dateStr))));
-    }
-  });
-
-  await Promise.all(writes);
-  showBanner('Admin changes saved. View Mode is active.', 'success');
-  exitAdminMode();
 }
 
 document.getElementById('admin-view-btn').addEventListener('click', () => {
@@ -378,773 +332,981 @@ document.getElementById('admin-view-btn').addEventListener('click', () => {
 });
 
 document.getElementById('admin-save-btn').addEventListener('click', () => {
-  saveAndExitAdminMode();
+  exitAdminMode();
 });
 
-// ── Settings: Fields ───────────────────────────────────────────────────────
+// ── Teams: add / remove ────────────────────────────────────────────────────
 
-document.getElementById('add-field-btn').addEventListener('click', addField);
-document.getElementById('new-field-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') addField();
+document.getElementById('add-team-btn').addEventListener('click', addTeam);
+document.getElementById('team-name-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') addTeam();
 });
 
-function addField() {
+function addTeam() {
   if (!isAdminMode) return;
-  const model = getScheduleModel();
-  const input = document.getElementById('new-field-input');
-  const name  = input.value.trim();
-  if (!name || model.fields.includes(name)) { input.value = ''; return; }
-  model.fields.push(name);
-  input.value = '';
-  renderCurrentTab();
+  const nameEl  = document.getElementById('team-name-input');
+  const colorEl = document.getElementById('team-color-input');
+  const fieldEl = document.getElementById('team-homefield-input');
+  const name = nameEl.value.trim();
+  if (!name) return;
+  const color     = colorEl.value.trim();
+  const homefield = fieldEl.value.trim();
+  const id = genId('team');
+  nameEl.value  = '';
+  colorEl.value = '';
+  fieldEl.value = '';
+  nameEl.focus();
+  saveTeam({ id, name, color, homefield });
 }
 
-function removeField(name) {
+function removeTeam(id) {
   if (!isAdminMode) return;
-  if (!confirm(`Remove "${name}"? All umpire assignments for this field will be cleared.`)) return;
-  const model = getScheduleModel();
-  model.fields = model.fields.filter(f => f !== name);
-  Object.values(model.assignments).forEach(slots => {
-    Object.values(slots).forEach(timeSlot => {
-      if (name in timeSlot) delete timeSlot[name];
-    });
-  });
-  if (adminDraft) {
-    adminDraft.fields = model.fields;
-    adminDraft.assignments = model.assignments;
+  if (!confirm('Remove this team? All players on this team will also be removed.')) return;
+  // Remove all players on this team
+  const teamPlayers = state.players.filter(p => p.teamId === id);
+  const writes = [deleteTeam(id), ...teamPlayers.map(p => deletePlayer(p.id))];
+  Promise.all(writes);
+  if (_viewingTeamId === id) {
+    _viewingTeamId = null;
+    renderTeamsTab();
   }
-  renderCurrentTab();
 }
 
-function renderFields() {
-  const model = getScheduleModel();
-  const list = document.getElementById('fields-list');
-  const msg  = document.getElementById('no-fields-msg');
-  list.innerHTML = '';
-  if (model.fields.length === 0) { msg.style.display = ''; return; }
-  msg.style.display = 'none';
-  model.fields.forEach(name => {
-    const li = document.createElement('li');
-    li.innerHTML = `
-      <span class="info"><span class="name">${escHtml(name)}</span></span>
-      <button class="remove-btn">Remove</button>`;
-    li.querySelector('.remove-btn').addEventListener('click', () => removeField(name));
-    list.appendChild(li);
-  });
-}
+// ── Players: add / remove ──────────────────────────────────────────────────
 
-// ── Settings: Times ────────────────────────────────────────────────────────
-
-document.getElementById('add-time-btn').addEventListener('click', addTime);
-document.getElementById('new-time-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') addTime();
+document.getElementById('add-player-btn').addEventListener('click', addPlayer);
+document.getElementById('player-name-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') addPlayer();
 });
 
-function addTime() {
-  if (!isAdminMode) return;
-  const model = getScheduleModel();
-  const input = document.getElementById('new-time-input');
-  const val   = input.value;
-  if (!val || model.times.includes(val)) { input.value = ''; return; }
-  model.times.push(val);
-  model.times.sort();
-  input.value = '';
-  renderCurrentTab();
+function addPlayer() {
+  if (!isAdminMode || !_viewingTeamId) return;
+  const nameEl   = document.getElementById('player-name-input');
+  const numberEl = document.getElementById('player-number-input');
+  const phoneEl  = document.getElementById('player-phone-input');
+  const name = nameEl.value.trim();
+  if (!name) return;
+  const number = numberEl.value.trim();
+  const phone  = phoneEl.value.trim();
+  const id = genId('player');
+  nameEl.value   = '';
+  numberEl.value = '';
+  phoneEl.value  = '';
+  nameEl.focus();
+  savePlayer({ id, name, number, phone, teamId: _viewingTeamId });
 }
 
-function removeTime(hhmm) {
+function removePlayer(id) {
   if (!isAdminMode) return;
-  const model = getScheduleModel();
-  model.times = model.times.filter(t => t !== hhmm);
-  Object.values(model.assignments).forEach(slots => { delete slots[hhmm]; });
-  renderCurrentTab();
+  if (!confirm('Remove this player?')) return;
+  deletePlayer(id);
 }
 
-function renderTimes() {
-  const model = getScheduleModel();
-  const list = document.getElementById('times-list');
-  const msg  = document.getElementById('no-times-msg');
+// ── Teams tab rendering ────────────────────────────────────────────────────
+
+function renderTeamsTab() {
+  if (_viewingTeamId) {
+    const team = state.teams.find(t => t.id === _viewingTeamId);
+    if (team) { showTeamDetail(team); return; }
+    _viewingTeamId = null;
+  }
+  showTeamList();
+}
+
+function showTeamList() {
+  document.getElementById('team-list-view').style.display   = '';
+  document.getElementById('team-detail-view').style.display = 'none';
+
+  // Teams list
+  const list = document.getElementById('team-list');
+  const msg  = document.getElementById('no-teams-msg');
   list.innerHTML = '';
-  if (model.times.length === 0) { msg.style.display = ''; return; }
-  msg.style.display = 'none';
-  model.times.forEach(t => {
-    const li = document.createElement('li');
-    li.innerHTML = `
-      <span class="info"><span class="name">${formatTime(t)}</span></span>
-      <button class="remove-btn">Remove</button>`;
-    li.querySelector('.remove-btn').addEventListener('click', () => removeTime(t));
-    list.appendChild(li);
+  if (state.teams.length === 0) {
+    msg.style.display = '';
+  } else {
+    msg.style.display = 'none';
+    state.teams.forEach(team => {
+      const playerCount = state.players.filter(p => p.teamId === team.id).length;
+      const li = document.createElement('li');
+      li.innerHTML = `
+        <span class="info">
+          <button class="name-btn">${escHtml(team.name)}</button>
+          <span class="sub">
+            ${team.color ? escHtml(team.color) + ' &bull; ' : ''}
+            ${team.homefield ? escHtml(team.homefield) : ''}
+          </span>
+        </span>
+        <span class="badge">${playerCount} player${playerCount !== 1 ? 's' : ''}</span>
+        <button class="remove-btn" style="display:${isAdminMode ? '' : 'none'}">Remove</button>`;
+      li.querySelector('.name-btn').addEventListener('click', () => {
+        _viewingTeamId = team.id;
+        renderTeamsTab();
+      });
+      li.querySelector('.remove-btn').addEventListener('click', () => removeTeam(team.id));
+      list.appendChild(li);
+    });
+  }
+
+  // All players list
+  const allList = document.getElementById('all-players-list');
+  const allMsg  = document.getElementById('no-players-msg');
+  allList.innerHTML = '';
+  if (state.players.length === 0) {
+    allMsg.style.display = '';
+  } else {
+    allMsg.style.display = 'none';
+    state.players.forEach(player => {
+      const team = state.teams.find(t => t.id === player.teamId);
+      const li = document.createElement('li');
+      li.innerHTML = `
+        <span class="info">
+          <span class="name">
+            ${player.number ? `<span class="jersey-badge">#${escHtml(player.number)}</span>` : ''}
+            ${escHtml(player.name)}
+          </span>
+          <span class="sub">
+            ${team ? escHtml(team.name) : '<em>Unknown team</em>'}
+            ${player.phone ? ' &bull; ' + escHtml(player.phone) : ''}
+          </span>
+        </span>
+        <button class="remove-btn" style="display:${isAdminMode ? '' : 'none'}">Remove</button>`;
+      li.querySelector('.remove-btn').addEventListener('click', () => removePlayer(player.id));
+      allList.appendChild(li);
+    });
+  }
+
+  syncAdminUi();
+}
+
+function showTeamDetail(team) {
+  document.getElementById('team-list-view').style.display   = 'none';
+  document.getElementById('team-detail-view').style.display = '';
+
+  document.getElementById('team-detail-name').textContent = team.name;
+
+  const metaParts = [];
+  if (team.color)     metaParts.push(team.color);
+  if (team.homefield) metaParts.push(team.homefield);
+  document.getElementById('team-detail-meta').textContent = metaParts.join(' · ');
+
+  const roster = state.players.filter(p => p.teamId === team.id);
+  const list   = document.getElementById('roster-list');
+  const msg    = document.getElementById('no-roster-msg');
+  list.innerHTML = '';
+
+  if (roster.length === 0) {
+    msg.style.display = '';
+  } else {
+    msg.style.display = 'none';
+    roster.forEach(player => {
+      const li = document.createElement('li');
+      li.innerHTML = `
+        <span class="info">
+          <span class="name">
+            ${player.number ? `<span class="jersey-badge">#${escHtml(player.number)}</span>` : ''}
+            ${escHtml(player.name)}
+          </span>
+          ${player.phone ? `<span class="sub">${escHtml(player.phone)}</span>` : ''}
+        </span>
+        <button class="remove-btn" style="display:${isAdminMode ? '' : 'none'}">Remove</button>`;
+      li.querySelector('.remove-btn').addEventListener('click', () => removePlayer(player.id));
+      list.appendChild(li);
+    });
+  }
+
+  // ── Upcoming games section for this team ──────────────────────────────
+  const upcomingSection = document.getElementById('team-upcoming-section');
+  const today = new Date().toISOString().slice(0, 10);
+  const upcomingGames = state.games
+    .filter(g => g.status !== 'completed' &&
+                 g.date >= today &&
+                 (g.homeTeamId === team.id || g.awayTeamId === team.id))
+    .slice(0, 5);
+
+  if (upcomingGames.length === 0) {
+    upcomingSection.innerHTML = '';
+  } else {
+    let html = '<div class="section-divider"></div><h3 class="section-heading">Upcoming Games</h3><ul class="item-list">';
+    for (const game of upcomingGames) {
+      const isHome   = game.homeTeamId === team.id;
+      const opponent = isHome ? game.awayName : game.homeName;
+      const role     = isHome ? 'vs' : '@';
+
+      const gameRsvps = state.rsvps.filter(r => r.gameId === game.id && r.teamId === team.id);
+      const going    = gameRsvps.filter(r => r.status === 'going').length;
+      const maybe    = gameRsvps.filter(r => r.status === 'maybe').length;
+      const notGoing = gameRsvps.filter(r => r.status === 'not_going').length;
+      const rsvpLine = (going + maybe + notGoing > 0)
+        ? `<span class="rsvp-summary">${going} going &middot; ${maybe} maybe &middot; ${notGoing} out</span>`
+        : '';
+
+      html += `
+        <li>
+          <span class="info">
+            <span class="name">${escHtml(formatDateHeader(game.date))} ${escHtml(formatTime(game.time))} &mdash; ${escHtml(role)} ${escHtml(opponent)}</span>
+            <span class="sub">${escHtml(game.fieldName)}${rsvpLine ? ' &bull; ' : ''}${rsvpLine}</span>
+          </span>
+        </li>`;
+    }
+    html += '</ul>';
+    upcomingSection.innerHTML = html;
+  }
+
+  syncAdminUi();
+}
+
+document.getElementById('team-back-btn').addEventListener('click', () => {
+  _viewingTeamId = null;
+  renderTeamsTab();
+});
+
+// ── Standings tab ──────────────────────────────────────────────────────────
+
+function computeStandings() {
+  // Build a map of teamId -> stats
+  const statsMap = new Map();
+
+  // Initialize all teams
+  for (const team of state.teams) {
+    statsMap.set(team.id, { teamId: team.id, name: team.name, GP: 0, W: 0, L: 0, T: 0, GF: 0, GA: 0, Pts: 0 });
+  }
+
+  // Process completed games
+  for (const game of state.games) {
+    if (game.status !== 'completed') continue;
+    const hs = Number(game.homeScore);
+    const as = Number(game.awayScore);
+    if (isNaN(hs) || isNaN(as)) continue;
+
+    const home = statsMap.get(game.homeTeamId);
+    const away = statsMap.get(game.awayTeamId);
+    if (!home || !away) continue;
+
+    home.GP++; away.GP++;
+    home.GF += hs; home.GA += as;
+    away.GF += as; away.GA += hs;
+
+    if (hs > as) {
+      home.W++; home.Pts += 3;
+      away.L++;
+    } else if (as > hs) {
+      away.W++; away.Pts += 3;
+      home.L++;
+    } else {
+      home.T++; home.Pts += 1;
+      away.T++; away.Pts += 1;
+    }
+  }
+
+  const rows = Array.from(statsMap.values());
+  rows.sort((a, b) => {
+    if (b.Pts !== a.Pts) return b.Pts - a.Pts;
+    const gdA = a.GF - a.GA;
+    const gdB = b.GF - b.GA;
+    if (gdB !== gdA) return gdB - gdA;
+    if (b.GF !== a.GF) return b.GF - a.GF;
+    return a.name.localeCompare(b.name);
+  });
+
+  return rows;
+}
+
+function renderStandings() {
+  const container = document.getElementById('standings-container');
+  if (!container) return;
+
+  const hasCompleted = state.games.some(g => g.status === 'completed');
+
+  if (state.teams.length === 0 || !hasCompleted) {
+    container.innerHTML = '<p class="muted" style="padding:1rem 0;">No completed games yet. Standings will appear here once scores are recorded.</p>';
+    return;
+  }
+
+  const rows = computeStandings();
+
+  let html = `
+    <table class="standings-table">
+      <thead>
+        <tr>
+          <th class="standings-rank">#</th>
+          <th>Team</th>
+          <th>GP</th>
+          <th>W</th>
+          <th>L</th>
+          <th>T</th>
+          <th>GF</th>
+          <th>GA</th>
+          <th>GD</th>
+          <th>Pts</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  rows.forEach((row, idx) => {
+    const gd = row.GF - row.GA;
+    const gdStr = gd > 0 ? `+${gd}` : String(gd);
+    const leaderClass = idx === 0 ? ' class="standings-leader"' : '';
+    html += `
+      <tr${leaderClass}>
+        <td class="standings-rank">${idx + 1}</td>
+        <td>${escHtml(row.name)}</td>
+        <td>${row.GP}</td>
+        <td>${row.W}</td>
+        <td>${row.L}</td>
+        <td>${row.T}</td>
+        <td>${row.GF}</td>
+        <td>${row.GA}</td>
+        <td>${gdStr}</td>
+        <td><strong>${row.Pts}</strong></td>
+      </tr>`;
+  });
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+// ── Schedule tab ───────────────────────────────────────────────────────────
+
+function formatDateHeader(dateStr) {
+  // dateStr is "YYYY-MM-DD"
+  // Parse as local date to avoid timezone shifting
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+function formatTime(timeStr) {
+  // timeStr is "HH:MM"
+  const [h, min] = timeStr.split(':').map(Number);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const hour = h % 12 || 12;
+  return `${hour}:${String(min).padStart(2, '0')} ${ampm}`;
+}
+
+function renderIdentityBar() {
+  const bar = document.getElementById('identity-bar');
+  if (!bar) return;
+
+  if (currentPlayerId && currentPlayerName) {
+    // Check player still exists
+    const player = state.players.find(p => p.id === currentPlayerId);
+    const team   = player ? state.teams.find(t => t.id === player.teamId) : null;
+    const teamName = team ? team.name : 'Unknown team';
+
+    bar.innerHTML = `
+      <div class="identity-bar">
+        <span>Viewing as: <strong>${escHtml(currentPlayerName)}</strong> (${escHtml(teamName)})</span>
+        <button id="identity-change-btn" class="btn-secondary" style="font-size:0.8rem;padding:0.2rem 0.6rem;">Change</button>
+      </div>`;
+    bar.querySelector('#identity-change-btn').addEventListener('click', () => {
+      clearIdentity();
+      renderScheduleTab();
+    });
+  } else {
+    // Build grouped dropdown
+    let optionsHtml = '<option value="">-- select player --</option>';
+    for (const team of state.teams) {
+      const teamPlayers = state.players.filter(p => p.teamId === team.id);
+      if (teamPlayers.length === 0) continue;
+      optionsHtml += `<optgroup label="${escHtml(team.name)}">` +
+        teamPlayers.map(p => `<option value="${escHtml(p.id)}">${escHtml(p.name)}</option>`).join('') +
+        '</optgroup>';
+    }
+    // Players without a team
+    const noTeamPlayers = state.players.filter(p => !state.teams.find(t => t.id === p.teamId));
+    if (noTeamPlayers.length > 0) {
+      optionsHtml += '<optgroup label="(No Team)">' +
+        noTeamPlayers.map(p => `<option value="${escHtml(p.id)}">${escHtml(p.name)}</option>`).join('') +
+        '</optgroup>';
+    }
+
+    bar.innerHTML = `
+      <div class="identity-bar">
+        <span>Who are you?</span>
+        <select id="identity-select" style="font-size:0.85rem;padding:0.2rem 0.4rem;border:1px solid #cbd5e0;border-radius:4px;">${optionsHtml}</select>
+        <button id="identity-set-btn" class="btn-primary" style="font-size:0.8rem;padding:0.2rem 0.6rem;">Set</button>
+      </div>`;
+    bar.querySelector('#identity-set-btn').addEventListener('click', () => {
+      const sel = bar.querySelector('#identity-select');
+      const playerId = sel.value;
+      if (!playerId) { alert('Please select a player.'); return; }
+      const player = state.players.find(p => p.id === playerId);
+      if (!player) return;
+      setIdentity(player.id, player.name);
+      renderScheduleTab();
+    });
+  }
+}
+
+function renderScheduleTab() {
+  renderIdentityBar();
+
+  const container = document.getElementById('schedule-container');
+  if (!container) return;
+
+  container.innerHTML = '';
+
+  // Admin action buttons
+  if (isAdminMode) {
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'schedule-actions';
+    actionsDiv.innerHTML = `
+      <button id="generate-schedule-btn" class="btn-primary">Generate Schedule</button>
+      <button id="clear-schedule-btn" class="btn-danger">Clear Schedule</button>
+    `;
+    container.appendChild(actionsDiv);
+
+    actionsDiv.querySelector('#generate-schedule-btn').addEventListener('click', handleGenerateSchedule);
+    actionsDiv.querySelector('#clear-schedule-btn').addEventListener('click', handleClearSchedule);
+  }
+
+  if (state.games.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'schedule-empty';
+    empty.innerHTML = `<p class="muted">No games scheduled yet.</p>`;
+    if (!isAdminMode) {
+      empty.innerHTML += `<p class="muted" style="margin-top:0.4rem;">Use <strong>Admin View</strong> and <strong>Generate Schedule</strong> to create a schedule.</p>`;
+    }
+    container.appendChild(empty);
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Group games by date
+  const byDate = new Map();
+  for (const game of state.games) {
+    if (!byDate.has(game.date)) byDate.set(game.date, []);
+    byDate.get(game.date).push(game);
+  }
+
+  for (const [date, games] of byDate) {
+    const dateGroup = document.createElement('div');
+    dateGroup.className = 'schedule-date-group';
+
+    const header = document.createElement('div');
+    header.className = 'schedule-date-header';
+    header.textContent = formatDateHeader(date);
+    dateGroup.appendChild(header);
+
+    const gamesList = document.createElement('ul');
+    gamesList.className = 'schedule-games-list';
+
+    for (const game of games) {
+      const li = document.createElement('li');
+      li.className = 'schedule-game-row';
+      li.dataset.gameId = game.id;
+
+      const scoreDisplay = game.status === 'completed'
+        ? `<span class="score-display">${game.homeScore} &ndash; ${game.awayScore}</span>`
+        : `<span class="score-vs">vs</span>`;
+
+      const editBtnHtml = isAdminMode
+        ? `<button class="btn-secondary edit-score-btn" style="font-size:0.78rem;padding:0.2rem 0.5rem;">Edit Score</button>`
+        : '';
+
+      li.innerHTML = `
+        <span class="game-time">${escHtml(formatTime(game.time))}</span>
+        <span class="game-field">${escHtml(game.fieldName)}</span>
+        <span class="game-matchup">
+          <span class="team-name-home">${escHtml(game.homeName)}</span>
+          ${scoreDisplay}
+          <span class="team-name-away">${escHtml(game.awayName)}</span>
+        </span>
+        <span class="game-actions">${editBtnHtml}</span>
+      `;
+
+      if (isAdminMode) {
+        li.querySelector('.edit-score-btn').addEventListener('click', () => {
+          showInlineScoreEdit(li, game);
+        });
+      }
+
+      // ── RSVP section (upcoming games only) ──────────────────────────
+      if (game.status !== 'completed') {
+        // RSVP buttons for current player if their team is in this game
+        if (currentPlayerId && currentTeamId &&
+            (game.homeTeamId === currentTeamId || game.awayTeamId === currentTeamId)) {
+          const existingRsvp = state.rsvps.find(
+            r => r.gameId === game.id && r.playerId === currentPlayerId
+          );
+          const currentStatus = existingRsvp ? existingRsvp.status : null;
+
+          const rsvpDiv = document.createElement('div');
+          rsvpDiv.className = 'rsvp-buttons';
+          rsvpDiv.innerHTML = `
+            <button class="rsvp-btn going${currentStatus === 'going' ? ' active' : ''}" data-status="going">Going</button>
+            <button class="rsvp-btn maybe${currentStatus === 'maybe' ? ' active' : ''}" data-status="maybe">Maybe</button>
+            <button class="rsvp-btn not_going${currentStatus === 'not_going' ? ' active' : ''}" data-status="not_going">Can't Make It</button>
+          `;
+          rsvpDiv.querySelectorAll('.rsvp-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+              setRsvp(game.id, btn.dataset.status);
+            });
+          });
+          li.appendChild(rsvpDiv);
+        }
+
+        // RSVP summary line (visible to all if any RSVPs exist)
+        const homeTeamRsvps = state.rsvps.filter(r => r.gameId === game.id && r.teamId === game.homeTeamId);
+        const awayTeamRsvps = state.rsvps.filter(r => r.gameId === game.id && r.teamId === game.awayTeamId);
+        const hasAnySummary = homeTeamRsvps.length > 0 || awayTeamRsvps.length > 0;
+
+        if (hasAnySummary) {
+          const homeGoing    = homeTeamRsvps.filter(r => r.status === 'going').length;
+          const homeMaybe    = homeTeamRsvps.filter(r => r.status === 'maybe').length;
+          const homeNotGoing = homeTeamRsvps.filter(r => r.status === 'not_going').length;
+          const awayGoing    = awayTeamRsvps.filter(r => r.status === 'going').length;
+          const awayMaybe    = awayTeamRsvps.filter(r => r.status === 'maybe').length;
+          const awayNotGoing = awayTeamRsvps.filter(r => r.status === 'not_going').length;
+
+          const summaryDiv = document.createElement('div');
+          summaryDiv.className = 'rsvp-summary';
+          summaryDiv.innerHTML =
+            `<strong>${escHtml(game.homeName)}:</strong> ${homeGoing} going &middot; ${homeMaybe} maybe &middot; ${homeNotGoing} out` +
+            ` &nbsp;|&nbsp; ` +
+            `<strong>${escHtml(game.awayName)}:</strong> ${awayGoing} going &middot; ${awayMaybe} maybe &middot; ${awayNotGoing} out`;
+          li.appendChild(summaryDiv);
+        }
+      }
+
+      gamesList.appendChild(li);
+    }
+
+    dateGroup.appendChild(gamesList);
+    container.appendChild(dateGroup);
+  }
+}
+
+function showInlineScoreEdit(li, game) {
+  const actionsSpan = li.querySelector('.game-actions');
+  const matchupSpan = li.querySelector('.game-matchup');
+
+  // Replace score display with inputs
+  const scoreNode = matchupSpan.querySelector('.score-display, .score-vs');
+  const homeInput = document.createElement('input');
+  homeInput.type = 'number';
+  homeInput.min = '0';
+  homeInput.className = 'score-input';
+  homeInput.value = game.homeScore != null ? game.homeScore : '';
+  homeInput.placeholder = '0';
+
+  const sep = document.createElement('span');
+  sep.className = 'score-sep';
+  sep.textContent = '–';
+
+  const awayInput = document.createElement('input');
+  awayInput.type = 'number';
+  awayInput.min = '0';
+  awayInput.className = 'score-input';
+  awayInput.value = game.awayScore != null ? game.awayScore : '';
+  awayInput.placeholder = '0';
+
+  scoreNode.replaceWith(homeInput, sep, awayInput);
+
+  // Replace edit button with save button
+  actionsSpan.innerHTML = `<button class="btn-primary save-score-btn" style="font-size:0.78rem;padding:0.2rem 0.5rem;">Save</button>`;
+  actionsSpan.querySelector('.save-score-btn').addEventListener('click', () => {
+    const hs = parseInt(homeInput.value, 10);
+    const as = parseInt(awayInput.value, 10);
+    if (isNaN(hs) || isNaN(as)) { alert('Please enter valid scores.'); return; }
+    firestoreWrite(setDoc(doc(db, 'games', game.id), {
+      date:       game.date,
+      time:       game.time,
+      fieldId:    game.fieldId,
+      fieldName:  game.fieldName,
+      homeTeamId: game.homeTeamId,
+      homeName:   game.homeName,
+      awayTeamId: game.awayTeamId,
+      awayName:   game.awayName,
+      homeScore:  hs,
+      awayScore:  as,
+      status:     'completed',
+    }));
   });
 }
 
-// ── Conflict detection ─────────────────────────────────────────────────────
+async function handleClearSchedule() {
+  if (!isAdminMode) return;
+  if (!confirm('Delete ALL games? This cannot be undone.')) return;
+  await clearAllGames();
+  showBanner('Schedule cleared.', 'success');
+}
 
-function isUmpConflicted(ump, dateStr, time) {
-  if (ump.unavailable?.includes(dateStr)) return true;
-  if (ump.teams?.length) {
-    const slots = getScheduleAssignments()[dateStr]?.[time];
-    if (slots) {
-      for (const raw of Object.values(slots)) {
-        const slot = normalizeFieldSlot(raw);
-        for (const team of ump.teams) {
-          const t = team.trim().toLowerCase();
-          if (slot.home.trim().toLowerCase() === t ||
-              slot.away.trim().toLowerCase() === t) return true;
+async function clearAllGames() {
+  const snap = await getDocs(collection(db, 'games'));
+  const CHUNK = 500;
+  const docs = snap.docs;
+  for (let i = 0; i < docs.length; i += CHUNK) {
+    const batch = writeBatch(db);
+    docs.slice(i, i + CHUNK).forEach(d => batch.delete(d.ref));
+    await batch.commit();
+  }
+}
+
+async function handleGenerateSchedule() {
+  if (!isAdminMode) return;
+
+  if (state.teams.length < 2) {
+    showBanner('Need at least 2 teams to generate a schedule.', 'error');
+    return;
+  }
+  if (state.fields.length === 0) {
+    showBanner('Add at least one field before generating a schedule.', 'error');
+    return;
+  }
+  const cfg = state.scheduleConfig;
+  if (!cfg.startDate || !cfg.endDate) {
+    showBanner('Set a season start and end date in Settings before generating.', 'error');
+    return;
+  }
+  if (cfg.startDate > cfg.endDate) {
+    showBanner('Season start date must be before end date.', 'error');
+    return;
+  }
+
+  const scheduledGames = state.games.filter(g => g.status === 'scheduled');
+  if (scheduledGames.length > 0) {
+    if (!confirm(`This will delete ${scheduledGames.length} existing scheduled game(s) and regenerate. Continue?`)) return;
+  }
+
+  const { games: newGames, skipped } = generateSchedule(state.teams, state.fields, cfg);
+
+  // Batch delete scheduled games, batch set new games
+  try {
+    // Delete existing scheduled games in chunks
+    const snapShot = await getDocs(query(collection(db, 'games'), where('status', '==', 'scheduled')));
+    const CHUNK = 500;
+    const toDelete = snapShot.docs;
+    for (let i = 0; i < toDelete.length; i += CHUNK) {
+      const batch = writeBatch(db);
+      toDelete.slice(i, i + CHUNK).forEach(d => batch.delete(d.ref));
+      await batch.commit();
+    }
+
+    // Write new games in chunks
+    for (let i = 0; i < newGames.length; i += CHUNK) {
+      const batch = writeBatch(db);
+      newGames.slice(i, i + CHUNK).forEach(game => {
+        const ref = doc(collection(db, 'games'));
+        batch.set(ref, {
+          date:       game.date,
+          time:       game.time,
+          fieldId:    game.fieldId,
+          fieldName:  game.fieldName,
+          homeTeamId: game.homeTeamId,
+          homeName:   game.homeName,
+          awayTeamId: game.awayTeamId,
+          awayName:   game.awayName,
+          homeScore:  null,
+          awayScore:  null,
+          status:     'scheduled',
+        });
+      });
+      await batch.commit();
+    }
+
+    if (skipped > 0) {
+      showBanner(`Schedule generated with ${newGames.length} game(s). ${skipped} matchup(s) could not be scheduled due to slot conflicts.`, 'error');
+    } else {
+      showBanner(`Schedule generated: ${newGames.length} game(s) scheduled.`, 'success');
+    }
+  } catch (err) {
+    showDbError(err);
+  }
+}
+
+// ── Auto-Scheduler ─────────────────────────────────────────────────────────
+
+function generateSchedule(teams, fields, config) {
+  // 1. Generate round-robin matchups
+  const matchups = [];
+  for (let i = 0; i < teams.length; i++) {
+    for (let j = i + 1; j < teams.length; j++) {
+      for (let r = 0; r < config.rounds; r++) {
+        // Alternate home/away based on round parity
+        if (r % 2 === 0) {
+          matchups.push({ home: teams[i], away: teams[j] });
+        } else {
+          matchups.push({ home: teams[j], away: teams[i] });
+        }
+        // Add the reverse fixture as well
+        if (r % 2 === 0) {
+          matchups.push({ home: teams[j], away: teams[i] });
+        } else {
+          matchups.push({ home: teams[i], away: teams[j] });
         }
       }
     }
   }
-  return false;
-}
 
-// ── Umpires tab ────────────────────────────────────────────────────────────
-
-document.getElementById('add-ump-btn').addEventListener('click', addUmp);
-document.getElementById('ump-name-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') addUmp();
-});
-
-function addUmp() {
-  const nameEl  = document.getElementById('ump-name-input');
-  const phoneEl = document.getElementById('ump-phone-input');
-  const name    = nameEl.value.trim();
-  if (!name) return;
-  const phone = phoneEl.value.trim();
-  const id    = `ump_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-  nameEl.value  = '';
-  phoneEl.value = '';
-  nameEl.focus();
-  saveUmp({ id, name, phone });
-}
-
-function removeUmp(id) {
-  if (!confirm('Remove this umpire? Their assignments will be cleared.')) return;
-  const writes = [deleteUmp(id)];
-  Object.entries(state.assignments).forEach(([dateStr, slots]) => {
-    let changed = false;
-    Object.values(slots).forEach(timeSlot => {
-      Object.keys(timeSlot).forEach(fieldName => {
-        const slot = normalizeFieldSlot(timeSlot[fieldName]);
-        if (slot.ump === id) { timeSlot[fieldName] = { ...slot, ump: '' }; changed = true; }
-      });
-    });
-    if (changed) writes.push(saveAssignment(dateStr, slots));
-  });
-  Promise.all(writes);
-}
-
-function countAssignments(umpId) {
-  let n = 0;
-  Object.values(state.assignments).forEach(day =>
-    Object.values(day).forEach(timeSlot =>
-      Object.values(timeSlot).forEach(raw => {
-        if (normalizeFieldSlot(raw).ump === umpId) n++;
-      })
-    )
-  );
-  return n;
-}
-
-let _viewingUmpId = null;
-
-function renderUmps() {
-  if (_viewingUmpId) {
-    const ump = state.umps.find(u => u.id === _viewingUmpId);
-    if (ump) { showUmpDetail(ump); return; }
-    _viewingUmpId = null;
+  // Shuffle matchups
+  for (let i = matchups.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [matchups[i], matchups[j]] = [matchups[j], matchups[i]];
   }
 
-  document.getElementById('ump-list-view').style.display = '';
-  document.getElementById('ump-detail-view').style.display = 'none';
+  // 2. Generate all available time slots
+  const slots = [];
+  const gameDur    = Number(config.gameDuration)  || 90;
+  const bufferMins = Number(config.bufferMinutes) || 15;
+  const interval   = gameDur + bufferMins;
 
-  const list = document.getElementById('ump-list');
-  const msg  = document.getElementById('no-umps-msg');
-  list.innerHTML = '';
-  if (state.umps.length === 0) { msg.style.display = ''; return; }
-  msg.style.display = 'none';
-  state.umps.forEach(u => {
-    const n  = countAssignments(u.id);
-    const li = document.createElement('li');
-    li.innerHTML = `
-      <span class="info">
-        <button class="ump-name-btn">${escHtml(u.name)}</button>
-        ${u.phone ? `<span class="sub">${escHtml(u.phone)}</span>` : ''}
-      </span>
-      <span class="game-count">${n} game${n !== 1 ? 's' : ''}</span>
-      <button class="remove-btn">Remove</button>`;
-    li.querySelector('.ump-name-btn').addEventListener('click', () => showUmpDetail(u));
-    li.querySelector('.remove-btn').addEventListener('click', () => removeUmp(u.id));
-    list.appendChild(li);
-  });
-}
+  // Iterate dates from startDate to endDate inclusive
+  const [sy, sm, sd] = config.startDate.split('-').map(Number);
+  const [ey, em, ed] = config.endDate.split('-').map(Number);
+  const start = new Date(sy, sm - 1, sd);
+  const end   = new Date(ey, em - 1, ed);
 
-function showUmpDetail(ump) {
-  _viewingUmpId = ump.id;
-  document.getElementById('ump-list-view').style.display = 'none';
-  document.getElementById('ump-detail-view').style.display = '';
-  document.getElementById('ump-detail-name').textContent = ump.name;
+  for (let cur = new Date(start); cur <= end; cur.setDate(cur.getDate() + 1)) {
+    const dow      = cur.getDay(); // 0=Sun...6=Sat
+    const dateStr  = cur.toISOString().slice(0, 10); // might be UTC issue; build manually
+    // Build dateStr safely from local parts
+    const yy = cur.getFullYear();
+    const mm = String(cur.getMonth() + 1).padStart(2, '0');
+    const dd = String(cur.getDate()).padStart(2, '0');
+    const safeDateStr = `${yy}-${mm}-${dd}`;
 
-  // ── Teams datalist from schedule ──
-  const teamsDl = document.getElementById('schedule-teams-list');
-  teamsDl.innerHTML = '';
-  getScheduleTeams().forEach(name => {
-    const opt = document.createElement('option');
-    opt.value = name;
-    teamsDl.appendChild(opt);
-  });
+    for (const field of fields) {
+      const days = Array.isArray(field.availableDays) ? field.availableDays : [];
+      if (!days.includes(dow)) continue;
 
-  // ── Teams ──
-  const teamsList = document.getElementById('ump-teams-list');
-  teamsList.innerHTML = '';
-  (ump.teams ?? []).forEach(team => {
-    const chip = document.createElement('span');
-    chip.className = 'ump-tag';
-    chip.innerHTML = `${escHtml(team)}<button class="remove-tag-btn" title="Remove team">&times;</button>`;
-    chip.querySelector('.remove-tag-btn').addEventListener('click', () => removeUmpTeam(ump.id, team));
-    teamsList.appendChild(chip);
-  });
+      // Parse open/close times to minutes-since-midnight
+      const [oh, om] = field.openTime.split(':').map(Number);
+      const [ch, cm] = field.closeTime.split(':').map(Number);
+      const openMins  = oh * 60 + om;
+      const closeMins = ch * 60 + cm;
 
-  // ── Unavailable dates ──
-  const unavailList = document.getElementById('ump-unavail-list');
-  unavailList.innerHTML = '';
-  (ump.unavailable ?? []).sort().forEach(dateStr => {
-    const [y, m, d] = dateStr.split('-').map(Number);
-    const label = new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    const chip = document.createElement('span');
-    chip.className = 'ump-tag';
-    chip.innerHTML = `${escHtml(label)}<button class="remove-tag-btn" title="Remove date">&times;</button>`;
-    chip.querySelector('.remove-tag-btn').addEventListener('click', () => removeUmpUnavailable(ump.id, dateStr));
-    unavailList.appendChild(chip);
-  });
-
-  // ── Schedule ──
-  const content = document.getElementById('ump-detail-content');
-  content.innerHTML = '';
-
-  const assignments = [];
-  Object.entries(state.assignments).forEach(([dk, day]) => {
-    Object.entries(day).forEach(([time, timeSlot]) => {
-      Object.entries(timeSlot).forEach(([fieldName, raw]) => {
-        const slot = normalizeFieldSlot(raw);
-        if (slot.ump === ump.id) assignments.push({ dk, time, fieldName, slot });
-      });
-    });
-  });
-
-  if (assignments.length === 0) {
-    content.innerHTML = '<p class="muted" style="margin-top:0.5rem;">No games assigned yet.</p>';
-    return;
-  }
-
-  assignments.sort((a, b) =>
-    a.dk !== b.dk ? a.dk.localeCompare(b.dk) : a.time.localeCompare(b.time)
-  );
-
-  const byDate = {};
-  assignments.forEach(a => { (byDate[a.dk] ??= []).push(a); });
-
-  Object.entries(byDate).forEach(([dk, games]) => {
-    const [y, m, d] = dk.split('-').map(Number);
-    const label = new Date(y, m - 1, d).toLocaleDateString('en-US', {
-      weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-    });
-    const section = document.createElement('div');
-    section.className = 'ump-schedule-day';
-    const heading = document.createElement('div');
-    heading.className = 'ump-schedule-date';
-    heading.textContent = label;
-    section.appendChild(heading);
-    games.forEach(({ time, fieldName, slot }) => {
-      const row = document.createElement('div');
-      row.className = 'ump-schedule-row';
-      const gameText = (slot.home || slot.away)
-        ? `${escHtml(slot.home || '?')} vs ${escHtml(slot.away || '?')}`
-        : '<span class="muted">No game info</span>';
-      row.innerHTML = `
-        <span class="ump-sched-time">${formatTime(time)}</span>
-        <span class="ump-sched-field">${escHtml(fieldName)}</span>
-        <span class="ump-sched-game">${gameText}</span>`;
-      section.appendChild(row);
-    });
-    content.appendChild(section);
-  });
-}
-
-document.getElementById('ump-back-btn').addEventListener('click', () => {
-  _viewingUmpId = null;
-  renderUmps();
-});
-
-// ── Team & availability helpers ────────────────────────────────────────────
-
-function addUmpTeam(umpId, name) {
-  const ump = state.umps.find(u => u.id === umpId);
-  if (!ump || !name) return;
-  const teams = [...(ump.teams ?? [])];
-  if (teams.map(t => t.toLowerCase()).includes(name.toLowerCase())) return;
-  saveUmp({ ...ump, teams: [...teams, name] });
-}
-
-function removeUmpTeam(umpId, name) {
-  const ump = state.umps.find(u => u.id === umpId);
-  if (!ump) return;
-  saveUmp({ ...ump, teams: (ump.teams ?? []).filter(t => t !== name) });
-}
-
-function addUmpUnavailable(umpId, dateStr) {
-  const ump = state.umps.find(u => u.id === umpId);
-  if (!ump || !dateStr) return;
-  const unavailable = [...(ump.unavailable ?? [])];
-  if (unavailable.includes(dateStr)) return;
-  saveUmp({ ...ump, unavailable: [...unavailable, dateStr].sort() });
-}
-
-function removeUmpUnavailable(umpId, dateStr) {
-  const ump = state.umps.find(u => u.id === umpId);
-  if (!ump) return;
-  saveUmp({ ...ump, unavailable: (ump.unavailable ?? []).filter(d => d !== dateStr) });
-}
-
-document.getElementById('ump-add-team-btn').addEventListener('click', () => {
-  const input = document.getElementById('ump-team-input');
-  const name  = input.value.trim();
-  if (name && _viewingUmpId) { addUmpTeam(_viewingUmpId, name); input.value = ''; }
-});
-
-document.getElementById('ump-team-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') document.getElementById('ump-add-team-btn').click();
-});
-
-document.getElementById('ump-add-unavail-btn').addEventListener('click', () => {
-  const input = document.getElementById('ump-unavail-input');
-  const dateStr = input.value;
-  if (dateStr && _viewingUmpId) { addUmpUnavailable(_viewingUmpId, dateStr); input.value = ''; }
-});
-
-
-// ── Schedule tab ───────────────────────────────────────────────────────────
-
-document.getElementById('schedule-date').value = currentDate;
-
-document.getElementById('prev-day').addEventListener('click', () => {
-  if (!isAdminMode) {
-    const prevScheduled = findNearestScheduledDate(getScheduleAssignments(), currentDate, -1);
-    if (prevScheduled) currentDate = prevScheduled;
-  } else {
-    currentDate = addDays(currentDate, -1);
-  }
-  document.getElementById('schedule-date').value = currentDate;
-  renderSchedule();
-});
-
-document.getElementById('next-day').addEventListener('click', () => {
-  if (!isAdminMode) {
-    const nextScheduled = findNearestScheduledDate(getScheduleAssignments(), currentDate, 1);
-    if (nextScheduled) currentDate = nextScheduled;
-  } else {
-    currentDate = addDays(currentDate, 1);
-  }
-  document.getElementById('schedule-date').value = currentDate;
-  renderSchedule();
-});
-
-document.getElementById('schedule-date').addEventListener('change', e => {
-  if (e.target.value) { currentDate = e.target.value; renderSchedule(); }
-});
-
-document.getElementById('clear-day-btn').addEventListener('click', () => {
-  if (!isAdminMode) return;
-  if (!confirm('Clear all assignments for this day?')) return;
-  delete getScheduleAssignments()[currentDate];
-  renderSchedule();
-});
-
-document.getElementById('copy-prev-btn').addEventListener('click', () => {
-  if (!isAdminMode) return;
-  const prevDate = addDays(currentDate, -7);
-  const prevData = getScheduleAssignments()[prevDate];
-  if (!prevData) { alert('No assignments found 7 days ago.'); return; }
-  if (!confirm("Copy last week's assignments to this day?")) return;
-  const copy = JSON.parse(JSON.stringify(prevData));
-  getScheduleAssignments()[currentDate] = copy;
-  renderSchedule();
-});
-
-document.getElementById('print-btn').addEventListener('click', () => window.print());
-
-// ── CSV import ─────────────────────────────────────────────────────────────
-
-document.getElementById('import-csv-btn').addEventListener('click', () => {
-  if (!isAdminMode) return;
-  document.getElementById('csv-file-input').click();
-});
-
-document.getElementById('csv-file-input').addEventListener('change', e => {
-  const file = e.target.files[0];
-  if (!file) return;
-  e.target.value = '';
-  const reader = new FileReader();
-  reader.onload  = ev => importCSV(ev.target.result);
-  reader.onerror = () => showImportStatus('Failed to read file.', true);
-  reader.readAsText(file);
-});
-
-function normalizeCSVTime(raw) {
-  raw = raw.trim();
-  const m24 = raw.match(/^(\d{1,2}):(\d{2})$/);
-  if (m24) return `${m24[1].padStart(2, '0')}:${m24[2]}`;
-  const m12 = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (m12) {
-    let h  = parseInt(m12[1], 10);
-    const mins = m12[2];
-    const pm   = m12[3].toUpperCase() === 'PM';
-    if (pm && h !== 12) h += 12;
-    if (!pm && h === 12) h = 0;
-    return `${h.toString().padStart(2, '0')}:${mins}`;
-  }
-  return null;
-}
-
-function matchFieldName(raw) {
-  const model = getScheduleModel();
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  // Case-insensitive exact match against known fields
-  const exact = model.fields.find(f => f.toLowerCase() === trimmed.toLowerCase());
-  if (exact) return exact;
-  // Normalized alias (removes spaces, dashes, underscores)
-  const norm = trimmed.toLowerCase().replace(/[-_ ]/g, '');
-  for (const f of model.fields) {
-    if (f.toLowerCase().replace(/[-_ ]/g, '') === norm) return f;
-  }
-  // Common generic aliases → first/second field
-  if (norm === 'field1' || norm === 'f1') return model.fields[0] ?? trimmed;
-  if (norm === 'field2' || norm === 'f2') return model.fields[1] ?? trimmed;
-  // Unknown → return as-is and auto-create it
-  return trimmed;
-}
-
-function showImportStatus(msg, isError = false) {
-  const el = document.getElementById('import-status');
-  el.textContent = msg;
-  el.className   = `import-status ${isError ? 'import-error' : 'import-ok'}`;
-  el.style.display = '';
-  clearTimeout(el._timer);
-  el._timer = setTimeout(() => { el.style.display = 'none'; }, 8000);
-}
-
-function importCSV(text) {
-  try {
-    if (!isAdminMode) {
-      showImportStatus('Enable Admin View to import CSV.', true);
-      return;
-    }
-    const model = getScheduleModel();
-    const lines = text.trim().split(/\r?\n/).filter(l => l.trim());
-    if (lines.length < 2) throw new Error('File appears empty or has no data rows.');
-
-    const header = lines[0].replace(/^﻿/, '').split(',').map(h => h.trim().toLowerCase());
-    const colAny = (...names) => { for (const n of names) { const i = header.indexOf(n); if (i !== -1) return i; } return -1; };
-    const iDate  = colAny('date', 'game date', 'gamedate');
-    const iTime  = colAny('time', 'game time', 'gametime', 'start time', 'starttime');
-    const iField = colAny('field', 'field name', 'fieldname', 'location', 'venue');
-    const iHome  = colAny('home team', 'home', 'hometeam', 'home_team');
-    const iAway  = colAny('away team', 'away', 'awayteam', 'away_team', 'visitor', 'visitors');
-
-    if ([iDate, iTime, iField, iHome, iAway].includes(-1)) {
-      const labels  = ['date','time','field','home team','away team'];
-      const indices = [iDate, iTime, iField, iHome, iAway];
-      throw new Error(`Missing column(s): ${labels.filter((_, i) => indices[i] === -1).join(', ')}`);
-    }
-
-    const byDay = {};
-    let skipped = 0;
-
-    for (let i = 1; i < lines.length; i++) {
-      const cols  = splitCSVLine(lines[i]);
-      const need  = Math.max(iDate, iTime, iField, iHome, iAway) + 1;
-      if (cols.length < need) { skipped++; continue; }
-
-      const date  = cols[iDate]?.trim();
-      const time  = normalizeCSVTime(cols[iTime] ?? '');
-      const field = matchFieldName(cols[iField] ?? '');
-      const home  = cols[iHome]?.trim() ?? '';
-      const away  = cols[iAway]?.trim() ?? '';
-
-      if (!date || !time || !field) { skipped++; continue; }
-      if (!date.match(/^\d{4}-\d{2}-\d{2}$/)) { skipped++; continue; }
-
-      if (!byDay[date]) byDay[date] = {};
-      if (!byDay[date][time]) byDay[date][time] = {};
-      byDay[date][time][field] = { home, away };
-    }
-
-    const writes = Object.entries(byDay).map(([dateStr, newSlots]) => {
-      const existing = model.assignments[dateStr] ?? {};
-      Object.entries(newSlots).forEach(([time, fields]) => {
-        if (!existing[time]) existing[time] = {};
-        Object.entries(fields).forEach(([f, teams]) => {
-          const cur = normalizeFieldSlot(existing[time][f]);
-          existing[time][f] = { ump: cur.ump, home: teams.home, away: teams.away };
+      let slotStart = openMins;
+      while (slotStart + gameDur <= closeMins) {
+        const hh  = String(Math.floor(slotStart / 60)).padStart(2, '0');
+        const min = String(slotStart % 60).padStart(2, '0');
+        slots.push({
+          date:      safeDateStr,
+          time:      `${hh}:${min}`,
+          fieldId:   field.id,
+          fieldName: field.name,
         });
-      });
-      model.assignments[dateStr] = existing;
-      return Promise.resolve();
-    });
-
-    // Auto-add missing times and fields
-    const csvTimes  = [...new Set(Object.values(byDay).flatMap(d => Object.keys(d)))];
-    const newTimes  = csvTimes.filter(t => !model.times.includes(t));
-    const csvFields = [...new Set(Object.values(byDay).flatMap(d => Object.values(d).flatMap(t => Object.keys(t))))];
-    const newFields = csvFields.filter(f => !model.fields.includes(f));
-
-    if (newTimes.length || newFields.length) {
-      model.times  = [...model.times,  ...newTimes].sort();
-      model.fields = [...model.fields, ...newFields];
-    }
-
-    const importedDates = Object.keys(byDay).sort();
-
-    Promise.all(writes).then(() => {
-      const gameCount = Object.values(byDay)
-        .flatMap(d => Object.values(d).flatMap(t => Object.keys(t))).length;
-      const parts = [
-        `Imported ${gameCount} game${gameCount !== 1 ? 's' : ''} across ${importedDates.length} day${importedDates.length !== 1 ? 's' : ''}.`,
-      ];
-      if (newTimes.length)  parts.push(`Added ${newTimes.length} time slot${newTimes.length !== 1 ? 's' : ''}.`);
-      if (newFields.length) parts.push(`Added ${newFields.length} field${newFields.length !== 1 ? 's' : ''}.`);
-      if (skipped)          parts.push(`(${skipped} rows skipped)`);
-      showImportStatus(parts.join(' '));
-
-      if (importedDates.length) {
-        currentDate = importedDates[0];
-        document.getElementById('schedule-date').value = currentDate;
+        slotStart += interval;
       }
-      renderSchedule();
-    });
-
-  } catch (err) {
-    showImportStatus(`Import failed: ${err.message}`, true);
-  }
-}
-
-function splitCSVLine(line) {
-  const cols = [];
-  let cur = '', inQuote = false;
-  for (const ch of line) {
-    if (ch === '"') { inQuote = !inQuote; continue; }
-    if (ch === ',' && !inQuote) { cols.push(cur); cur = ''; continue; }
-    cur += ch;
-  }
-  cols.push(cur);
-  return cols;
-}
-
-// ── Game edit modal ────────────────────────────────────────────────────────
-
-let _editingSlot = null;
-
-function openGameEditModal(dateStr, time, fieldName) {
-  const slot = getFieldSlot(dateStr, time, fieldName);
-  _editingSlot = { dateStr, time, fieldName };
-  document.getElementById('game-home-input').value = slot.home;
-  document.getElementById('game-away-input').value = slot.away;
-  document.getElementById('game-edit-modal').style.display = '';
-  document.getElementById('game-home-input').focus();
-}
-
-function closeGameEditModal() {
-  document.getElementById('game-edit-modal').style.display = 'none';
-  _editingSlot = null;
-}
-
-document.getElementById('game-edit-save').addEventListener('click', () => {
-  if (!_editingSlot) return;
-  const home = document.getElementById('game-home-input').value.trim();
-  const away = document.getElementById('game-away-input').value.trim();
-  setFieldSlot(_editingSlot.dateStr, _editingSlot.time, _editingSlot.fieldName, { home, away });
-  closeGameEditModal();
-  renderSchedule();
-});
-
-document.getElementById('game-edit-cancel').addEventListener('click', closeGameEditModal);
-document.querySelector('#game-edit-modal .modal-overlay').addEventListener('click', closeGameEditModal);
-
-['game-home-input', 'game-away-input'].forEach(id => {
-  document.getElementById(id).addEventListener('keydown', e => {
-    if (e.key === 'Enter')  document.getElementById('game-edit-save').click();
-    if (e.key === 'Escape') closeGameEditModal();
-  });
-});
-
-// ── Schedule rendering ─────────────────────────────────────────────────────
-
-function getScheduleTeams() {
-  const teams = new Set();
-  Object.values(getScheduleAssignments()).forEach(day => {
-    Object.values(day).forEach(timeSlot => {
-      Object.values(timeSlot).forEach(raw => {
-        const slot = normalizeFieldSlot(raw);
-        if (slot.home) teams.add(slot.home.trim());
-        if (slot.away) teams.add(slot.away.trim());
-      });
-    });
-  });
-  return [...teams].sort((a, b) => a.localeCompare(b));
-}
-
-function buildUmpOptions(selectedId, dateStr, time) {
-  let opts = '<option value="">— Unassigned —</option>';
-  state.umps.forEach(u => {
-    if (u.id !== selectedId && isUmpConflicted(u, dateStr, time)) return;
-    opts += `<option value="${u.id}"${u.id === selectedId ? ' selected' : ''}>${escHtml(u.name)}</option>`;
-  });
-  return opts;
-}
-
-function buildGameCell(dateStr, time, fieldName) {
-  const td   = document.createElement('td');
-  td.className = 'game-cell';
-  const slot = getFieldSlot(dateStr, time, fieldName);
-
-  if (slot.home || slot.away) {
-    const row = document.createElement('div');
-    row.className = 'matchup-row';
-
-    const matchup = document.createElement('div');
-    matchup.className = 'matchup';
-    matchup.innerHTML = `
-      <span class="team">${escHtml(slot.home || '?')}</span>
-      <span class="vs">vs</span>
-      <span class="team">${escHtml(slot.away || '?')}</span>`;
-
-    row.appendChild(matchup);
-    if (isAdminMode) {
-      const editBtn = document.createElement('button');
-      editBtn.className = 'game-action-btn';
-      editBtn.title = 'Edit teams';
-      editBtn.textContent = '✎';
-      editBtn.addEventListener('click', () => openGameEditModal(dateStr, time, fieldName));
-
-      const clearBtn = document.createElement('button');
-      clearBtn.className = 'game-action-btn game-clear-btn';
-      clearBtn.title = 'Remove game';
-      clearBtn.textContent = '✕';
-      clearBtn.addEventListener('click', () => {
-        if (!confirm('Remove this game?')) return;
-        setFieldSlot(dateStr, time, fieldName, { home: '', away: '' });
-      });
-      row.append(editBtn, clearBtn);
-    }
-    td.appendChild(row);
-  } else {
-    if (isAdminMode) {
-      const addBtn = document.createElement('button');
-      addBtn.className = 'game-add-btn';
-      addBtn.textContent = '+ Add Game';
-      addBtn.addEventListener('click', () => openGameEditModal(dateStr, time, fieldName));
-      td.appendChild(addBtn);
     }
   }
 
-  if (isAdminMode) {
-    const umpRow = document.createElement('div');
-    umpRow.className = 'ump-selection-row';
-
-    const editUmpBtn = document.createElement('button');
-    editUmpBtn.className = 'game-action-btn ump-edit-btn';
-    editUmpBtn.title = 'Edit umpire assignment';
-    editUmpBtn.textContent = '✎';
-
-    const sel = document.createElement('select');
-    sel.dataset.time  = time;
-    sel.dataset.field = fieldName;
-    sel.innerHTML = buildUmpOptions(slot.ump, dateStr, time);
-    sel.classList.toggle('assigned', !!slot.ump);
-    sel.disabled = true;
-
-    editUmpBtn.addEventListener('click', () => {
-      sel.disabled = false;
-      editUmpBtn.classList.add('active');
-      sel.focus();
-    });
-
-    sel.addEventListener('change', () => {
-      setFieldSlot(dateStr, sel.dataset.time, sel.dataset.field, { ump: sel.value });
-      sel.classList.toggle('assigned', !!sel.value);
-      sel.disabled = true;
-      editUmpBtn.classList.remove('active');
-    });
-
-    sel.addEventListener('blur', () => {
-      sel.disabled = true;
-      editUmpBtn.classList.remove('active');
-    });
-
-    umpRow.append(editUmpBtn, sel);
-    td.appendChild(umpRow);
-  } else {
-    const assigned = state.umps.find(u => u.id === slot.ump)?.name ?? '';
-    const readOnly = document.createElement('div');
-    readOnly.className = `schedule-ump-readonly${assigned ? ' assigned' : ''}`;
-    readOnly.textContent = assigned ? `Ump: ${assigned}` : 'Ump: Unassigned';
-    td.appendChild(readOnly);
-  }
-
-  return td;
-}
-
-function renderSchedule() {
-  const model = getScheduleModel();
-  if (!isAdminMode && !dayHasScheduledGames(model.assignments, currentDate)) {
-    const nextDate = findNearestScheduledDate(model.assignments, currentDate, 1);
-    if (nextDate) currentDate = nextDate;
-  }
-  document.getElementById('schedule-date').value = currentDate;
-
-  const thead   = document.getElementById('schedule-head');
-  const tbody   = document.getElementById('schedule-body');
-  const noSlots = document.getElementById('no-slots-msg');
-  const table   = document.getElementById('schedule-table');
-  thead.innerHTML = '';
-  tbody.innerHTML = '';
-
-  if (model.times.length === 0 || model.fields.length === 0) {
-    table.style.display   = 'none';
-    noSlots.style.display = '';
-    noSlots.innerHTML = model.fields.length === 0
-      ? 'No fields configured. Go to <strong>Settings</strong> to add fields.'
-      : 'No game times configured. Go to <strong>Settings</strong> to add time slots.';
-    return;
-  }
-  table.style.display   = '';
-  noSlots.style.display = 'none';
-
-  if (!isAdminMode && !dayHasScheduledGames(model.assignments, currentDate)) {
-    table.style.display   = 'none';
-    noSlots.style.display = '';
-    noSlots.textContent   = 'No scheduled games.';
-    return;
-  }
-
-  const headRow = document.createElement('tr');
-  headRow.innerHTML = '<th>Time</th>' +
-    model.fields.map(f => `<th>${escHtml(f)}</th>`).join('');
-  thead.appendChild(headRow);
-
-  model.times.forEach(time => {
-    const tr = document.createElement('tr');
-
-    const timeCell = document.createElement('td');
-    timeCell.className   = 'time-cell';
-    timeCell.textContent = formatTime(time);
-    tr.appendChild(timeCell);
-
-    model.fields.forEach(fieldName => tr.appendChild(buildGameCell(currentDate, time, fieldName)));
-
-    tbody.appendChild(tr);
+  // Sort slots by date, time, fieldId
+  slots.sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    if (a.time !== b.time) return a.time.localeCompare(b.time);
+    return a.fieldId.localeCompare(b.fieldId);
   });
+
+  // 3. Greedy assignment
+  // busyTeams: key = "date time", value = Set of teamIds
+  const busyTeams = new Map();
+  const assignedGames = [];
+  let skipped = 0;
+
+  for (const matchup of matchups) {
+    let assigned = false;
+    for (const slot of slots) {
+      const key = `${slot.date} ${slot.time}`;
+      if (!busyTeams.has(key)) busyTeams.set(key, new Set());
+      const busy = busyTeams.get(key);
+      if (!busy.has(matchup.home.id) && !busy.has(matchup.away.id)) {
+        busy.add(matchup.home.id);
+        busy.add(matchup.away.id);
+        assignedGames.push({
+          date:       slot.date,
+          time:       slot.time,
+          fieldId:    slot.fieldId,
+          fieldName:  slot.fieldName,
+          homeTeamId: matchup.home.id,
+          homeName:   matchup.home.name,
+          awayTeamId: matchup.away.id,
+          awayName:   matchup.away.name,
+        });
+        assigned = true;
+        break;
+      }
+    }
+    if (!assigned) skipped++;
+  }
+
+  return { games: assignedGames, skipped };
 }
+
+// ── Settings tab ───────────────────────────────────────────────────────────
+
+function renderSettingsTab() {
+  renderFieldsSection();
+  renderScheduleConfigSection();
+  syncAdminUi();
+}
+
+// ── Fields section ─────────────────────────────────────────────────────────
+
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function renderFieldsSection() {
+  const section = document.getElementById('fields-section');
+  if (!section) return;
+
+  // Re-render the fields list
+  const list = document.getElementById('fields-list');
+  const noMsg = document.getElementById('no-fields-msg');
+  if (!list || !noMsg) return;
+
+  list.innerHTML = '';
+  if (state.fields.length === 0) {
+    noMsg.style.display = '';
+  } else {
+    noMsg.style.display = 'none';
+    state.fields.forEach(field => {
+      const days = Array.isArray(field.availableDays) ? field.availableDays : [];
+      const dayStr = days.map(d => DAY_LABELS[d]).join(', ');
+      const li = document.createElement('li');
+      li.innerHTML = `
+        <span class="info">
+          <span class="name">${escHtml(field.name)}</span>
+          <span class="sub">${dayStr || 'No days'} &bull; ${escHtml(field.openTime)} &ndash; ${escHtml(field.closeTime)}</span>
+        </span>
+        <button class="remove-btn" style="display:${isAdminMode ? '' : 'none'}">Remove</button>
+      `;
+      li.querySelector('.remove-btn').addEventListener('click', () => {
+        if (!isAdminMode) return;
+        if (!confirm('Remove this field?')) return;
+        deleteField(field.id);
+      });
+      list.appendChild(li);
+    });
+  }
+
+  // Show/hide add form
+  const addForm = document.getElementById('field-add-form');
+  if (addForm) addForm.style.display = isAdminMode ? '' : 'none';
+}
+
+function setupFieldAddForm() {
+  const btn = document.getElementById('add-field-btn');
+  if (!btn) return;
+  btn.addEventListener('click', addField);
+}
+
+function addField() {
+  if (!isAdminMode) return;
+  const nameEl  = document.getElementById('field-name-input');
+  const openEl  = document.getElementById('field-open-input');
+  const closeEl = document.getElementById('field-close-input');
+  const name = nameEl.value.trim();
+  if (!name) { alert('Please enter a field name.'); return; }
+  if (!openEl.value || !closeEl.value) { alert('Please set open and close times.'); return; }
+
+  const availableDays = [];
+  DAY_LABELS.forEach((_, i) => {
+    const cb = document.getElementById(`field-day-${i}`);
+    if (cb && cb.checked) availableDays.push(i);
+  });
+  if (availableDays.length === 0) { alert('Select at least one available day.'); return; }
+
+  const id = genId('field');
+  nameEl.value  = '';
+  openEl.value  = '';
+  closeEl.value = '';
+  DAY_LABELS.forEach((_, i) => {
+    const cb = document.getElementById(`field-day-${i}`);
+    if (cb) cb.checked = false;
+  });
+
+  saveField({ id, name, availableDays, openTime: openEl.value, closeTime: closeEl.value });
+}
+
+// Note: addField reads openEl.value AFTER clearing it; fix by capturing first
+function addFieldFixed() {
+  if (!isAdminMode) return;
+  const nameEl  = document.getElementById('field-name-input');
+  const openEl  = document.getElementById('field-open-input');
+  const closeEl = document.getElementById('field-close-input');
+  const name      = nameEl.value.trim();
+  const openTime  = openEl.value;
+  const closeTime = closeEl.value;
+  if (!name) { alert('Please enter a field name.'); return; }
+  if (!openTime || !closeTime) { alert('Please set open and close times.'); return; }
+
+  const availableDays = [];
+  DAY_LABELS.forEach((_, i) => {
+    const cb = document.getElementById(`field-day-${i}`);
+    if (cb && cb.checked) availableDays.push(i);
+  });
+  if (availableDays.length === 0) { alert('Select at least one available day.'); return; }
+
+  nameEl.value  = '';
+  openEl.value  = '';
+  closeEl.value = '';
+  DAY_LABELS.forEach((_, i) => {
+    const cb = document.getElementById(`field-day-${i}`);
+    if (cb) cb.checked = false;
+  });
+
+  const id = genId('field');
+  saveField({ id, name, availableDays, openTime, closeTime });
+}
+
+// ── Schedule Config section ────────────────────────────────────────────────
+
+function renderScheduleConfigSection() {
+  const cfg = state.scheduleConfig;
+
+  const durEl   = document.getElementById('cfg-game-duration');
+  const bufEl   = document.getElementById('cfg-buffer-minutes');
+  const startEl = document.getElementById('cfg-start-date');
+  const endEl   = document.getElementById('cfg-end-date');
+  const rndEl   = document.getElementById('cfg-rounds');
+
+  if (!durEl) return;
+
+  durEl.value   = cfg.gameDuration;
+  bufEl.value   = cfg.bufferMinutes;
+  startEl.value = cfg.startDate;
+  endEl.value   = cfg.endDate;
+  rndEl.value   = cfg.rounds;
+
+  const disabled = !isAdminMode;
+  [durEl, bufEl, startEl, endEl, rndEl].forEach(el => { el.disabled = disabled; });
+
+  // Hook up save-config button
+  const saveBtn = document.getElementById('save-config-btn');
+  if (saveBtn) {
+    saveBtn.style.display = isAdminMode ? '' : 'none';
+    // Remove old listeners by cloning
+    const newBtn = saveBtn.cloneNode(true);
+    saveBtn.parentNode.replaceChild(newBtn, saveBtn);
+    newBtn.addEventListener('click', () => {
+      if (!isAdminMode) return;
+      const newCfg = {
+        gameDuration:  Number(durEl.value)   || 90,
+        bufferMinutes: Number(bufEl.value)   || 15,
+        startDate:     startEl.value         || '',
+        endDate:       endEl.value           || '',
+        rounds:        Number(rndEl.value)   || 1,
+      };
+      saveScheduleConfig(newCfg).then(() => {
+        showBanner('Schedule config saved.', 'success');
+      });
+    });
+  }
+}
+
+// ── Init settings event listeners ─────────────────────────────────────────
+
+function initSettings() {
+  // Field add button
+  const addFieldBtn = document.getElementById('add-field-btn');
+  if (addFieldBtn) {
+    addFieldBtn.addEventListener('click', addFieldFixed);
+  }
+}
+
+initSettings();
 
 // ── Utilities ──────────────────────────────────────────────────────────────
 
