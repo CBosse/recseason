@@ -36,7 +36,7 @@ main {
 }
 
 /* Tabs */
-.tabs { display: flex; gap: 0.25rem; margin-bottom: 1rem; }
+.tabs { display: flex; gap: 0.25rem; margin-bottom: 1rem; flex-wrap: wrap; }
 
 .tab {
   padding: 0.5rem 1.25rem;
@@ -62,7 +62,6 @@ main {
 
 .tab-content.active { display: block; }
 
-/* Section heading inside a tab */
 .section-heading {
   font-size: 0.95rem;
   font-weight: 700;
@@ -78,7 +77,6 @@ main {
   margin: 1.5rem 0 1.25rem;
 }
 
-/* Team detail header */
 .team-detail-header {
   margin: 1rem 0 1rem;
   display: flex;
@@ -98,19 +96,6 @@ main {
   color: #718096;
 }
 
-/* Color swatch dot */
-.team-color-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: 1px solid rgba(0,0,0,0.15);
-  margin-right: 0.3rem;
-  vertical-align: middle;
-  background: #cbd5e0;
-}
-
-/* Player jersey badge */
 .jersey-badge {
   display: inline-block;
   background: #1a5c2a;
@@ -123,7 +108,6 @@ main {
   vertical-align: middle;
 }
 
-/* Schedule actions */
 .schedule-actions {
   display: flex;
   gap: 0.75rem;
@@ -131,7 +115,6 @@ main {
   flex-wrap: wrap;
 }
 
-/* Umpire / Settings lists */
 .add-form {
   display: flex;
   gap: 0.5rem;
@@ -199,7 +182,6 @@ main {
 
 .item-list li button.remove-btn:hover { background: #fff5f5; }
 
-/* Clickable name button in list */
 .name-btn {
   background: none;
   border: none;
@@ -213,7 +195,6 @@ main {
 }
 .name-btn:hover { color: #2d8a45; }
 
-/* Settings groups */
 .settings-group { margin-bottom: 1.75rem; }
 
 .settings-group > label {
@@ -239,7 +220,6 @@ main {
   border-color: #1a5c2a;
 }
 
-/* Buttons */
 .btn-primary {
   background: #1a5c2a;
   color: #fff;
@@ -290,10 +270,8 @@ main {
 
 .btn-danger:hover { background: #fff5f5; }
 
-/* Misc */
 .muted { color: #718096; font-size: 0.9rem; margin-top: 0.75rem; }
 
-/* Loading overlay */
 #loading-overlay {
   position: fixed;
   inset: 0;
@@ -320,23 +298,12 @@ main {
 
 /* ── Schedule Tab ─────────────────────────────────────────────────────────── */
 
-#schedule-container {
-  min-height: 4rem;
-}
+#schedule-container { min-height: 4rem; }
+#schedule-container > .schedule-actions { margin-top: 0; margin-bottom: 1.25rem; }
 
-#schedule-container > .schedule-actions {
-  margin-top: 0;
-  margin-bottom: 1.25rem;
-}
+.schedule-empty { padding: 2rem 0; text-align: center; }
 
-.schedule-empty {
-  padding: 2rem 0;
-  text-align: center;
-}
-
-.schedule-date-group {
-  margin-bottom: 1.5rem;
-}
+.schedule-date-group { margin-bottom: 1.5rem; }
 
 .schedule-date-header {
   font-size: 0.92rem;
@@ -370,19 +337,8 @@ main {
   flex-wrap: wrap;
 }
 
-.game-time {
-  font-weight: 600;
-  color: #2d3748;
-  min-width: 5rem;
-  white-space: nowrap;
-}
-
-.game-field {
-  color: #718096;
-  font-size: 0.82rem;
-  min-width: 6rem;
-  white-space: nowrap;
-}
+.game-time  { font-weight: 600; color: #2d3748; min-width: 5rem; white-space: nowrap; }
+.game-field { color: #718096; font-size: 0.82rem; min-width: 6rem; white-space: nowrap; }
 
 .game-matchup {
   flex: 1;
@@ -392,30 +348,11 @@ main {
   flex-wrap: wrap;
 }
 
-.team-name-home,
-.team-name-away {
-  font-weight: 600;
-  color: #1a2332;
-}
+.team-name-home, .team-name-away { font-weight: 600; color: #1a2332; }
 
-.score-display {
-  font-size: 1rem;
-  font-weight: 700;
-  color: #1a5c2a;
-  padding: 0 0.25rem;
-}
-
-.score-vs {
-  font-size: 0.85rem;
-  color: #a0aec0;
-  padding: 0 0.25rem;
-}
-
-.score-sep {
-  font-weight: 700;
-  color: #1a5c2a;
-  padding: 0 0.1rem;
-}
+.score-display { font-size: 1rem; font-weight: 700; color: #1a5c2a; padding: 0 0.25rem; }
+.score-vs      { font-size: 0.85rem; color: #a0aec0; padding: 0 0.25rem; }
+.score-sep     { font-weight: 700; color: #1a5c2a; padding: 0 0.1rem; }
 
 .score-input {
   width: 3.5rem;
@@ -425,19 +362,13 @@ main {
   font-size: 0.9rem;
   text-align: center;
 }
-
 .score-input:focus {
   outline: none;
   border-color: #1a5c2a;
   box-shadow: 0 0 0 2px rgba(26,92,42,0.15);
 }
 
-.game-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-left: auto;
-}
+.game-actions { display: flex; align-items: center; gap: 0.4rem; margin-left: auto; }
 
 /* ── Fields Add Form ─────────────────────────────────────────────────────── */
 
@@ -456,9 +387,11 @@ main {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+  align-items: center;
 }
 
-.field-form-row input {
+.field-form-row input[type="text"],
+.field-form-row input[type="time"] {
   flex: 1;
   min-width: 120px;
   padding: 0.42rem 0.65rem;
@@ -471,6 +404,49 @@ main {
   outline: none;
   border-color: #1a5c2a;
   box-shadow: 0 0 0 2px rgba(26,92,42,0.15);
+}
+
+/* Lights row */
+.field-form-row--lights { gap: 0.75rem; }
+
+.field-lights-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #2d3748;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.field-lights-label input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: #1a5c2a;
+  cursor: pointer;
+}
+
+.field-zip-input {
+  flex: 1;
+  min-width: 140px;
+  max-width: 200px;
+  padding: 0.42rem 0.65rem;
+  border: 1px solid #cbd5e0;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.field-zip-input:focus {
+  outline: none;
+  border-color: #1a5c2a;
+  box-shadow: 0 0 0 2px rgba(26,92,42,0.15);
+}
+
+/* Field list lights icon */
+.field-lights-icon {
+  font-size: 0.85rem;
+  margin-right: 0.25rem;
 }
 
 .day-checkboxes {
@@ -507,17 +483,8 @@ main {
   max-width: 480px;
 }
 
-.cfg-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.cfg-label {
-  flex: 1;
-  font-size: 0.88rem;
-  color: #4a5568;
-}
+.cfg-row { display: flex; align-items: center; gap: 0.75rem; }
+.cfg-label { flex: 1; font-size: 0.88rem; color: #4a5568; }
 
 .cfg-input {
   width: 9rem;
@@ -549,10 +516,7 @@ main {
   margin-top: 0.25rem;
 }
 
-.standings-table thead tr {
-  background: #1a5c2a;
-  color: #fff;
-}
+.standings-table thead tr { background: #1a5c2a; color: #fff; }
 
 .standings-table thead th {
   padding: 0.55rem 0.75rem;
@@ -564,21 +528,11 @@ main {
   white-space: nowrap;
 }
 
-.standings-table thead th:nth-child(2) {
-  text-align: left;
-}
+.standings-table thead th:nth-child(2) { text-align: left; }
 
-.standings-table tbody tr {
-  border-bottom: 1px solid #e2e8e2;
-}
-
-.standings-table tbody tr:nth-child(even) {
-  background: #f7faf7;
-}
-
-.standings-table tbody tr:nth-child(odd) {
-  background: #fff;
-}
+.standings-table tbody tr { border-bottom: 1px solid #e2e8e2; }
+.standings-table tbody tr:nth-child(even) { background: #f7faf7; }
+.standings-table tbody tr:nth-child(odd)  { background: #fff; }
 
 .standings-table tbody td {
   padding: 0.5rem 0.75rem;
@@ -592,25 +546,11 @@ main {
   color: #1a2332;
 }
 
-.standings-rank {
-  text-align: center;
-  font-weight: 700;
-  color: #4a5568;
-  width: 2rem;
-}
+.standings-rank { text-align: center; font-weight: 700; color: #4a5568; width: 2rem; }
 
-.standings-leader {
-  background: #e6f4ea !important;
-}
-
-.standings-leader td {
-  color: #1a5c2a;
-}
-
-.standings-leader td:nth-child(2) {
-  color: #1a5c2a;
-  font-weight: 700;
-}
+.standings-leader { background: #e6f4ea !important; }
+.standings-leader td { color: #1a5c2a; }
+.standings-leader td:nth-child(2) { color: #1a5c2a; font-weight: 700; }
 
 /* ── Identity Bar ────────────────────────────────────────────────────────── */
 
@@ -628,10 +568,7 @@ main {
   flex-wrap: wrap;
 }
 
-.identity-bar span {
-  flex: 1;
-  min-width: 0;
-}
+.identity-bar span { flex: 1; min-width: 0; }
 
 /* ── RSVP Buttons ────────────────────────────────────────────────────────── */
 
@@ -656,28 +593,10 @@ main {
   white-space: nowrap;
 }
 
-.rsvp-btn:hover {
-  border-color: #a0aec0;
-  background: #f0f4f0;
-}
-
-.rsvp-btn.going.active {
-  background: #1a5c2a;
-  color: #fff;
-  border-color: #1a5c2a;
-}
-
-.rsvp-btn.maybe.active {
-  background: #d97706;
-  color: #fff;
-  border-color: #d97706;
-}
-
-.rsvp-btn.not_going.active {
-  background: #c53030;
-  color: #fff;
-  border-color: #c53030;
-}
+.rsvp-btn:hover { border-color: #a0aec0; background: #f0f4f0; }
+.rsvp-btn.going.active    { background: #1a5c2a; color: #fff; border-color: #1a5c2a; }
+.rsvp-btn.maybe.active    { background: #d97706; color: #fff; border-color: #d97706; }
+.rsvp-btn.not_going.active { background: #c53030; color: #fff; border-color: #c53030; }
 
 /* ── RSVP Summary ────────────────────────────────────────────────────────── */
 
@@ -692,18 +611,14 @@ main {
 
 /* ── Team Upcoming Games ─────────────────────────────────────────────────── */
 
-.team-upcoming-games {
-  margin-top: 0;
-}
+.team-upcoming-games { margin-top: 0; }
 
 .team-upcoming-games .item-list li {
   flex-direction: column;
   align-items: flex-start;
 }
 
-.team-upcoming-games .item-list li .info {
-  width: 100%;
-}
+.team-upcoming-games .item-list li .info { width: 100%; }
 
 .team-upcoming-games .rsvp-summary {
   border-top: none;

@@ -31,11 +31,11 @@ const db = getFirestore(initializeApp(firebaseConfig), 'recseason');
 // ── State ──────────────────────────────────────────────────────────────────
 
 const state = {
-  teams:          [],   // [{ id, name, color, homefield }]
-  players:        [],   // [{ id, name, number, phone, teamId }]
-  fields:         [],   // [{ id, name, availableDays, openTime, closeTime }]
-  games:          [],   // [{ id, date, time, fieldId, fieldName, homeTeamId, homeName, awayTeamId, awayName, homeScore, awayScore, status }]
-  rsvps:          [],   // [{ id, gameId, playerId, playerName, teamId, status }]
+  teams:          [],
+  players:        [],
+  fields:         [],
+  games:          [],
+  rsvps:          [],
   scheduleConfig: { gameDuration: 90, bufferMinutes: 15, startDate: '', endDate: '', rounds: 1 },
   _ready: { teams: false, players: false, fields: false, games: false, scheduleConfig: false, rsvps: false },
 };
@@ -44,11 +44,36 @@ const ADMIN_PASSWORD = 'ump-admin';
 let isAdminMode = false;
 let _viewingTeamId = null;
 
+// ── US State → IANA timezone map ───────────────────────────────────────────
+
+const STATE_TZ = {
+  AL: 'America/Chicago',  AK: 'America/Anchorage',  AZ: 'America/Phoenix',
+  AR: 'America/Chicago',  CA: 'America/Los_Angeles', CO: 'America/Denver',
+  CT: 'America/New_York', DE: 'America/New_York',    DC: 'America/New_York',
+  FL: 'America/New_York', GA: 'America/New_York',    HI: 'Pacific/Honolulu',
+  ID: 'America/Boise',    IL: 'America/Chicago',     IN: 'America/Indiana/Indianapolis',
+  IA: 'America/Chicago',  KS: 'America/Chicago',     KY: 'America/New_York',
+  LA: 'America/Chicago',  ME: 'America/New_York',    MD: 'America/New_York',
+  MA: 'America/New_York', MI: 'America/Detroit',     MN: 'America/Chicago',
+  MS: 'America/Chicago',  MO: 'America/Chicago',     MT: 'America/Denver',
+  NE: 'America/Chicago',  NV: 'America/Los_Angeles', NH: 'America/New_York',
+  NJ: 'America/New_York', NM: 'America/Denver',      NY: 'America/New_York',
+  NC: 'America/New_York', ND: 'America/Chicago',     OH: 'America/New_York',
+  OK: 'America/Chicago',  OR: 'America/Los_Angeles', PA: 'America/New_York',
+  RI: 'America/New_York', SC: 'America/New_York',    SD: 'America/Chicago',
+  TN: 'America/Chicago',  TX: 'America/Chicago',     UT: 'America/Denver',
+  VT: 'America/New_York', VA: 'America/New_York',    WA: 'America/Los_Angeles',
+  WV: 'America/New_York', WI: 'America/Chicago',     WY: 'America/Denver',
+};
+
+const zipCache = new Map();
+const sunCache = new Map();
+
 // ── Player identity (localStorage) ────────────────────────────────────────
 
 let currentPlayerId   = localStorage.getItem('recseason_playerId')   || null;
 let currentPlayerName = localStorage.getItem('recseason_playerName') || null;
-let currentTeamId     = null; // resolved from state.players when identity is loaded
+let currentTeamId     = null;
 
 function resolveCurrentTeamId() {
   if (!currentPlayerId) { currentTeamId = null; return; }
@@ -117,6 +142,8 @@ function saveField(field) {
     availableDays: field.availableDays,
     openTime:      field.openTime,
     closeTime:     field.closeTime,
+    hasLights:     field.hasLights ?? false,
+    zipCode:       field.zipCode   ?? '',
   }));
 }
 
@@ -136,17 +163,17 @@ function saveScheduleConfig(cfg) {
 
 function saveGame(game) {
   return firestoreWrite(setDoc(doc(db, 'games', game.id), {
-    date:        game.date,
-    time:        game.time,
-    fieldId:     game.fieldId,
-    fieldName:   game.fieldName,
-    homeTeamId:  game.homeTeamId,
-    homeName:    game.homeName,
-    awayTeamId:  game.awayTeamId,
-    awayName:    game.awayName,
-    homeScore:   game.homeScore  ?? null,
-    awayScore:   game.awayScore  ?? null,
-    status:      game.status,
+    date:       game.date,
+    time:       game.time,
+    fieldId:    game.fieldId,
+    fieldName:  game.fieldName,
+    homeTeamId: game.homeTeamId,
+    homeName:   game.homeName,
+    awayTeamId: game.awayTeamId,
+    awayName:   game.awayName,
+    homeScore:  game.homeScore  ?? null,
+    awayScore:  game.awayScore  ?? null,
+    status:     game.status,
   }));
 }
 
@@ -306,20 +333,16 @@ function syncAdminUi() {
   const saveBtn  = document.getElementById('admin-save-btn');
   const lockMsg  = document.getElementById('settings-lock-msg');
 
-  if (status)   status.textContent = isAdminMode
-    ? 'Admin View is active.'
-    : 'Settings are locked in View Mode.';
+  if (status)   status.textContent = isAdminMode ? 'Admin View is active.' : 'Settings are locked in View Mode.';
   if (enterBtn) { enterBtn.textContent = isAdminMode ? 'Admin View Active' : 'Admin View'; enterBtn.disabled = isAdminMode; }
   if (saveBtn)  saveBtn.style.display = isAdminMode ? '' : 'none';
   if (lockMsg)  lockMsg.style.display = isAdminMode ? 'none' : '';
 
-  // Show/hide add forms
   const teamAddForm   = document.getElementById('team-add-form');
   const playerAddForm = document.getElementById('player-add-form');
   if (teamAddForm)   teamAddForm.style.display   = isAdminMode ? '' : 'none';
   if (playerAddForm) playerAddForm.style.display = isAdminMode ? '' : 'none';
 
-  // Show/hide all remove buttons
   document.querySelectorAll('.remove-btn').forEach(btn => {
     btn.style.display = isAdminMode ? '' : 'none';
   });
@@ -362,7 +385,6 @@ function addTeam() {
 function removeTeam(id) {
   if (!isAdminMode) return;
   if (!confirm('Remove this team? All players on this team will also be removed.')) return;
-  // Remove all players on this team
   const teamPlayers = state.players.filter(p => p.teamId === id);
   const writes = [deleteTeam(id), ...teamPlayers.map(p => deletePlayer(p.id))];
   Promise.all(writes);
@@ -417,7 +439,6 @@ function showTeamList() {
   document.getElementById('team-list-view').style.display   = '';
   document.getElementById('team-detail-view').style.display = 'none';
 
-  // Teams list
   const list = document.getElementById('team-list');
   const msg  = document.getElementById('no-teams-msg');
   list.innerHTML = '';
@@ -447,7 +468,6 @@ function showTeamList() {
     });
   }
 
-  // All players list
   const allList = document.getElementById('all-players-list');
   const allMsg  = document.getElementById('no-players-msg');
   allList.innerHTML = '';
@@ -514,7 +534,6 @@ function showTeamDetail(team) {
     });
   }
 
-  // ── Upcoming games section for this team ──────────────────────────────
   const upcomingSection = document.getElementById('team-upcoming-section');
   const today = new Date().toISOString().slice(0, 10);
   const upcomingGames = state.games
@@ -563,105 +582,65 @@ document.getElementById('team-back-btn').addEventListener('click', () => {
 // ── Standings tab ──────────────────────────────────────────────────────────
 
 function computeStandings() {
-  // Build a map of teamId -> stats
   const statsMap = new Map();
-
-  // Initialize all teams
   for (const team of state.teams) {
     statsMap.set(team.id, { teamId: team.id, name: team.name, GP: 0, W: 0, L: 0, T: 0, GF: 0, GA: 0, Pts: 0 });
   }
-
-  // Process completed games
   for (const game of state.games) {
     if (game.status !== 'completed') continue;
     const hs = Number(game.homeScore);
     const as = Number(game.awayScore);
     if (isNaN(hs) || isNaN(as)) continue;
-
     const home = statsMap.get(game.homeTeamId);
     const away = statsMap.get(game.awayTeamId);
     if (!home || !away) continue;
-
     home.GP++; away.GP++;
     home.GF += hs; home.GA += as;
     away.GF += as; away.GA += hs;
-
-    if (hs > as) {
-      home.W++; home.Pts += 3;
-      away.L++;
-    } else if (as > hs) {
-      away.W++; away.Pts += 3;
-      home.L++;
-    } else {
-      home.T++; home.Pts += 1;
-      away.T++; away.Pts += 1;
-    }
+    if (hs > as)      { home.W++; home.Pts += 3; away.L++; }
+    else if (as > hs) { away.W++; away.Pts += 3; home.L++; }
+    else              { home.T++; home.Pts += 1; away.T++; away.Pts += 1; }
   }
-
   const rows = Array.from(statsMap.values());
   rows.sort((a, b) => {
     if (b.Pts !== a.Pts) return b.Pts - a.Pts;
-    const gdA = a.GF - a.GA;
-    const gdB = b.GF - b.GA;
+    const gdA = a.GF - a.GA, gdB = b.GF - b.GA;
     if (gdB !== gdA) return gdB - gdA;
     if (b.GF !== a.GF) return b.GF - a.GF;
     return a.name.localeCompare(b.name);
   });
-
   return rows;
 }
 
 function renderStandings() {
   const container = document.getElementById('standings-container');
   if (!container) return;
-
   const hasCompleted = state.games.some(g => g.status === 'completed');
-
   if (state.teams.length === 0 || !hasCompleted) {
     container.innerHTML = '<p class="muted" style="padding:1rem 0;">No completed games yet. Standings will appear here once scores are recorded.</p>';
     return;
   }
-
   const rows = computeStandings();
-
   let html = `
     <table class="standings-table">
-      <thead>
-        <tr>
-          <th class="standings-rank">#</th>
-          <th>Team</th>
-          <th>GP</th>
-          <th>W</th>
-          <th>L</th>
-          <th>T</th>
-          <th>GF</th>
-          <th>GA</th>
-          <th>GD</th>
-          <th>Pts</th>
-        </tr>
-      </thead>
-      <tbody>
-  `;
-
+      <thead><tr>
+        <th class="standings-rank">#</th>
+        <th>Team</th><th>GP</th><th>W</th><th>L</th><th>T</th>
+        <th>GF</th><th>GA</th><th>GD</th><th>Pts</th>
+      </tr></thead>
+      <tbody>`;
   rows.forEach((row, idx) => {
     const gd = row.GF - row.GA;
     const gdStr = gd > 0 ? `+${gd}` : String(gd);
     const leaderClass = idx === 0 ? ' class="standings-leader"' : '';
-    html += `
-      <tr${leaderClass}>
-        <td class="standings-rank">${idx + 1}</td>
-        <td>${escHtml(row.name)}</td>
-        <td>${row.GP}</td>
-        <td>${row.W}</td>
-        <td>${row.L}</td>
-        <td>${row.T}</td>
-        <td>${row.GF}</td>
-        <td>${row.GA}</td>
-        <td>${gdStr}</td>
-        <td><strong>${row.Pts}</strong></td>
-      </tr>`;
+    html += `<tr${leaderClass}>
+      <td class="standings-rank">${idx + 1}</td>
+      <td>${escHtml(row.name)}</td>
+      <td>${row.GP}</td><td>${row.W}</td><td>${row.L}</td><td>${row.T}</td>
+      <td>${row.GF}</td><td>${row.GA}</td><td>${gdStr}</td>
+      <td><strong>${row.Pts}</strong></td>
+    </tr>`;
   });
-
   html += '</tbody></table>';
   container.innerHTML = html;
 }
@@ -669,15 +648,12 @@ function renderStandings() {
 // ── Schedule tab ───────────────────────────────────────────────────────────
 
 function formatDateHeader(dateStr) {
-  // dateStr is "YYYY-MM-DD"
-  // Parse as local date to avoid timezone shifting
   const [y, m, d] = dateStr.split('-').map(Number);
   const dt = new Date(y, m - 1, d);
   return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
 function formatTime(timeStr) {
-  // timeStr is "HH:MM"
   const [h, min] = timeStr.split(':').map(Number);
   const ampm = h >= 12 ? 'PM' : 'AM';
   const hour = h % 12 || 12;
@@ -687,24 +663,19 @@ function formatTime(timeStr) {
 function renderIdentityBar() {
   const bar = document.getElementById('identity-bar');
   if (!bar) return;
-
   if (currentPlayerId && currentPlayerName) {
-    // Check player still exists
-    const player = state.players.find(p => p.id === currentPlayerId);
-    const team   = player ? state.teams.find(t => t.id === player.teamId) : null;
+    const player   = state.players.find(p => p.id === currentPlayerId);
+    const team     = player ? state.teams.find(t => t.id === player.teamId) : null;
     const teamName = team ? team.name : 'Unknown team';
-
     bar.innerHTML = `
       <div class="identity-bar">
         <span>Viewing as: <strong>${escHtml(currentPlayerName)}</strong> (${escHtml(teamName)})</span>
         <button id="identity-change-btn" class="btn-secondary" style="font-size:0.8rem;padding:0.2rem 0.6rem;">Change</button>
       </div>`;
     bar.querySelector('#identity-change-btn').addEventListener('click', () => {
-      clearIdentity();
-      renderScheduleTab();
+      clearIdentity(); renderScheduleTab();
     });
   } else {
-    // Build grouped dropdown
     let optionsHtml = '<option value="">-- select player --</option>';
     for (const team of state.teams) {
       const teamPlayers = state.players.filter(p => p.teamId === team.id);
@@ -713,14 +684,12 @@ function renderIdentityBar() {
         teamPlayers.map(p => `<option value="${escHtml(p.id)}">${escHtml(p.name)}</option>`).join('') +
         '</optgroup>';
     }
-    // Players without a team
     const noTeamPlayers = state.players.filter(p => !state.teams.find(t => t.id === p.teamId));
     if (noTeamPlayers.length > 0) {
       optionsHtml += '<optgroup label="(No Team)">' +
         noTeamPlayers.map(p => `<option value="${escHtml(p.id)}">${escHtml(p.name)}</option>`).join('') +
         '</optgroup>';
     }
-
     bar.innerHTML = `
       <div class="identity-bar">
         <span>Who are you?</span>
@@ -741,22 +710,17 @@ function renderIdentityBar() {
 
 function renderScheduleTab() {
   renderIdentityBar();
-
   const container = document.getElementById('schedule-container');
   if (!container) return;
-
   container.innerHTML = '';
 
-  // Admin action buttons
   if (isAdminMode) {
     const actionsDiv = document.createElement('div');
     actionsDiv.className = 'schedule-actions';
     actionsDiv.innerHTML = `
       <button id="generate-schedule-btn" class="btn-primary">Generate Schedule</button>
-      <button id="clear-schedule-btn" class="btn-danger">Clear Schedule</button>
-    `;
+      <button id="clear-schedule-btn" class="btn-danger">Clear Schedule</button>`;
     container.appendChild(actionsDiv);
-
     actionsDiv.querySelector('#generate-schedule-btn').addEventListener('click', handleGenerateSchedule);
     actionsDiv.querySelector('#clear-schedule-btn').addEventListener('click', handleClearSchedule);
   }
@@ -765,16 +729,11 @@ function renderScheduleTab() {
     const empty = document.createElement('div');
     empty.className = 'schedule-empty';
     empty.innerHTML = `<p class="muted">No games scheduled yet.</p>`;
-    if (!isAdminMode) {
-      empty.innerHTML += `<p class="muted" style="margin-top:0.4rem;">Use <strong>Admin View</strong> and <strong>Generate Schedule</strong> to create a schedule.</p>`;
-    }
+    if (!isAdminMode) empty.innerHTML += `<p class="muted" style="margin-top:0.4rem;">Use <strong>Admin View</strong> and <strong>Generate Schedule</strong> to create a schedule.</p>`;
     container.appendChild(empty);
     return;
   }
 
-  const today = new Date().toISOString().slice(0, 10);
-
-  // Group games by date
   const byDate = new Map();
   for (const game of state.games) {
     if (!byDate.has(game.date)) byDate.set(game.date, []);
@@ -784,7 +743,6 @@ function renderScheduleTab() {
   for (const [date, games] of byDate) {
     const dateGroup = document.createElement('div');
     dateGroup.className = 'schedule-date-group';
-
     const header = document.createElement('div');
     header.className = 'schedule-date-header';
     header.textContent = formatDateHeader(date);
@@ -801,7 +759,6 @@ function renderScheduleTab() {
       const scoreDisplay = game.status === 'completed'
         ? `<span class="score-display">${game.homeScore} &ndash; ${game.awayScore}</span>`
         : `<span class="score-vs">vs</span>`;
-
       const editBtnHtml = isAdminMode
         ? `<button class="btn-secondary edit-score-btn" style="font-size:0.78rem;padding:0.2rem 0.5rem;">Edit Score</button>`
         : '';
@@ -814,59 +771,42 @@ function renderScheduleTab() {
           ${scoreDisplay}
           <span class="team-name-away">${escHtml(game.awayName)}</span>
         </span>
-        <span class="game-actions">${editBtnHtml}</span>
-      `;
+        <span class="game-actions">${editBtnHtml}</span>`;
 
       if (isAdminMode) {
-        li.querySelector('.edit-score-btn').addEventListener('click', () => {
-          showInlineScoreEdit(li, game);
-        });
+        li.querySelector('.edit-score-btn').addEventListener('click', () => showInlineScoreEdit(li, game));
       }
 
-      // ── RSVP section (upcoming games only) ──────────────────────────
       if (game.status !== 'completed') {
-        // RSVP buttons for current player if their team is in this game
         if (currentPlayerId && currentTeamId &&
             (game.homeTeamId === currentTeamId || game.awayTeamId === currentTeamId)) {
-          const existingRsvp = state.rsvps.find(
-            r => r.gameId === game.id && r.playerId === currentPlayerId
-          );
+          const existingRsvp = state.rsvps.find(r => r.gameId === game.id && r.playerId === currentPlayerId);
           const currentStatus = existingRsvp ? existingRsvp.status : null;
-
           const rsvpDiv = document.createElement('div');
           rsvpDiv.className = 'rsvp-buttons';
           rsvpDiv.innerHTML = `
             <button class="rsvp-btn going${currentStatus === 'going' ? ' active' : ''}" data-status="going">Going</button>
             <button class="rsvp-btn maybe${currentStatus === 'maybe' ? ' active' : ''}" data-status="maybe">Maybe</button>
-            <button class="rsvp-btn not_going${currentStatus === 'not_going' ? ' active' : ''}" data-status="not_going">Can't Make It</button>
-          `;
+            <button class="rsvp-btn not_going${currentStatus === 'not_going' ? ' active' : ''}" data-status="not_going">Can't Make It</button>`;
           rsvpDiv.querySelectorAll('.rsvp-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-              setRsvp(game.id, btn.dataset.status);
-            });
+            btn.addEventListener('click', () => setRsvp(game.id, btn.dataset.status));
           });
           li.appendChild(rsvpDiv);
         }
 
-        // RSVP summary line (visible to all if any RSVPs exist)
-        const homeTeamRsvps = state.rsvps.filter(r => r.gameId === game.id && r.teamId === game.homeTeamId);
-        const awayTeamRsvps = state.rsvps.filter(r => r.gameId === game.id && r.teamId === game.awayTeamId);
-        const hasAnySummary = homeTeamRsvps.length > 0 || awayTeamRsvps.length > 0;
-
-        if (hasAnySummary) {
-          const homeGoing    = homeTeamRsvps.filter(r => r.status === 'going').length;
-          const homeMaybe    = homeTeamRsvps.filter(r => r.status === 'maybe').length;
-          const homeNotGoing = homeTeamRsvps.filter(r => r.status === 'not_going').length;
-          const awayGoing    = awayTeamRsvps.filter(r => r.status === 'going').length;
-          const awayMaybe    = awayTeamRsvps.filter(r => r.status === 'maybe').length;
-          const awayNotGoing = awayTeamRsvps.filter(r => r.status === 'not_going').length;
-
+        const homeRsvps = state.rsvps.filter(r => r.gameId === game.id && r.teamId === game.homeTeamId);
+        const awayRsvps = state.rsvps.filter(r => r.gameId === game.id && r.teamId === game.awayTeamId);
+        if (homeRsvps.length + awayRsvps.length > 0) {
           const summaryDiv = document.createElement('div');
           summaryDiv.className = 'rsvp-summary';
+          const fmt = (rsvps) =>
+            `${rsvps.filter(r=>r.status==='going').length} going &middot; ` +
+            `${rsvps.filter(r=>r.status==='maybe').length} maybe &middot; ` +
+            `${rsvps.filter(r=>r.status==='not_going').length} out`;
           summaryDiv.innerHTML =
-            `<strong>${escHtml(game.homeName)}:</strong> ${homeGoing} going &middot; ${homeMaybe} maybe &middot; ${homeNotGoing} out` +
+            `<strong>${escHtml(game.homeName)}:</strong> ${fmt(homeRsvps)}` +
             ` &nbsp;|&nbsp; ` +
-            `<strong>${escHtml(game.awayName)}:</strong> ${awayGoing} going &middot; ${awayMaybe} maybe &middot; ${awayNotGoing} out`;
+            `<strong>${escHtml(game.awayName)}:</strong> ${fmt(awayRsvps)}`;
           li.appendChild(summaryDiv);
         }
       }
@@ -882,47 +822,30 @@ function renderScheduleTab() {
 function showInlineScoreEdit(li, game) {
   const actionsSpan = li.querySelector('.game-actions');
   const matchupSpan = li.querySelector('.game-matchup');
+  const scoreNode   = matchupSpan.querySelector('.score-display, .score-vs');
 
-  // Replace score display with inputs
-  const scoreNode = matchupSpan.querySelector('.score-display, .score-vs');
   const homeInput = document.createElement('input');
-  homeInput.type = 'number';
-  homeInput.min = '0';
-  homeInput.className = 'score-input';
-  homeInput.value = game.homeScore != null ? game.homeScore : '';
-  homeInput.placeholder = '0';
+  homeInput.type = 'number'; homeInput.min = '0'; homeInput.className = 'score-input';
+  homeInput.value = game.homeScore != null ? game.homeScore : ''; homeInput.placeholder = '0';
 
   const sep = document.createElement('span');
-  sep.className = 'score-sep';
-  sep.textContent = '–';
+  sep.className = 'score-sep'; sep.textContent = '–';
 
   const awayInput = document.createElement('input');
-  awayInput.type = 'number';
-  awayInput.min = '0';
-  awayInput.className = 'score-input';
-  awayInput.value = game.awayScore != null ? game.awayScore : '';
-  awayInput.placeholder = '0';
+  awayInput.type = 'number'; awayInput.min = '0'; awayInput.className = 'score-input';
+  awayInput.value = game.awayScore != null ? game.awayScore : ''; awayInput.placeholder = '0';
 
   scoreNode.replaceWith(homeInput, sep, awayInput);
-
-  // Replace edit button with save button
   actionsSpan.innerHTML = `<button class="btn-primary save-score-btn" style="font-size:0.78rem;padding:0.2rem 0.5rem;">Save</button>`;
   actionsSpan.querySelector('.save-score-btn').addEventListener('click', () => {
     const hs = parseInt(homeInput.value, 10);
     const as = parseInt(awayInput.value, 10);
     if (isNaN(hs) || isNaN(as)) { alert('Please enter valid scores.'); return; }
     firestoreWrite(setDoc(doc(db, 'games', game.id), {
-      date:       game.date,
-      time:       game.time,
-      fieldId:    game.fieldId,
-      fieldName:  game.fieldName,
-      homeTeamId: game.homeTeamId,
-      homeName:   game.homeName,
-      awayTeamId: game.awayTeamId,
-      awayName:   game.awayName,
-      homeScore:  hs,
-      awayScore:  as,
-      status:     'completed',
+      date: game.date, time: game.time, fieldId: game.fieldId, fieldName: game.fieldName,
+      homeTeamId: game.homeTeamId, homeName: game.homeName,
+      awayTeamId: game.awayTeamId, awayName: game.awayName,
+      homeScore: hs, awayScore: as, status: 'completed',
     }));
   });
 }
@@ -935,9 +858,9 @@ async function handleClearSchedule() {
 }
 
 async function clearAllGames() {
-  const snap = await getDocs(collection(db, 'games'));
+  const snap  = await getDocs(collection(db, 'games'));
   const CHUNK = 500;
-  const docs = snap.docs;
+  const docs  = snap.docs;
   for (let i = 0; i < docs.length; i += CHUNK) {
     const batch = writeBatch(db);
     docs.slice(i, i + CHUNK).forEach(d => batch.delete(d.ref));
@@ -947,35 +870,22 @@ async function clearAllGames() {
 
 async function handleGenerateSchedule() {
   if (!isAdminMode) return;
-
-  if (state.teams.length < 2) {
-    showBanner('Need at least 2 teams to generate a schedule.', 'error');
-    return;
-  }
-  if (state.fields.length === 0) {
-    showBanner('Add at least one field before generating a schedule.', 'error');
-    return;
-  }
+  if (state.teams.length < 2)  { showBanner('Need at least 2 teams to generate a schedule.', 'error'); return; }
+  if (state.fields.length === 0) { showBanner('Add at least one field before generating a schedule.', 'error'); return; }
   const cfg = state.scheduleConfig;
-  if (!cfg.startDate || !cfg.endDate) {
-    showBanner('Set a season start and end date in Settings before generating.', 'error');
-    return;
-  }
-  if (cfg.startDate > cfg.endDate) {
-    showBanner('Season start date must be before end date.', 'error');
-    return;
-  }
+  if (!cfg.startDate || !cfg.endDate) { showBanner('Set a season start and end date in Settings before generating.', 'error'); return; }
+  if (cfg.startDate > cfg.endDate)    { showBanner('Season start date must be before end date.', 'error'); return; }
 
   const scheduledGames = state.games.filter(g => g.status === 'scheduled');
   if (scheduledGames.length > 0) {
     if (!confirm(`This will delete ${scheduledGames.length} existing scheduled game(s) and regenerate. Continue?`)) return;
   }
 
-  const { games: newGames, skipped } = generateSchedule(state.teams, state.fields, cfg);
+  showBanner('Generating schedule… (fetching daylight data for fields without lights)', 'success');
 
-  // Batch delete scheduled games, batch set new games
+  const { games: newGames, skipped, daylightConstrainedCount } = await generateSchedule(state.teams, state.fields, cfg);
+
   try {
-    // Delete existing scheduled games in chunks
     const snapShot = await getDocs(query(collection(db, 'games'), where('status', '==', 'scheduled')));
     const CHUNK = 500;
     const toDelete = snapShot.docs;
@@ -984,97 +894,145 @@ async function handleGenerateSchedule() {
       toDelete.slice(i, i + CHUNK).forEach(d => batch.delete(d.ref));
       await batch.commit();
     }
-
-    // Write new games in chunks
     for (let i = 0; i < newGames.length; i += CHUNK) {
       const batch = writeBatch(db);
       newGames.slice(i, i + CHUNK).forEach(game => {
         const ref = doc(collection(db, 'games'));
         batch.set(ref, {
-          date:       game.date,
-          time:       game.time,
-          fieldId:    game.fieldId,
-          fieldName:  game.fieldName,
-          homeTeamId: game.homeTeamId,
-          homeName:   game.homeName,
-          awayTeamId: game.awayTeamId,
-          awayName:   game.awayName,
-          homeScore:  null,
-          awayScore:  null,
-          status:     'scheduled',
+          date: game.date, time: game.time, fieldId: game.fieldId, fieldName: game.fieldName,
+          homeTeamId: game.homeTeamId, homeName: game.homeName,
+          awayTeamId: game.awayTeamId, awayName: game.awayName,
+          homeScore: null, awayScore: null, status: 'scheduled',
         });
       });
       await batch.commit();
     }
 
-    if (skipped > 0) {
-      showBanner(`Schedule generated with ${newGames.length} game(s). ${skipped} matchup(s) could not be scheduled due to slot conflicts.`, 'error');
-    } else {
-      showBanner(`Schedule generated: ${newGames.length} game(s) scheduled.`, 'success');
-    }
+    const parts = [`Schedule generated: ${newGames.length} game(s) scheduled.`];
+    if (daylightConstrainedCount > 0) parts.push(`${daylightConstrainedCount} field-date(s) were daylight-limited (no lights).`);
+    if (skipped > 0) parts.push(`${skipped} matchup(s) could not be scheduled — add more field slots or extend the season.`);
+    showBanner(parts.join(' '), skipped > 0 ? 'error' : 'success');
   } catch (err) {
     showDbError(err);
   }
 }
 
+// ── Sunrise/sunset helpers ─────────────────────────────────────────────────
+
+async function fetchZipInfo(zip) {
+  if (zipCache.has(zip)) return zipCache.get(zip);
+  try {
+    const r = await fetch(`https://api.zippopotam.us/us/${zip}`);
+    if (!r.ok) return null;
+    const d = await r.json();
+    const place = d.places[0];
+    const state = place['state abbreviation'];
+    const info = {
+      lat:      parseFloat(place.latitude),
+      lng:      parseFloat(place.longitude),
+      timezone: STATE_TZ[state] || 'America/Chicago',
+    };
+    zipCache.set(zip, info);
+    return info;
+  } catch { return null; }
+}
+
+async function fetchSunriseSunset(lat, lng, date, timezone) {
+  const key = `${lat},${lng},${date}`;
+  if (sunCache.has(key)) return sunCache.get(key);
+  try {
+    const r = await fetch(`https://api.sunrise-sunset.org/json?lat=${lat}&lng=${lng}&date=${date}&formatted=0`);
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (d.status !== 'OK') return null;
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+    const normalize = t => t === '24:00' ? '00:00' : t;
+    const result = {
+      sunrise: normalize(fmt.format(new Date(d.results.sunrise))),
+      sunset:  normalize(fmt.format(new Date(d.results.sunset))),
+    };
+    sunCache.set(key, result);
+    return result;
+  } catch { return null; }
+}
+
+function clampTimeToWindow(time, min, max) {
+  if (time < min) return min;
+  if (time > max) return max;
+  return time;
+}
+
 // ── Auto-Scheduler ─────────────────────────────────────────────────────────
 
-function generateSchedule(teams, fields, config) {
+async function generateSchedule(teams, fields, config) {
   // 1. Generate round-robin matchups
   const matchups = [];
   for (let i = 0; i < teams.length; i++) {
     for (let j = i + 1; j < teams.length; j++) {
       for (let r = 0; r < config.rounds; r++) {
-        // Alternate home/away based on round parity
         if (r % 2 === 0) {
           matchups.push({ home: teams[i], away: teams[j] });
-        } else {
-          matchups.push({ home: teams[j], away: teams[i] });
-        }
-        // Add the reverse fixture as well
-        if (r % 2 === 0) {
           matchups.push({ home: teams[j], away: teams[i] });
         } else {
+          matchups.push({ home: teams[j], away: teams[i] });
           matchups.push({ home: teams[i], away: teams[j] });
         }
       }
     }
   }
-
-  // Shuffle matchups
   for (let i = matchups.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [matchups[i], matchups[j]] = [matchups[j], matchups[i]];
   }
 
-  // 2. Generate all available time slots
+  // 2. Generate available time slots (with daylight clamping for no-lights fields)
   const slots = [];
   const gameDur    = Number(config.gameDuration)  || 90;
   const bufferMins = Number(config.bufferMinutes) || 15;
   const interval   = gameDur + bufferMins;
+  let daylightConstrainedCount = 0;
 
-  // Iterate dates from startDate to endDate inclusive
   const [sy, sm, sd] = config.startDate.split('-').map(Number);
   const [ey, em, ed] = config.endDate.split('-').map(Number);
   const start = new Date(sy, sm - 1, sd);
   const end   = new Date(ey, em - 1, ed);
 
   for (let cur = new Date(start); cur <= end; cur.setDate(cur.getDate() + 1)) {
-    const dow      = cur.getDay(); // 0=Sun...6=Sat
-    const dateStr  = cur.toISOString().slice(0, 10); // might be UTC issue; build manually
-    // Build dateStr safely from local parts
-    const yy = cur.getFullYear();
-    const mm = String(cur.getMonth() + 1).padStart(2, '0');
-    const dd = String(cur.getDate()).padStart(2, '0');
-    const safeDateStr = `${yy}-${mm}-${dd}`;
+    const dow = cur.getDay();
+    const yy  = cur.getFullYear();
+    const mm  = String(cur.getMonth() + 1).padStart(2, '0');
+    const dd  = String(cur.getDate()).padStart(2, '0');
+    const dateStr = `${yy}-${mm}-${dd}`;
 
     for (const field of fields) {
       const days = Array.isArray(field.availableDays) ? field.availableDays : [];
       if (!days.includes(dow)) continue;
 
-      // Parse open/close times to minutes-since-midnight
-      const [oh, om] = field.openTime.split(':').map(Number);
-      const [ch, cm] = field.closeTime.split(':').map(Number);
+      let effectiveOpen  = field.openTime;
+      let effectiveClose = field.closeTime;
+
+      if (!field.hasLights && field.zipCode) {
+        const zipInfo = await fetchZipInfo(field.zipCode);
+        if (zipInfo) {
+          const sun = await fetchSunriseSunset(zipInfo.lat, zipInfo.lng, dateStr, zipInfo.timezone);
+          if (sun) {
+            const clampedOpen  = clampTimeToWindow(field.openTime,  sun.sunrise, sun.sunset);
+            const clampedClose = clampTimeToWindow(field.closeTime, sun.sunrise, sun.sunset);
+            if (clampedOpen !== field.openTime || clampedClose !== field.closeTime) {
+              daylightConstrainedCount++;
+            }
+            effectiveOpen  = clampedOpen;
+            effectiveClose = clampedClose;
+            if (effectiveOpen >= effectiveClose) continue;
+          }
+        }
+      }
+
+      const [oh, om] = effectiveOpen.split(':').map(Number);
+      const [ch, cm] = effectiveClose.split(':').map(Number);
       const openMins  = oh * 60 + om;
       const closeMins = ch * 60 + cm;
 
@@ -1082,18 +1040,12 @@ function generateSchedule(teams, fields, config) {
       while (slotStart + gameDur <= closeMins) {
         const hh  = String(Math.floor(slotStart / 60)).padStart(2, '0');
         const min = String(slotStart % 60).padStart(2, '0');
-        slots.push({
-          date:      safeDateStr,
-          time:      `${hh}:${min}`,
-          fieldId:   field.id,
-          fieldName: field.name,
-        });
+        slots.push({ date: dateStr, time: `${hh}:${min}`, fieldId: field.id, fieldName: field.name });
         slotStart += interval;
       }
     }
   }
 
-  // Sort slots by date, time, fieldId
   slots.sort((a, b) => {
     if (a.date !== b.date) return a.date.localeCompare(b.date);
     if (a.time !== b.time) return a.time.localeCompare(b.time);
@@ -1101,8 +1053,7 @@ function generateSchedule(teams, fields, config) {
   });
 
   // 3. Greedy assignment
-  // busyTeams: key = "date time", value = Set of teamIds
-  const busyTeams = new Map();
+  const busyTeams    = new Map();
   const assignedGames = [];
   let skipped = 0;
 
@@ -1132,7 +1083,7 @@ function generateSchedule(teams, fields, config) {
     if (!assigned) skipped++;
   }
 
-  return { games: assignedGames, skipped };
+  return { games: assignedGames, skipped, daylightConstrainedCount };
 }
 
 // ── Settings tab ───────────────────────────────────────────────────────────
@@ -1143,35 +1094,32 @@ function renderSettingsTab() {
   syncAdminUi();
 }
 
-// ── Fields section ─────────────────────────────────────────────────────────
-
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 function renderFieldsSection() {
-  const section = document.getElementById('fields-section');
-  if (!section) return;
-
-  // Re-render the fields list
-  const list = document.getElementById('fields-list');
+  const list  = document.getElementById('fields-list');
   const noMsg = document.getElementById('no-fields-msg');
   if (!list || !noMsg) return;
-
   list.innerHTML = '';
   if (state.fields.length === 0) {
     noMsg.style.display = '';
   } else {
     noMsg.style.display = 'none';
     state.fields.forEach(field => {
-      const days = Array.isArray(field.availableDays) ? field.availableDays : [];
-      const dayStr = days.map(d => DAY_LABELS[d]).join(', ');
+      const days      = Array.isArray(field.availableDays) ? field.availableDays : [];
+      const dayStr    = days.map(d => DAY_LABELS[d]).join(', ');
+      const lightsIcon = field.hasLights ? '💡' : '🌙';
+      const zipText   = field.zipCode ? ` &bull; ZIP ${escHtml(field.zipCode)}` : '';
       const li = document.createElement('li');
       li.innerHTML = `
         <span class="info">
-          <span class="name">${escHtml(field.name)}</span>
-          <span class="sub">${dayStr || 'No days'} &bull; ${escHtml(field.openTime)} &ndash; ${escHtml(field.closeTime)}</span>
+          <span class="name">
+            <span class="field-lights-icon">${lightsIcon}</span>
+            ${escHtml(field.name)}
+          </span>
+          <span class="sub">${dayStr || 'No days'} &bull; ${escHtml(field.openTime)} &ndash; ${escHtml(field.closeTime)}${zipText}</span>
         </span>
-        <button class="remove-btn" style="display:${isAdminMode ? '' : 'none'}">Remove</button>
-      `;
+        <button class="remove-btn" style="display:${isAdminMode ? '' : 'none'}">Remove</button>`;
       li.querySelector('.remove-btn').addEventListener('click', () => {
         if (!isAdminMode) return;
         if (!confirm('Remove this field?')) return;
@@ -1180,130 +1128,75 @@ function renderFieldsSection() {
       list.appendChild(li);
     });
   }
-
-  // Show/hide add form
   const addForm = document.getElementById('field-add-form');
   if (addForm) addForm.style.display = isAdminMode ? '' : 'none';
 }
 
-function setupFieldAddForm() {
-  const btn = document.getElementById('add-field-btn');
-  if (!btn) return;
-  btn.addEventListener('click', addField);
-}
-
-function addField() {
-  if (!isAdminMode) return;
-  const nameEl  = document.getElementById('field-name-input');
-  const openEl  = document.getElementById('field-open-input');
-  const closeEl = document.getElementById('field-close-input');
-  const name = nameEl.value.trim();
-  if (!name) { alert('Please enter a field name.'); return; }
-  if (!openEl.value || !closeEl.value) { alert('Please set open and close times.'); return; }
-
-  const availableDays = [];
-  DAY_LABELS.forEach((_, i) => {
-    const cb = document.getElementById(`field-day-${i}`);
-    if (cb && cb.checked) availableDays.push(i);
-  });
-  if (availableDays.length === 0) { alert('Select at least one available day.'); return; }
-
-  const id = genId('field');
-  nameEl.value  = '';
-  openEl.value  = '';
-  closeEl.value = '';
-  DAY_LABELS.forEach((_, i) => {
-    const cb = document.getElementById(`field-day-${i}`);
-    if (cb) cb.checked = false;
-  });
-
-  saveField({ id, name, availableDays, openTime: openEl.value, closeTime: closeEl.value });
-}
-
-// Note: addField reads openEl.value AFTER clearing it; fix by capturing first
 function addFieldFixed() {
   if (!isAdminMode) return;
-  const nameEl  = document.getElementById('field-name-input');
-  const openEl  = document.getElementById('field-open-input');
-  const closeEl = document.getElementById('field-close-input');
+  const nameEl    = document.getElementById('field-name-input');
+  const openEl    = document.getElementById('field-open-input');
+  const closeEl   = document.getElementById('field-close-input');
+  const lightsEl  = document.getElementById('field-lights-input');
+  const zipEl     = document.getElementById('field-zip-input');
   const name      = nameEl.value.trim();
   const openTime  = openEl.value;
   const closeTime = closeEl.value;
-  if (!name) { alert('Please enter a field name.'); return; }
+  const hasLights = lightsEl ? lightsEl.checked : false;
+  const zipCode   = zipEl ? zipEl.value.trim() : '';
+  if (!name)               { alert('Please enter a field name.'); return; }
   if (!openTime || !closeTime) { alert('Please set open and close times.'); return; }
-
   const availableDays = [];
   DAY_LABELS.forEach((_, i) => {
     const cb = document.getElementById(`field-day-${i}`);
     if (cb && cb.checked) availableDays.push(i);
   });
   if (availableDays.length === 0) { alert('Select at least one available day.'); return; }
-
-  nameEl.value  = '';
-  openEl.value  = '';
-  closeEl.value = '';
+  nameEl.value = ''; openEl.value = ''; closeEl.value = '';
+  if (lightsEl) lightsEl.checked = false;
+  if (zipEl)    zipEl.value      = '';
   DAY_LABELS.forEach((_, i) => {
     const cb = document.getElementById(`field-day-${i}`);
     if (cb) cb.checked = false;
   });
-
   const id = genId('field');
-  saveField({ id, name, availableDays, openTime, closeTime });
+  saveField({ id, name, availableDays, openTime, closeTime, hasLights, zipCode });
 }
 
-// ── Schedule Config section ────────────────────────────────────────────────
-
 function renderScheduleConfigSection() {
-  const cfg = state.scheduleConfig;
-
+  const cfg     = state.scheduleConfig;
   const durEl   = document.getElementById('cfg-game-duration');
   const bufEl   = document.getElementById('cfg-buffer-minutes');
   const startEl = document.getElementById('cfg-start-date');
   const endEl   = document.getElementById('cfg-end-date');
   const rndEl   = document.getElementById('cfg-rounds');
-
   if (!durEl) return;
-
-  durEl.value   = cfg.gameDuration;
-  bufEl.value   = cfg.bufferMinutes;
-  startEl.value = cfg.startDate;
-  endEl.value   = cfg.endDate;
-  rndEl.value   = cfg.rounds;
-
+  durEl.value = cfg.gameDuration; bufEl.value = cfg.bufferMinutes;
+  startEl.value = cfg.startDate;  endEl.value = cfg.endDate;
+  rndEl.value = cfg.rounds;
   const disabled = !isAdminMode;
   [durEl, bufEl, startEl, endEl, rndEl].forEach(el => { el.disabled = disabled; });
-
-  // Hook up save-config button
   const saveBtn = document.getElementById('save-config-btn');
   if (saveBtn) {
     saveBtn.style.display = isAdminMode ? '' : 'none';
-    // Remove old listeners by cloning
     const newBtn = saveBtn.cloneNode(true);
     saveBtn.parentNode.replaceChild(newBtn, saveBtn);
     newBtn.addEventListener('click', () => {
       if (!isAdminMode) return;
-      const newCfg = {
+      saveScheduleConfig({
         gameDuration:  Number(durEl.value)   || 90,
         bufferMinutes: Number(bufEl.value)   || 15,
         startDate:     startEl.value         || '',
         endDate:       endEl.value           || '',
         rounds:        Number(rndEl.value)   || 1,
-      };
-      saveScheduleConfig(newCfg).then(() => {
-        showBanner('Schedule config saved.', 'success');
-      });
+      }).then(() => showBanner('Schedule config saved.', 'success'));
     });
   }
 }
 
-// ── Init settings event listeners ─────────────────────────────────────────
-
 function initSettings() {
-  // Field add button
   const addFieldBtn = document.getElementById('add-field-btn');
-  if (addFieldBtn) {
-    addFieldBtn.addEventListener('click', addFieldFixed);
-  }
+  if (addFieldBtn) addFieldBtn.addEventListener('click', addFieldFixed);
 }
 
 initSettings();
@@ -1317,7 +1210,7 @@ function showBanner(msg, type = 'error') {
   el.style.display = 'block';
   if (type !== 'error') {
     clearTimeout(el._t);
-    el._t = setTimeout(() => { el.style.display = 'none'; }, 5000);
+    el._t = setTimeout(() => { el.style.display = 'none'; }, 6000);
   }
 }
 
