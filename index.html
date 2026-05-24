@@ -10,28 +10,62 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div id="app-layout">
 
-    <!-- ── Sidebar ──────────────────────────────────────────────────── -->
+  <!-- ── Auth Screen ─────────────────────────────────────────────────────── -->
+  <div id="auth-screen">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <span class="rs-logo-mark">R</span>
+        <span class="rs-logo-word">RecSeason</span>
+      </div>
+      <h2 class="auth-heading" id="auth-heading">Sign in to your account</h2>
+      <div id="auth-error" class="auth-error" style="display:none;"></div>
+      <div class="auth-field">
+        <label for="auth-email">Email</label>
+        <input type="email" id="auth-email" placeholder="you@example.com" autocomplete="email" />
+      </div>
+      <div class="auth-field" id="auth-name-field" style="display:none;">
+        <label for="auth-name">Display name</label>
+        <input type="text" id="auth-name" placeholder="Your name" autocomplete="name" />
+      </div>
+      <div class="auth-field">
+        <label for="auth-password">Password</label>
+        <input type="password" id="auth-password" placeholder="••••••••" autocomplete="current-password" />
+      </div>
+      <button id="auth-submit-btn" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:4px;">Sign In</button>
+      <div class="auth-toggle">
+        <span id="auth-toggle-msg">Don't have an account?</span>
+        <button id="auth-toggle-btn" class="auth-toggle-link">Sign Up</button>
+      </div>
+      <div style="text-align:center;margin-top:12px;">
+        <button id="auth-visitor-btn" class="auth-visitor-link">Continue as visitor (read-only)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── App Layout ──────────────────────────────────────────────────────── -->
+  <div id="app-layout" style="display:none;">
+
+    <!-- ── Sidebar ─────────────────────────────────────────────────────── -->
     <aside id="sidebar">
       <div class="sidebar-logo">
         <span class="rs-logo-mark">R</span>
         <span class="rs-logo-word">RecSeason</span>
       </div>
 
-      <div id="sidebar-team-card" class="sidebar-team-card">
+      <div id="sidebar-user-card" class="sidebar-team-card">
         <!-- filled by JS -->
       </div>
 
       <nav class="sidebar-nav">
-        <div class="nav-item active" data-view="dashboard">
+        <div class="nav-item active" data-view="dashboard" data-roles="siteAdmin,commissioner,leagueManager,teamManager,captain,player,parent,umpire">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
             <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
           </svg>
           Dashboard
         </div>
-        <div class="nav-item" data-view="schedule">
+        <div class="nav-item" data-view="schedule" data-roles="siteAdmin,commissioner,leagueManager,teamManager,captain,player,parent,visitor">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
             <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
@@ -39,7 +73,7 @@
           </svg>
           Schedule
         </div>
-        <div class="nav-item" data-view="roster">
+        <div class="nav-item" data-view="roster" data-roles="siteAdmin,commissioner,leagueManager,teamManager,captain,player,parent">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
             <circle cx="9" cy="7" r="4"/>
@@ -48,7 +82,7 @@
           </svg>
           Roster
         </div>
-        <div class="nav-item" data-view="league">
+        <div class="nav-item" data-view="league" data-roles="siteAdmin,commissioner,leagueManager,teamManager,captain,player,parent,visitor">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="8 6 12 2 16 6"/>
             <line x1="12" y1="2" x2="12" y2="15"/>
@@ -56,12 +90,33 @@
           </svg>
           League
         </div>
-        <div class="nav-item" data-view="settings">
+        <div class="nav-item" data-view="umpire" data-roles="umpire,siteAdmin">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
+            <line x1="4" y1="22" x2="4" y2="15"/>
+          </svg>
+          My Games
+        </div>
+        <div class="nav-item" data-view="scorekeeper" data-roles="scorekeeper,siteAdmin,leagueManager">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
+            <rect x="9" y="3" width="6" height="4" rx="1"/>
+            <line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/>
+          </svg>
+          Scoreboard
+        </div>
+        <div class="nav-item" data-view="settings" data-roles="siteAdmin,commissioner,leagueManager,teamManager">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"/>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
           </svg>
           Settings
+        </div>
+        <div class="nav-item" data-view="admin" data-roles="siteAdmin">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          Admin Panel
         </div>
       </nav>
 
@@ -73,7 +128,7 @@
       </div>
     </aside>
 
-    <!-- ── Main Wrapper ──────────────────────────────────────────────── -->
+    <!-- ── Main Wrapper ─────────────────────────────────────────────────── -->
     <div id="main-wrapper">
 
       <!-- Dashboard View -->
@@ -83,17 +138,13 @@
             <div class="topbar-subtitle" id="dashboard-subtitle">DASHBOARD</div>
             <h1 class="topbar-heading">Dashboard</h1>
           </div>
-          <div class="topbar-actions" id="dashboard-admin-controls">
-            <button id="admin-view-btn" class="btn btn-ghost">Admin View</button>
-            <button id="admin-save-btn" class="btn btn-primary" style="display:none">Save &amp; Exit Admin</button>
-          </div>
         </div>
         <div class="view-body">
-          <div id="kpi-strip" class="kpi-strip"><!-- filled by JS --></div>
+          <div id="kpi-strip" class="kpi-strip"></div>
           <div class="dashboard-grid">
-            <div id="upcoming-games-card" class="card pad-0"><!-- filled by JS --></div>
+            <div id="upcoming-games-card" class="card pad-0"></div>
             <div class="dashboard-side">
-              <div id="needs-attention-card" class="card pad-0"><!-- filled by JS --></div>
+              <div id="needs-attention-card" class="card pad-0"></div>
             </div>
           </div>
         </div>
@@ -170,16 +221,63 @@
         </div>
       </div>
 
+      <!-- Umpire View -->
+      <div id="view-umpire" class="view">
+        <div class="topbar">
+          <div class="topbar-title">
+            <div class="topbar-subtitle">UMPIRE</div>
+            <h1 class="topbar-heading">My Assignments</h1>
+          </div>
+          <div class="topbar-actions" id="umpire-actions"></div>
+        </div>
+        <div class="view-body">
+          <div id="umpire-kpi" class="kpi-strip"></div>
+          <div id="umpire-games"></div>
+        </div>
+      </div>
+
+      <!-- Scorekeeper View (placeholder) -->
+      <div id="view-scorekeeper" class="view">
+        <div class="topbar">
+          <div class="topbar-title">
+            <div class="topbar-subtitle">SCOREKEEPER</div>
+            <h1 class="topbar-heading">Live Scoreboard</h1>
+          </div>
+        </div>
+        <div class="view-body">
+          <div class="scorekeeper-placeholder">
+            <div class="scorekeeper-icon">📋</div>
+            <h2 class="scorekeeper-title">Live Scoreboard</h2>
+            <p class="muted" style="max-width:420px;margin:0 auto 24px;">
+              Real-time game scoring is coming soon. This view will include ball/strike/out counts,
+              base runner tracking, inning-by-inning scoring, and a full play log.
+            </p>
+            <div class="scorekeeper-preview">
+              <div class="sk-preview-row">
+                <div class="sk-preview-team">Home Team</div>
+                <div class="sk-preview-score sk-disabled">—</div>
+                <div class="sk-preview-sep">vs</div>
+                <div class="sk-preview-score sk-disabled">—</div>
+                <div class="sk-preview-team">Away Team</div>
+              </div>
+              <div class="sk-preview-counts">
+                <div class="sk-count-chip sk-disabled">Balls: 0</div>
+                <div class="sk-count-chip sk-disabled">Strikes: 0</div>
+                <div class="sk-count-chip sk-disabled">Outs: 0</div>
+                <div class="sk-count-chip sk-disabled">Inning: 1</div>
+              </div>
+              <div class="sk-coming-soon-badge">Coming Soon</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Settings View -->
       <div id="view-settings" class="view">
         <div class="topbar">
           <div class="topbar-title">
             <div class="topbar-subtitle">CONFIGURATION</div>
             <h1 class="topbar-heading">Settings</h1>
-          </div>
-          <div class="topbar-actions">
-            <button id="admin-view-btn2" class="btn btn-ghost">Admin View</button>
-            <button id="admin-save-btn2" class="btn btn-primary" style="display:none">Save &amp; Exit Admin</button>
           </div>
         </div>
         <div class="view-body">
@@ -247,12 +345,32 @@
         </div>
       </div>
 
+      <!-- Admin Panel View -->
+      <div id="view-admin" class="view">
+        <div class="topbar">
+          <div class="topbar-title">
+            <div class="topbar-subtitle">SITE ADMIN</div>
+            <h1 class="topbar-heading">Admin Panel</h1>
+          </div>
+          <div class="topbar-actions">
+            <button id="admin-refresh-btn" class="btn btn-ghost">Refresh Users</button>
+          </div>
+        </div>
+        <div class="view-body">
+          <div class="settings-group">
+            <div class="settings-label">All Users</div>
+            <div id="admin-users-list"></div>
+            <p id="admin-no-users-msg" class="muted" style="display:none">No users found.</p>
+          </div>
+        </div>
+      </div>
+
     </div><!-- /main-wrapper -->
   </div><!-- /app-layout -->
 
   <div id="db-banner" style="display:none;"></div>
 
-  <div id="loading-overlay">
+  <div id="loading-overlay" style="display:none;">
     <div class="loading-box">
       <div class="spinner"></div>
       <p>Connecting&hellip;</p>

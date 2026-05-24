@@ -941,3 +941,277 @@ body {
   .kpi-strip { grid-template-columns: repeat(2, 1fr); }
   .dashboard-grid { grid-template-columns: 1fr; }
 }
+
+/* ── Auth Screen ──────────────────────────────────────────────────────────── */
+
+#auth-screen {
+  min-height: 100vh;
+  background: #f3f0e8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.auth-card {
+  background: #fff;
+  border: 0.5px solid #e3ddcf;
+  border-radius: 14px;
+  padding: 36px 32px 28px;
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.auth-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.auth-heading {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #161816;
+  margin: 0;
+}
+
+.auth-error {
+  background: #fbe7e1;
+  color: #b1361b;
+  border: 0.5px solid #f4a89a;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.auth-field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #3a3c39;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.auth-field input {
+  padding: 9px 12px;
+  border: 0.5px solid #e3ddcf;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #161816;
+  background: #fff;
+  transition: border-color 0.1s;
+}
+
+.auth-field input:focus {
+  outline: none;
+  border-color: #1e6b4a;
+  box-shadow: 0 0 0 2px rgba(30,107,74,0.12);
+}
+
+.auth-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #6e6f6a;
+  justify-content: center;
+}
+
+.auth-toggle-link {
+  background: none;
+  border: none;
+  color: #1e6b4a;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.auth-visitor-link {
+  background: none;
+  border: none;
+  color: #6e6f6a;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.auth-visitor-link:hover { color: #1e6b4a; }
+
+/* ── Scorekeeper Placeholder ──────────────────────────────────────────────── */
+
+.scorekeeper-placeholder {
+  text-align: center;
+  padding: 3rem 1rem;
+}
+
+.scorekeeper-icon {
+  font-size: 3.5rem;
+  margin-bottom: 16px;
+  line-height: 1;
+}
+
+.scorekeeper-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #161816;
+  margin: 0 0 10px;
+}
+
+.scorekeeper-preview {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 12px;
+  background: #f8f6f0;
+  border: 0.5px solid #e3ddcf;
+  border-radius: 14px;
+  padding: 24px 32px;
+  margin-top: 8px;
+  position: relative;
+}
+
+.sk-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  justify-content: center;
+}
+
+.sk-preview-team {
+  font-size: 14px;
+  font-weight: 600;
+  color: #3a3c39;
+  min-width: 80px;
+}
+
+.sk-preview-team:last-child { text-align: right; }
+
+.sk-preview-score {
+  font-size: 28px;
+  font-weight: 700;
+  font-family: "Geist Mono", monospace;
+  color: #1e6b4a;
+  min-width: 40px;
+  text-align: center;
+}
+
+.sk-preview-sep {
+  font-size: 16px;
+  color: #6e6f6a;
+}
+
+.sk-preview-counts {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.sk-count-chip {
+  background: #fff;
+  border: 0.5px solid #e3ddcf;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: "Geist Mono", monospace;
+  color: #3a3c39;
+}
+
+.sk-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.sk-coming-soon-badge {
+  position: absolute;
+  top: -10px;
+  right: 16px;
+  background: #1e6b4a;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-family: "Geist Mono", monospace;
+}
+
+/* ── Admin Panel ──────────────────────────────────────────────────────────── */
+
+.admin-user-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 0.5px solid #e3ddcf;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-user-info {
+  flex: 1;
+  min-width: 140px;
+}
+
+.admin-user-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #161816;
+}
+
+.admin-user-email {
+  font-size: 11.5px;
+  color: #6e6f6a;
+  font-family: "Geist Mono", monospace;
+}
+
+.admin-user-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.admin-role-sel,
+.admin-team-sel,
+.admin-player-sel {
+  padding: 6px 8px;
+  border: 0.5px solid #e3ddcf;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-family: inherit;
+  background: #fff;
+  color: #161816;
+}
+
+.admin-role-sel:focus,
+.admin-team-sel:focus,
+.admin-player-sel:focus {
+  outline: none;
+  border-color: #1e6b4a;
+  box-shadow: 0 0 0 2px rgba(30,107,74,0.12);
+}
