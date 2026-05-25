@@ -126,12 +126,16 @@ onAuthStateChanged(auth, async (user) => {
           linkedPlayerIds: d.linkedPlayerIds || [],
         };
       } else {
-        // First user ever → siteAdmin; everyone else → player
+        // No user doc yet — new sign-up.
+        // Check if ANY users exist to decide whether this is the first (siteAdmin).
         const usersSnap = await getDocs(collection(db, 'users'));
         const role = usersSnap.empty ? 'siteAdmin' : 'player';
+        // Use the name captured from the sign-up form, fall back to email.
+        const displayName = _pendingDisplayName || user.email;
+        _pendingDisplayName = null;
         currentUser = {
           uid: user.uid, email: user.email,
-          displayName: user.displayName || user.email,
+          displayName,
           role, linkedPlayerId: null, linkedTeamId: null,
           linkedLeagueId: null, linkedLeagueIds: [], linkedPlayerIds: [],
         };
@@ -143,10 +147,12 @@ onAuthStateChanged(auth, async (user) => {
     } catch (err) {
       console.error('Error loading user profile:', err);
       currentUser = {
-        uid: user.uid, email: user.email, displayName: user.email,
+        uid: user.uid, email: user.email,
+        displayName: _pendingDisplayName || user.email,
         role: 'player', linkedPlayerId: null, linkedTeamId: null,
         linkedLeagueId: null, linkedLeagueIds: [], linkedPlayerIds: [],
       };
+      _pendingDisplayName = null;
     }
     showApp();
   } else {
@@ -170,6 +176,7 @@ function showAuthScreen() {
 // ── Auth form ──────────────────────────────────────────────────────────────
 
 let _authMode = 'signin';
+let _pendingDisplayName = null; // passed to onAuthStateChanged on sign-up
 
 document.getElementById('auth-toggle-btn').addEventListener('click', () => {
   _authMode = _authMode === 'signin' ? 'signup' : 'signin';
@@ -191,28 +198,37 @@ async function handleAuthSubmit() {
   document.getElementById('auth-error').style.display = 'none';
   if (!email || !password) { showAuthError('Please enter email and password.'); return; }
 
+  const submitBtn = document.getElementById('auth-submit-btn');
+  submitBtn.disabled   = true;
+  submitBtn.textContent = _authMode === 'signup' ? 'Creating account…' : 'Signing in…';
+
   try {
     if (_authMode === 'signup') {
-      const name = document.getElementById('auth-name').value.trim() || email;
-      const cred = await createUserWithEmailAndPassword(auth, email, password);
-      // Pre-write displayName; onAuthStateChanged will set role correctly
-      await setDoc(doc(db, 'users', cred.user.uid), {
-        email, displayName: name, role: 'player', createdAt: new Date().toISOString(),
-      });
+      // Store name so onAuthStateChanged can use it — do NOT write the user doc
+      // here to avoid racing with onAuthStateChanged's first-user siteAdmin check.
+      _pendingDisplayName = document.getElementById('auth-name').value.trim() || email;
+      await createUserWithEmailAndPassword(auth, email, password);
+      // onAuthStateChanged fires next and handles user doc creation with correct role.
     } else {
       await signInWithEmailAndPassword(auth, email, password);
     }
   } catch (err) {
+    _pendingDisplayName = null;
     const msgs = {
-      'auth/invalid-email':        'Invalid email address.',
-      'auth/user-not-found':       'No account found with this email.',
-      'auth/wrong-password':       'Incorrect password.',
-      'auth/email-already-in-use': 'An account with this email already exists.',
-      'auth/weak-password':        'Password should be at least 6 characters.',
-      'auth/invalid-credential':   'Incorrect email or password.',
-      'auth/too-many-requests':    'Too many attempts. Please try again later.',
+      'auth/invalid-email':           'Invalid email address.',
+      'auth/user-not-found':          'No account found with this email.',
+      'auth/wrong-password':          'Incorrect password.',
+      'auth/email-already-in-use':    'An account with this email already exists.',
+      'auth/weak-password':           'Password must be at least 6 characters.',
+      'auth/invalid-credential':      'Incorrect email or password.',
+      'auth/too-many-requests':       'Too many attempts — please try again later.',
+      'auth/network-request-failed':  'Network error. Check your connection and try again.',
+      'auth/operation-not-allowed':   'Email/password sign-in is not enabled. Enable it in Firebase Console → Authentication → Sign-in methods.',
+      'auth/internal-error':          'An internal error occurred. Please try again.',
     };
-    showAuthError(msgs[err.code] || err.message);
+    showAuthError(msgs[err.code] || `Error (${err.code}): ${err.message}`);
+    submitBtn.disabled    = false;
+    submitBtn.textContent = _authMode === 'signup' ? 'Sign Up' : 'Sign In';
   }
 }
 
