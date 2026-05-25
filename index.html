@@ -128,8 +128,26 @@
       </div>
     </aside>
 
+    <!-- ── Sidebar backdrop (mobile) ───────────────────────────────────── -->
+    <div id="sidebar-backdrop"></div>
+
     <!-- ── Main Wrapper ─────────────────────────────────────────────────── -->
     <div id="main-wrapper">
+
+      <!-- Mobile topbar (hidden on desktop) -->
+      <div id="mobile-topbar">
+        <button id="hamburger-btn" aria-label="Open menu">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="3" y1="6"  x2="21" y2="6"/>
+            <line x1="3" y1="12" x2="21" y2="12"/>
+            <line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
+        <div class="mobile-topbar-logo">
+          <span class="rs-logo-mark">R</span>
+          <span class="rs-logo-word">RecSeason</span>
+        </div>
+      </div>
 
       <!-- Dashboard View -->
       <div id="view-dashboard" class="view active">

@@ -1466,6 +1466,30 @@ async function generateSchedule(teams, fields, config) {
   return { games: assignedGames, skipped, daylightConstrainedCount };
 }
 
+// ── Mobile sidebar drawer ──────────────────────────────────────────────────
+
+function openSidebar() {
+  document.getElementById('sidebar').classList.add('sidebar-open');
+  document.getElementById('sidebar-backdrop').classList.add('visible');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('sidebar-open');
+  document.getElementById('sidebar-backdrop').classList.remove('visible');
+  document.body.style.overflow = '';
+}
+
+document.getElementById('hamburger-btn').addEventListener('click', openSidebar);
+document.getElementById('sidebar-backdrop').addEventListener('click', closeSidebar);
+
+// Close drawer when a nav item is tapped on mobile
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    if (window.innerWidth <= 720) closeSidebar();
+  });
+});
+
 // ── Utilities ──────────────────────────────────────────────────────────────
 
 function formatDateHeader(dateStr) {
