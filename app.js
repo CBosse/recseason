@@ -1,13 +1,14 @@
 'use strict';
 
 import { allocateMatchups, validateScheduleConfig } from './scheduling.mjs';
+import { createSubscriptions, writeResult } from './data-lifecycle.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
   getFirestore,
   doc,
   collection,
-  onSnapshot,
+  onSnapshot as firebaseOnSnapshot,
   setDoc,
   deleteDoc,
   getDocs,
@@ -38,6 +39,8 @@ const firebaseConfig = {
 const firebaseApp = initializeApp(firebaseConfig);
 const db   = getFirestore(firebaseApp, 'recseason');
 const auth = getAuth(firebaseApp);
+const subscriptions = createSubscriptions(firebaseOnSnapshot);
+const onSnapshot = (...args) => subscriptions.listen(...args);
 
 // ── Role constants ─────────────────────────────────────────────────────────
 
@@ -86,6 +89,18 @@ let _viewingTeamId    = null;
 let _activeView       = 'dashboard';
 let _listenersStarted = false;
 let _connectTimeout   = null;
+let authGeneration = 0;
+
+function clearSessionData() {
+  subscriptions.clear();
+  clearTimeout(_connectTimeout);
+  _listenersStarted = false;
+  _viewingTeamId = null;
+  for (const key of ['teams', 'players', 'fields', 'games', 'rsvps', 'umpires', 'allUsers']) state[key] = [];
+  for (const key of Object.keys(state._ready)) state._ready[key] = false;
+  state.scheduleConfig = { gameDuration: 90, bufferMinutes: 15, startDate: '', endDate: '', rounds: 1 };
+  document.getElementById('loading-overlay').style.display = 'none';
+}
 
 // ── Role helpers ───────────────────────────────────────────────────────────
 
@@ -111,9 +126,14 @@ function getRsvpPlayerId() {
 // ── Auth state ─────────────────────────────────────────────────────────────
 
 onAuthStateChanged(auth, async (user) => {
+  const generation = ++authGeneration;
+  clearSessionData();
+  currentUser = null;
+  document.getElementById('app-layout').style.display = 'none';
   if (user) {
     try {
       const snap = await getDoc(doc(db, 'users', user.uid));
+      if (generation !== authGeneration) return;
       if (snap.exists()) {
         const d = snap.data();
         currentUser = {
@@ -131,6 +151,7 @@ onAuthStateChanged(auth, async (user) => {
         // No user doc yet — new sign-up.
         // Check if ANY users exist to decide whether this is the first (siteAdmin).
         const usersSnap = await getDocs(collection(db, 'users'));
+        if (generation !== authGeneration) return;
         const role = usersSnap.empty ? 'siteAdmin' : 'player';
         // Use the name captured from the sign-up form, fall back to email.
         const displayName = _pendingDisplayName || user.email;
@@ -147,15 +168,15 @@ onAuthStateChanged(auth, async (user) => {
         });
       }
     } catch (err) {
+      if (generation !== authGeneration) return;
       console.error('Error loading user profile:', err);
-      currentUser = {
-        uid: user.uid, email: user.email,
-        displayName: _pendingDisplayName || user.email,
-        role: 'player', linkedPlayerId: null, linkedTeamId: null,
-        linkedLeagueId: null, linkedLeagueIds: [], linkedPlayerIds: [],
-      };
+      currentUser = null;
       _pendingDisplayName = null;
+      showAuthScreen();
+      showAuthError('Unable to load your account. Please sign in again.');
+      return;
     }
+    if (generation !== authGeneration) return;
     showApp();
   } else {
     currentUser = null;
@@ -171,6 +192,9 @@ function showApp() {
 }
 
 function showAuthScreen() {
+  clearSessionData();
+  document.getElementById('auth-submit-btn').disabled = false;
+  document.getElementById('auth-submit-btn').textContent = _authMode === 'signup' ? 'Sign Up' : 'Sign In';
   document.getElementById('auth-screen').style.display = '';
   document.getElementById('app-layout').style.display  = 'none';
 }
@@ -240,6 +264,8 @@ function showAuthError(msg) {
 }
 
 document.getElementById('auth-visitor-btn').addEventListener('click', () => {
+  authGeneration++;
+  clearSessionData();
   currentUser = {
     uid: null, email: null, displayName: 'Visitor', role: 'visitor',
     linkedPlayerId: null, linkedTeamId: null, linkedLeagueId: null,
@@ -418,7 +444,7 @@ function showDbError(err) {
   showBanner(msg, 'error');
 }
 
-function firestoreWrite(p) { return p.catch(showDbError); }
+function firestoreWrite(p) { return writeResult(p, showDbError); }
 
 function saveTeam(team) {
   return firestoreWrite(setDoc(doc(db, 'teams', team.id), {
@@ -1039,12 +1065,12 @@ function showTeamDetail(team) {
 document.getElementById('add-team-btn').addEventListener('click', addTeam);
 document.getElementById('team-name-input').addEventListener('keydown', e => { if (e.key === 'Enter') addTeam(); });
 
-function addTeam() {
+async function addTeam() {
   if (!canEdit()) return;
   const nameEl = document.getElementById('team-name-input'), colorEl = document.getElementById('team-color-input'), fieldEl = document.getElementById('team-homefield-input');
   const name = nameEl.value.trim();
   if (!name) return;
-  saveTeam({ id: genId('team'), name, color: colorEl.value.trim(), homefield: fieldEl.value.trim() });
+  if (!await saveTeam({ id: genId('team'), name, color: colorEl.value.trim(), homefield: fieldEl.value.trim() })) return;
   nameEl.value = ''; colorEl.value = ''; fieldEl.value = ''; nameEl.focus();
 }
 
@@ -1058,12 +1084,12 @@ function removeTeam(id) {
 document.getElementById('add-player-btn').addEventListener('click', addPlayer);
 document.getElementById('player-name-input').addEventListener('keydown', e => { if (e.key === 'Enter') addPlayer(); });
 
-function addPlayer() {
+async function addPlayer() {
   if (!_viewingTeamId || !canEditTeam(_viewingTeamId)) return;
   const nameEl = document.getElementById('player-name-input'), numEl = document.getElementById('player-number-input'), phoneEl = document.getElementById('player-phone-input');
   const name = nameEl.value.trim();
   if (!name) return;
-  savePlayer({ id: genId('player'), name, number: numEl.value.trim(), phone: phoneEl.value.trim(), teamId: _viewingTeamId });
+  if (!await savePlayer({ id: genId('player'), name, number: numEl.value.trim(), phone: phoneEl.value.trim(), teamId: _viewingTeamId })) return;
   nameEl.value = ''; numEl.value = ''; phoneEl.value = ''; nameEl.focus();
 }
 
@@ -1237,7 +1263,7 @@ function renderFieldsSection() {
   }
 }
 
-function addField() {
+async function addField() {
   if (!canEdit()) return;
   const nameEl = document.getElementById('field-name-input'), openEl = document.getElementById('field-open-input');
   const closeEl = document.getElementById('field-close-input'), lightsEl = document.getElementById('field-lights-input');
@@ -1248,7 +1274,7 @@ function addField() {
   const days = [];
   DAY_LABELS.forEach((_, i) => { const cb = document.getElementById(`field-day-${i}`); if (cb?.checked) days.push(i); });
   if (days.length === 0)       { alert('Select at least one available day.'); return; }
-  saveField({ id: genId('field'), name, availableDays: days, openTime, closeTime, hasLights: lightsEl?.checked ?? false, zipCode: zipEl?.value.trim() ?? '' });
+  if (!await saveField({ id: genId('field'), name, availableDays: days, openTime, closeTime, hasLights: lightsEl?.checked ?? false, zipCode: zipEl?.value.trim() ?? '' })) return;
   nameEl.value = ''; openEl.value = ''; closeEl.value = '';
   if (lightsEl) lightsEl.checked = false;
   if (zipEl)    zipEl.value = '';
@@ -1277,7 +1303,7 @@ function renderScheduleConfigSection() {
       const config = { gameDuration: Number(durEl.value), bufferMinutes: Number(bufEl.value), startDate: startEl.value, endDate: endEl.value, rounds: Number(rndEl.value) };
       try { validateScheduleConfig(config); } catch (err) { showBanner(err.message, 'error'); return; }
       saveScheduleConfig(config)
-        .then(() => showBanner('Schedule config saved.', 'success'));
+        .then(saved => { if (saved) showBanner('Schedule config saved.', 'success'); });
     });
   }
 }
@@ -1339,7 +1365,7 @@ function renderAdminView() {
       const teamId   = row.querySelector('.admin-team-sel').value   || null;
       const playerId = row.querySelector('.admin-player-sel').value || null;
       saveUserProfile(uid, { role, linkedTeamId: teamId, linkedPlayerId: playerId })
-        .then(() => showBanner(`${ROLE_LABELS[role]} saved.`, 'success'));
+        .then(saved => { if (saved) showBanner(`${ROLE_LABELS[role]} saved.`, 'success'); });
     });
   });
 }
