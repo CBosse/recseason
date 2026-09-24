@@ -1,5 +1,7 @@
 'use strict';
 
+import { allocateMatchups, validateScheduleConfig } from './scheduling.mjs';
+
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
   getFirestore,
@@ -881,14 +883,14 @@ async function handleGenerateSchedule() {
   const cfg = state.scheduleConfig;
   if (!cfg.startDate || !cfg.endDate)  { showBanner('Set season dates in Settings.', 'error'); return; }
   if (cfg.startDate > cfg.endDate)     { showBanner('Start date must be before end date.', 'error'); return; }
+  try { validateScheduleConfig(cfg); } catch (err) { showBanner(err.message, 'error'); return; }
 
   const scheduled = state.games.filter(g => g.status === 'scheduled');
   if (scheduled.length > 0 && !confirm(`Delete ${scheduled.length} existing scheduled game(s) and regenerate?`)) return;
 
   showBanner('Generating schedule…', 'success');
-  const { games: newGames, skipped, daylightConstrainedCount } = await generateSchedule(state.teams, state.fields, cfg);
-
   try {
+    const { games: newGames, skipped, daylightConstrainedCount } = await generateSchedule(state.teams, state.fields, cfg);
     const snap = await getDocs(query(collection(db, 'games'), where('status', '==', 'scheduled')));
     for (let i = 0; i < snap.docs.length; i += 500) {
       const batch = writeBatch(db);
@@ -1272,7 +1274,9 @@ function renderScheduleConfigSection() {
     saveBtn.parentNode.replaceChild(newBtn, saveBtn);
     newBtn.addEventListener('click', () => {
       if (!canEdit()) return;
-      saveScheduleConfig({ gameDuration: Number(durEl.value)||90, bufferMinutes: Number(bufEl.value)||15, startDate: startEl.value||'', endDate: endEl.value||'', rounds: Number(rndEl.value)||1 })
+      const config = { gameDuration: Number(durEl.value), bufferMinutes: Number(bufEl.value), startDate: startEl.value, endDate: endEl.value, rounds: Number(rndEl.value) };
+      try { validateScheduleConfig(config); } catch (err) { showBanner(err.message, 'error'); return; }
+      saveScheduleConfig(config)
         .then(() => showBanner('Schedule config saved.', 'success'));
     });
   }
@@ -1389,6 +1393,7 @@ function clampTimeToWindow(t, min, max) { return t < min ? min : t > max ? max :
 // ── Auto-Scheduler ─────────────────────────────────────────────────────────
 
 async function generateSchedule(teams, fields, config) {
+  validateScheduleConfig(config);
   const matchups = [];
   for (let i = 0; i < teams.length; i++) {
     for (let j = i + 1; j < teams.length; j++) {
@@ -1404,7 +1409,7 @@ async function generateSchedule(teams, fields, config) {
   }
 
   const slots = [];
-  const gameDur = Number(config.gameDuration) || 90, bufferMins = Number(config.bufferMinutes) || 15;
+  const gameDur = Number(config.gameDuration), bufferMins = Number(config.bufferMinutes);
   const interval = gameDur + bufferMins;
   let daylightConstrainedCount = 0;
 
@@ -1447,23 +1452,8 @@ async function generateSchedule(teams, fields, config) {
 
   slots.sort((a, b) => a.date !== b.date ? a.date.localeCompare(b.date) : a.time !== b.time ? a.time.localeCompare(b.time) : a.fieldId.localeCompare(b.fieldId));
 
-  const busyTeams = new Map(), assignedGames = [];
-  let skipped = 0;
-  for (const matchup of matchups) {
-    let assigned = false;
-    for (const slot of slots) {
-      const key = `${slot.date} ${slot.time}`;
-      if (!busyTeams.has(key)) busyTeams.set(key, new Set());
-      const busy = busyTeams.get(key);
-      if (!busy.has(matchup.home.id) && !busy.has(matchup.away.id)) {
-        busy.add(matchup.home.id); busy.add(matchup.away.id);
-        assignedGames.push({ date: slot.date, time: slot.time, fieldId: slot.fieldId, fieldName: slot.fieldName, homeTeamId: matchup.home.id, homeName: matchup.home.name, awayTeamId: matchup.away.id, awayName: matchup.away.name });
-        assigned = true; break;
-      }
-    }
-    if (!assigned) skipped++;
-  }
-  return { games: assignedGames, skipped, daylightConstrainedCount };
+  const preserved = state.games.filter(g => g.status !== 'scheduled');
+  return { ...allocateMatchups(matchups, slots, gameDur, bufferMins, preserved), daylightConstrainedCount };
 }
 
 // ── Mobile sidebar drawer ──────────────────────────────────────────────────
