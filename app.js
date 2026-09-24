@@ -1,7 +1,8 @@
 'use strict';
 
 import { allocateMatchups, validateScheduleConfig } from './scheduling.mjs';
-import { createSubscriptions, writeResult } from './data-lifecycle.mjs';
+import { createSubscriptions, writeResult, replaceDocuments } from './data-lifecycle.mjs';
+import { scoreUpdate, standings } from './results.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -10,6 +11,7 @@ import {
   collection,
   onSnapshot as firebaseOnSnapshot,
   setDoc,
+  updateDoc,
   deleteDoc,
   getDocs,
   getDoc,
@@ -868,6 +870,7 @@ function renderIdentityBar() {
 }
 
 function showInlineScoreEdit(li, game) {
+  if (!canEdit()) return;
   const matchupSpan = li.querySelector('.game-matchup');
   const scoreNode   = matchupSpan.querySelector('.score-display, .score-vs');
   const actionsSpan = li.querySelector('.game-actions');
@@ -877,29 +880,31 @@ function showInlineScoreEdit(li, game) {
   const awayInput = Object.assign(document.createElement('input'), { type:'number', min:'0', className:'score-input', value: game.awayScore ?? '', placeholder:'0' });
 
   scoreNode.replaceWith(homeInput, sep, awayInput);
-  actionsSpan.innerHTML = `<button class="btn btn-primary btn-sm save-score-btn">Save</button>`;
-  actionsSpan.querySelector('.save-score-btn').addEventListener('click', () => {
-    const hs = parseInt(homeInput.value, 10), as2 = parseInt(awayInput.value, 10);
-    if (isNaN(hs) || isNaN(as2)) { alert('Please enter valid scores.'); return; }
-    firestoreWrite(setDoc(doc(db, 'games', game.id), {
-      date: game.date, time: game.time, fieldId: game.fieldId, fieldName: game.fieldName,
-      homeTeamId: game.homeTeamId, homeName: game.homeName,
-      awayTeamId: game.awayTeamId, awayName: game.awayName,
-      homeScore: hs, awayScore: as2, status: 'completed',
-    }));
+  homeInput.setAttribute('aria-label', 'Home score');
+  awayInput.setAttribute('aria-label', 'Away score');
+  actionsSpan.innerHTML = `<button class="btn btn-primary btn-sm save-score-btn">Save</button><button class="btn btn-ghost btn-sm cancel-score-btn">Cancel</button>`;
+  actionsSpan.querySelector('.cancel-score-btn').addEventListener('click', renderScheduleView);
+  actionsSpan.querySelector('.save-score-btn').addEventListener('click', async event => {
+    if (!canEdit()) return;
+    let updates;
+    try { updates = scoreUpdate(homeInput.value, awayInput.value); }
+    catch (err) { showBanner(err.message, 'error'); return; }
+    const button = event.currentTarget;
+    button.disabled = true;
+    const saved = await firestoreWrite(updateDoc(doc(db, 'games', game.id), updates));
+    if (saved) showBanner('Result saved.', 'success');
+    button.disabled = false;
   });
 }
 
 async function handleClearSchedule() {
   if (!canEdit()) return;
   if (!confirm('Delete ALL games? This cannot be undone.')) return;
-  const snap = await getDocs(collection(db, 'games'));
-  for (let i = 0; i < snap.docs.length; i += 500) {
-    const batch = writeBatch(db);
-    snap.docs.slice(i, i + 500).forEach(d => batch.delete(d.ref));
-    await batch.commit();
-  }
-  showBanner('Schedule cleared.', 'success');
+  try {
+    const snap = await getDocs(collection(db, 'games'));
+    await replaceDocuments(() => writeBatch(db), snap.docs.map(d => d.ref), []);
+    showBanner('Schedule cleared.', 'success');
+  } catch (err) { showDbError(err); }
 }
 
 async function handleGenerateSchedule() {
@@ -917,17 +922,13 @@ async function handleGenerateSchedule() {
   showBanner('Generating schedule…', 'success');
   try {
     const { games: newGames, skipped, daylightConstrainedCount } = await generateSchedule(state.teams, state.fields, cfg);
+    if (skipped > 0 && !confirm(`${skipped} matchups do not fit. Publish ${newGames.length} games anyway?`)) return;
+    if (newGames.length === 0) { showBanner('No games fit. The existing schedule has not been changed.', 'error'); return; }
     const snap = await getDocs(query(collection(db, 'games'), where('status', '==', 'scheduled')));
-    for (let i = 0; i < snap.docs.length; i += 500) {
-      const batch = writeBatch(db);
-      snap.docs.slice(i, i + 500).forEach(d => batch.delete(d.ref));
-      await batch.commit();
-    }
-    for (let i = 0; i < newGames.length; i += 500) {
-      const batch = writeBatch(db);
-      newGames.slice(i, i + 500).forEach(g => batch.set(doc(collection(db, 'games')), { ...g, homeScore: null, awayScore: null, status: 'scheduled' }));
-      await batch.commit();
-    }
+    await replaceDocuments(() => writeBatch(db), snap.docs.map(d => d.ref), newGames.map(g => ({
+      ref: doc(collection(db, 'games')),
+      data: { ...g, homeScore: null, awayScore: null, status: 'scheduled' },
+    })));
     const parts = [`Schedule generated: ${newGames.length} game(s).`];
     if (daylightConstrainedCount > 0) parts.push(`${daylightConstrainedCount} field-date(s) daylight-limited.`);
     if (skipped > 0) parts.push(`${skipped} matchup(s) could not be scheduled.`);
@@ -1127,26 +1128,7 @@ function renderLeagueView() {
 }
 
 function computeStandings() {
-  const map = new Map();
-  state.teams.forEach(t => map.set(t.id, { name: t.name, GP:0, W:0, L:0, T:0, GF:0, GA:0, Pts:0 }));
-  for (const game of state.games) {
-    if (game.status !== 'completed') continue;
-    const hs = Number(game.homeScore), as = Number(game.awayScore);
-    if (isNaN(hs) || isNaN(as)) continue;
-    const home = map.get(game.homeTeamId), away = map.get(game.awayTeamId);
-    if (!home || !away) continue;
-    home.GP++; away.GP++; home.GF += hs; home.GA += as; away.GF += as; away.GA += hs;
-    if (hs > as)      { home.W++; home.Pts += 3; away.L++; }
-    else if (as > hs) { away.W++; away.Pts += 3; home.L++; }
-    else              { home.T++; home.Pts++; away.T++; away.Pts++; }
-  }
-  return Array.from(map.values()).sort((a, b) => {
-    if (b.Pts !== a.Pts) return b.Pts - a.Pts;
-    const gdA = a.GF - a.GA, gdB = b.GF - b.GA;
-    if (gdB !== gdA) return gdB - gdA;
-    if (b.GF !== a.GF) return b.GF - a.GF;
-    return a.name.localeCompare(b.name);
-  });
+  return standings(state.teams, state.games);
 }
 
 // ── Umpire View ────────────────────────────────────────────────────────────
