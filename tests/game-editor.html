@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Game editor test fixture</title>
+<link rel="stylesheet" href="../style.css?v=game-editor-1">
+<body>
+<button id="open" type="button">Open test game</button>
+<output id="result" aria-live="polite"></output>
+<script type="module">
+import { openGameEditor, validateGame } from '../game-editor.mjs';
+const teams = [{ id: 'a', name: 'Home Club' }, { id: 'b', name: 'Away Club' }];
+const fields = [{ id: 'f', name: 'Community Field', availableDays: [4], openTime: '09:00', closeTime: '21:00' }];
+const config = { startDate: '2026-09-01', endDate: '2026-09-30', gameDuration: 90, bufferMinutes: 15 };
+document.getElementById('open').onclick = () => openGameEditor({
+  game: { id: 'test', date: '2026-09-24', time: '10:00', fieldId: 'f', homeTeamId: 'a', awayTeamId: 'b' },
+  teams, fields, umpires: [], config,
+  save: async game => {
+    const result = validateGame(game, { teams, fields, games: [], config });
+    document.getElementById('result').textContent = `Saved ${result.homeName} vs ${result.awayName} at ${result.time}; locked=${result.locked}`;
+  },
+});
+</script>
+</body>
+</html>

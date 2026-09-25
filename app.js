@@ -4,6 +4,7 @@ import { allocateMatchups, validateScheduleConfig } from './scheduling.mjs';
 import { createSubscriptions, writeResult, replaceDocuments } from './data-lifecycle.mjs';
 import { scoreUpdate, standings } from './results.mjs';
 import { newPlayerProfile } from './accounts.mjs';
+import { openGameEditor, validateGame } from './game-editor.mjs';
 import { firebaseConfig, databaseId } from './firebase-config.js';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
@@ -88,6 +89,7 @@ let _connectTimeout   = null;
 let authGeneration = 0;
 
 function clearSessionData() {
+  document.getElementById('game-editor-dialog')?.remove();
   subscriptions.clear();
   clearTimeout(_connectTimeout);
   _listenersStarted = false;
@@ -404,7 +406,7 @@ function startListeners() {
     state._ready.scheduleConfig = true; checkReady();
   }, err => showDbError(err));
 
-  if (currentUser?.role === 'siteAdmin' || currentUser?.role === 'umpire') {
+  if (canEdit() || currentUser?.role === 'umpire') {
     onSnapshot(collection(db, 'umpires'), snap => {
       state.umpires = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       if (_activeView === 'umpire') renderUmpireView();
@@ -720,9 +722,11 @@ function renderScheduleView() {
   if (actionsDiv) {
     if (canEdit()) {
       actionsDiv.innerHTML = `
+        <button id="add-game-btn" class="btn btn-ghost">Add game</button>
         <button id="generate-schedule-btn" class="btn btn-primary">Generate Schedule</button>
         <button id="clear-schedule-btn" class="btn btn-danger btn-sm">Clear</button>`;
       actionsDiv.querySelector('#generate-schedule-btn').addEventListener('click', handleGenerateSchedule);
+      actionsDiv.querySelector('#add-game-btn').addEventListener('click', () => editGame());
       actionsDiv.querySelector('#clear-schedule-btn').addEventListener('click', handleClearSchedule);
     } else {
       actionsDiv.innerHTML = '';
@@ -764,7 +768,7 @@ function renderScheduleView() {
         : `<span class="score-vs">vs</span>`;
 
       const editBtnHtml = canEdit()
-        ? `<button class="btn btn-ghost btn-sm edit-score-btn">Edit Score</button>` : '';
+        ? `<button class="btn btn-ghost btn-sm edit-game-btn">Edit game</button><button class="btn btn-ghost btn-sm edit-score-btn">Edit Score</button>` : '';
 
       li.innerHTML = `
         <span class="game-time">${escHtml(formatTime(game.time))}</span>
@@ -777,6 +781,7 @@ function renderScheduleView() {
         <span class="game-actions">${editBtnHtml}</span>`;
 
       li.querySelector('.edit-score-btn')?.addEventListener('click', () => showInlineScoreEdit(li, game));
+      li.querySelector('.edit-game-btn')?.addEventListener('click', () => editGame(game));
 
       if (game.status !== 'completed' && rsvpPlayerId && rsvpTeamId &&
           (game.homeTeamId === rsvpTeamId || game.awayTeamId === rsvpTeamId)) {
@@ -865,6 +870,37 @@ function renderIdentityBar() {
   }
 }
 
+async function editGame(game = {}) {
+  if (!canEdit()) return;
+  if (state.teams.length < 2 || !state.fields.length) { showBanner('Add two teams and a field first.', 'error'); return; }
+  const uid = currentUser.uid;
+  openGameEditor({ game, teams: state.teams, fields: state.fields, config: state.scheduleConfig,
+    umpires: state.umpires.map(u => ({ id: u.id, name: u.name || u.displayName || u.email || u.id })),
+    save: async values => {
+      if (!canEdit() || currentUser.uid !== uid) throw new Error('Your session changed. Reopen this game.');
+      const fresh = await getDocs(collection(db, 'games'));
+      const games = fresh.docs.map(d => ({ id: d.id, ...d.data() }));
+      const existing = game.id ? games.find(g => g.id === game.id) : null;
+      if (game.id && !existing) throw new Error('This game was removed.');
+      if (existing?.status === 'completed' && (existing.homeTeamId !== values.homeTeamId || existing.awayTeamId !== values.awayTeamId)) throw new Error('Teams cannot be changed on a completed game.');
+      const validated = validateGame(values, { teams: state.teams, fields: state.fields, games, config: state.scheduleConfig });
+      const field = state.fields.find(f => f.id === values.fieldId);
+      if (!field.hasLights) {
+        const zip = field.zipCode && await fetchZipInfo(field.zipCode);
+        const sun = zip && await fetchSunriseSunset(zip.lat, zip.lng, values.date, zip.timezone);
+        if (!sun) throw new Error('Daylight could not be verified. Check the field ZIP code and try again.');
+        const toMinutes = time => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
+        if (values.time < sun.sunrise || toMinutes(values.time) + values.durationMinutes > toMinutes(sun.sunset)) throw new Error('This unlit field is unavailable outside daylight hours.');
+      }
+      if (!canEdit() || currentUser.uid !== uid) throw new Error('Your session changed. Reopen this game.');
+      const { id, ...updates } = validated;
+      if (id) await updateDoc(doc(db, 'games', id), updates);
+      else await setDoc(doc(collection(db, 'games')), { ...updates, status: 'scheduled', homeScore: null, awayScore: null });
+      showBanner('Game saved.', 'success');
+    },
+  });
+}
+
 function showInlineScoreEdit(li, game) {
   if (!canEdit()) return;
   const matchupSpan = li.querySelector('.game-matchup');
@@ -912,7 +948,7 @@ async function handleGenerateSchedule() {
   if (cfg.startDate > cfg.endDate)     { showBanner('Start date must be before end date.', 'error'); return; }
   try { validateScheduleConfig(cfg); } catch (err) { showBanner(err.message, 'error'); return; }
 
-  const scheduled = state.games.filter(g => g.status === 'scheduled');
+  const scheduled = state.games.filter(g => g.status === 'scheduled' && !g.locked);
   if (scheduled.length > 0 && !confirm(`Delete ${scheduled.length} existing scheduled game(s) and regenerate?`)) return;
 
   showBanner('Generating schedule…', 'success');
@@ -921,7 +957,7 @@ async function handleGenerateSchedule() {
     if (skipped > 0 && !confirm(`${skipped} matchups do not fit. Publish ${newGames.length} games anyway?`)) return;
     if (newGames.length === 0) { showBanner('No games fit. The existing schedule has not been changed.', 'error'); return; }
     const snap = await getDocs(query(collection(db, 'games'), where('status', '==', 'scheduled')));
-    await replaceDocuments(() => writeBatch(db), snap.docs.map(d => d.ref), newGames.map(g => ({
+    await replaceDocuments(() => writeBatch(db), snap.docs.filter(d => !d.data().locked).map(d => d.ref), newGames.map(g => ({
       ref: doc(collection(db, 'games')),
       data: { ...g, homeScore: null, awayScore: null, status: 'scheduled' },
     })));
@@ -1456,7 +1492,7 @@ async function generateSchedule(teams, fields, config) {
 
   slots.sort((a, b) => a.date !== b.date ? a.date.localeCompare(b.date) : a.time !== b.time ? a.time.localeCompare(b.time) : a.fieldId.localeCompare(b.fieldId));
 
-  const preserved = state.games.filter(g => g.status !== 'scheduled');
+  const preserved = state.games.filter(g => g.status !== 'scheduled' || g.locked);
   return { ...allocateMatchups(matchups, slots, gameDur, bufferMins, preserved), daylightConstrainedCount };
 }
 

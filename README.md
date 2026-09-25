@@ -16,7 +16,11 @@ The GitHub Pages workflow runs both checks before deployment.
 ## Current behavior
 
 - Schedules prevent overlapping field and team bookings, including buffer time.
-- Existing non-scheduled games reserve their time during generation.
+- Organizers can add and edit games, including field, teams, duration and umpire.
+  Validation checks field hours, season dates, daylight for unlit fields, and
+  field/team/umpire conflicts. Completed games retain their participating teams.
+- Manually arranged games default to locked against regeneration. Locked and
+  existing non-scheduled games reserve their time during generation.
 - Schedule replacement is one atomic batch, with a maximum of 500 combined
   deletions and additions. Larger changes are rejected without deleting data.
 - Zero-capacity generation keeps the current schedule; incomplete schedules
@@ -43,8 +47,12 @@ client identifiers in `firebase-config.js` for that environment.
 
 ## Remaining work
 
-Secure admin provisioning and tested database rules; manual game management;
+Secure admin provisioning and tested database rules; cancellation workflows;
 invitations and parent linking; attendance; persistent live scoring; reminders;
 backup and restoration; larger schedule publication; browser acceptance tests;
 and production configuration/verification remain outstanding. The test suite
 covers domain logic and subscription handling, not live Firebase authorization.
+The standalone `tests/game-editor.html` fixture exercises the editor without
+connecting to Firebase or writing live records. Concurrent organizer writes are
+not yet serialized, and regeneration does not yet deduct preserved matchups
+from the season's target count.
