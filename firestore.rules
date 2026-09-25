@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function admin() { return signedIn() && profile().role == 'siteAdmin'; }
+    function organizer() { return signedIn() && profile().role in ['siteAdmin', 'commissioner', 'leagueManager']; }
+    function manages(teamId) { return organizer() || (signedIn() && profile().role == 'teamManager' && profile().linkedTeamId == teamId); }
+    function ownsPlayer(playerId) {
+      return signedIn() && ((profile().role in ['player', 'captain'] && profile().linkedPlayerId == playerId) ||
+        (profile().role == 'parent' && playerId in profile().linkedPlayerIds));
+    }
+    function validProfile(d) {
+      return d.keys().hasOnly(['email', 'displayName', 'role', 'linkedTeamId', 'linkedPlayerId', 'linkedPlayerIds', 'createdAt']) &&
+        d.email is string && d.displayName is string && d.displayName.size() <= 100 &&
+        d.role in ['siteAdmin', 'commissioner', 'leagueManager', 'teamManager', 'captain', 'player', 'parent', 'umpire', 'scorekeeper', 'visitor'] &&
+        (d.linkedTeamId == null || d.linkedTeamId is string) &&
+        (d.linkedPlayerId == null || d.linkedPlayerId is string) && d.linkedPlayerIds is list && d.linkedPlayerIds.size() <= 30;
+    }
+    match /users/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || admin() || (organizer() && resource.data.role == 'scorekeeper'));
+      allow list: if admin() || (organizer() && resource.data.role == 'scorekeeper');
+      allow create: if signedIn() && request.auth.uid == uid && validProfile(request.resource.data) &&
+        request.resource.data.email == request.auth.token.email && request.resource.data.role == 'player' &&
+        request.resource.data.linkedTeamId == null && request.resource.data.linkedPlayerId == null && request.resource.data.linkedPlayerIds == [];
+      allow update: if validProfile(request.resource.data) && (admin() || (signedIn() && request.auth.uid == uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName'])));
+      allow delete: if false;
+    }
+    match /teams/{id} {
+      allow read: if true;
+      allow create, delete: if organizer();
+      allow update: if manages(id);
+    }
+    match /fields/{id} {
+      allow read: if true;
+      allow write: if organizer();
+    }
+    match /config/{id} {
+      allow read: if true;
+      allow write: if organizer();
+    }
+    match /players/{id} {
+      allow read: if manages(resource.data.teamId) || ownsPlayer(id);
+      allow create: if manages(request.resource.data.teamId);
+      allow update: if manages(resource.data.teamId) && manages(request.resource.data.teamId);
+      allow delete: if manages(resource.data.teamId);
+    }
+    function validScore(d) {
+      return d.homeScore is int && d.homeScore >= 0 && d.homeScore <= 9007199254740991 &&
+        d.awayScore is int && d.awayScore >= 0 && d.awayScore <= 9007199254740991;
+    }
+    match /games/{id} {
+      allow read: if true;
+      allow create, delete: if organizer();
+      allow update: if organizer() || (signedIn() && profile().role == 'scorekeeper' && resource.data.scorekeeperId == request.auth.uid &&
+        resource.data.status in ['scheduled', 'live'] && request.resource.data.status in ['live', 'completed'] &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'scoreRevision', 'scoredBy']) &&
+        validScore(request.resource.data) && request.resource.data.scoredBy == request.auth.uid &&
+        request.resource.data.scoreRevision == resource.data.get('scoreRevision', 0) + 1 &&
+        request.resource.data.inning is int && request.resource.data.inning >= 1 && request.resource.data.inning <= 99 &&
+        request.resource.data.half in ['top', 'bottom'] &&
+        request.resource.data.balls is int && request.resource.data.balls >= 0 && request.resource.data.balls <= 3 &&
+        request.resource.data.strikes is int && request.resource.data.strikes >= 0 && request.resource.data.strikes <= 2 &&
+        request.resource.data.outs is int && request.resource.data.outs >= 0 && request.resource.data.outs <= 2);
+    }
+    match /rsvps/{id} {
+      allow read: if manages(resource.data.teamId) || ownsPlayer(resource.data.playerId);
+      allow create, update: if request.resource.data.keys().hasOnly(['gameId', 'playerId', 'playerName', 'teamId', 'status']) &&
+        id == request.resource.data.gameId + '_' + request.resource.data.playerId &&
+        request.resource.data.status in ['going', 'maybe', 'not_going'] &&
+        (organizer() || ownsPlayer(request.resource.data.playerId)) &&
+        get(/databases/$(database)/documents/players/$(request.resource.data.playerId)).data.teamId == request.resource.data.teamId &&
+        get(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data.status == 'scheduled' &&
+        request.resource.data.teamId in [get(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data.homeTeamId,
+          get(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data.awayTeamId];
+      allow delete: if organizer();
+    }
+    match /umpires/{uid} {
+      allow read: if organizer() || (signedIn() && request.auth.uid == uid);
+      allow write: if organizer();
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}

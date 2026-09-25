@@ -13,6 +13,22 @@ server alone does not provide an offline database.
 Run `node --test tests/*.test.mjs` and `node --check app.js` before publishing.
 The GitHub Pages workflow runs both checks before deployment.
 
+For authorization tests, install Node 22, Java 21, and run `npm ci` followed by
+`npm run test:rules`. Tests use the Firestore emulator at 127.0.0.1:8180 and the
+non-production project ID `demo-recseason`. No Firebase login is needed. On this
+workstation Java 21 is available under `.tools/java21`; set `JAVA_HOME` to its
+JRE folder and prepend `$env:JAVA_HOME/bin` to PATH for the test command.
+
+`firestore.rules` is a candidate ruleset, not an assertion about currently
+deployed permissions. `firebase.test.json` is emulator-only configuration.
+Do not use it to deploy to the default database. Production rollout must target
+the named `recseason` database, preserve a copy of current rules, validate existing
+profiles against the schema, and pass authenticated role acceptance tests first.
+GitHub Pages publishes only static application files, not dependencies or tests.
+The initial tooling audit reports six moderate advisories in development-only
+dependencies. Track updates to Firebase CLI and its transitive dependencies;
+these packages are excluded from the published application.
+
 ## Current behavior
 
 - Schedules prevent overlapping field and team bookings, including buffer time.
@@ -35,6 +51,10 @@ The GitHub Pages workflow runs both checks before deployment.
 - Standings award three points for a win and one for a tie; ties in ranking use
   goal difference, goals scored, then team name. Invalid results are excluded.
 - Account changes dispose database listeners and clear cached records.
+- Private player and attendance queries are scoped to linked players/children
+  or the manager's team; organizers can access league records. Visitors do not
+  request private player or attendance data. Team-wide participant views need a
+  separate contact-free roster projection before they can be exposed safely.
 - Game editors can assign a scorekeeper from registered scorekeeper accounts.
   Assigned scorekeepers and league organizers can save live totals, inning/half,
   balls, strikes, and outs, then finalize the result into the standings. Saves use

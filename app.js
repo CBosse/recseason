@@ -24,6 +24,7 @@ import {
   where,
   writeBatch,
   runTransaction,
+  documentId,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 import {
   getAuth,
@@ -367,7 +368,16 @@ function startListeners() {
     state._ready.teams = true; checkReady();
   }, err => showDbError(err));
 
-  onSnapshot(collection(db, 'players'), snap => {
+  const linkedIds = currentUser?.role === 'parent' ? (currentUser.linkedPlayerIds || []).slice(0, 30) :
+    (['player', 'captain'].includes(currentUser?.role) && currentUser.linkedPlayerId ? [currentUser.linkedPlayerId] : []);
+  const privateQuery = (name, playerKey) => {
+    if (canEdit()) return collection(db, name);
+    if (currentUser?.role === 'teamManager' && currentUser.linkedTeamId) return query(collection(db, name), where('teamId', '==', currentUser.linkedTeamId));
+    if (linkedIds.length) return query(collection(db, name), where(playerKey, 'in', linkedIds));
+    return null;
+  };
+  const playersQuery = privateQuery('players', documentId());
+  if (playersQuery) onSnapshot(playersQuery, snap => {
     state.players = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     state.players.sort((a, b) => {
       const na = Number(a.number) || 0, nb = Number(b.number) || 0;
@@ -376,6 +386,7 @@ function startListeners() {
     });
     state._ready.players = true; checkReady();
   }, err => showDbError(err));
+  else { state.players = []; state._ready.players = true; }
 
   onSnapshot(collection(db, 'fields'), snap => {
     state.fields = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -389,10 +400,12 @@ function startListeners() {
     state._ready.games = true; checkReady();
   }, err => showDbError(err));
 
-  onSnapshot(collection(db, 'rsvps'), snap => {
+  const rsvpQuery = privateQuery('rsvps', 'playerId');
+  if (rsvpQuery) onSnapshot(rsvpQuery, snap => {
     state.rsvps = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     state._ready.rsvps = true; checkReady();
   }, err => showDbError(err));
+  else { state.rsvps = []; state._ready.rsvps = true; }
 
   onSnapshot(doc(db, 'config', 'schedule'), snap => {
     if (snap.exists()) {
@@ -411,7 +424,8 @@ function startListeners() {
   }, err => showDbError(err));
 
   if (canEdit() || currentUser?.role === 'umpire') {
-    onSnapshot(collection(db, 'umpires'), snap => {
+    const umpireQuery = canEdit() ? collection(db, 'umpires') : query(collection(db, 'umpires'), where(documentId(), '==', currentUser.uid));
+    onSnapshot(umpireQuery, snap => {
       state.umpires = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       if (_activeView === 'umpire') renderUmpireView();
     }, err => console.warn('Umpires listener:', err));
