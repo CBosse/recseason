@@ -39,3 +39,20 @@ export function allocateMatchups(matchups, slots, duration, buffer, preserved = 
   }
   return { games, skipped: unscheduled.length, unscheduled };
 }
+
+export function remainingMatchups(matchups, preserved) {
+  const counts = new Map();
+  const key = (home, away) => JSON.stringify([home, away]);
+  for (const game of preserved) {
+    if (game.status === 'cancelled') continue;
+    const pair = key(game.homeTeamId, game.awayTeamId);
+    counts.set(pair, (counts.get(pair) || 0) + 1);
+  }
+  return matchups.filter(matchup => {
+    const pair = key(matchup.home.id, matchup.away.id);
+    const count = counts.get(pair) || 0;
+    if (!count) return true;
+    counts.set(pair, count - 1);
+    return false;
+  });
+}

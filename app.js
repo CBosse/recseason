@@ -1,6 +1,7 @@
 'use strict';
 
-import { allocateMatchups, validateScheduleConfig } from './scheduling.mjs';
+import { allocateMatchups, validateScheduleConfig, remainingMatchups } from './scheduling.mjs';
+import { cancellationUpdate } from './game-status.mjs';
 import { createSubscriptions, writeResult, replaceDocuments } from './data-lifecycle.mjs';
 import { scoreUpdate, standings } from './results.mjs';
 import { newPlayerProfile } from './accounts.mjs';
@@ -21,6 +22,7 @@ import {
   query,
   where,
   writeBatch,
+  runTransaction,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 import {
   getAuth,
@@ -768,11 +770,11 @@ function renderScheduleView() {
         : `<span class="score-vs">vs</span>`;
 
       const editBtnHtml = canEdit()
-        ? `<button class="btn btn-ghost btn-sm edit-game-btn">Edit game</button><button class="btn btn-ghost btn-sm edit-score-btn">Edit Score</button>` : '';
+        ? `<button class="btn btn-ghost btn-sm edit-game-btn">${game.status === 'cancelled' ? 'Reschedule' : 'Edit game'}</button>${game.status !== 'cancelled' ? '<button class="btn btn-ghost btn-sm edit-score-btn">Edit Score</button>' : ''}${game.status === 'scheduled' ? '<button class="btn btn-ghost btn-sm cancel-game-btn">Cancel game</button>' : ''}` : '';
 
       li.innerHTML = `
         <span class="game-time">${escHtml(formatTime(game.time))}</span>
-        <span class="game-field">${escHtml(game.fieldName)}</span>
+        <span class="game-field">${escHtml(game.fieldName)}${game.status === 'cancelled' ? ' (Cancelled)' : ''}</span>
         <span class="game-matchup">
           <span class="team-name-home">${escHtml(game.homeName)}</span>
           ${scoreDisplay}
@@ -782,8 +784,9 @@ function renderScheduleView() {
 
       li.querySelector('.edit-score-btn')?.addEventListener('click', () => showInlineScoreEdit(li, game));
       li.querySelector('.edit-game-btn')?.addEventListener('click', () => editGame(game));
+      li.querySelector('.cancel-game-btn')?.addEventListener('click', () => cancelGame(game));
 
-      if (game.status !== 'completed' && rsvpPlayerId && rsvpTeamId &&
+      if (game.status === 'scheduled' && rsvpPlayerId && rsvpTeamId &&
           (game.homeTeamId === rsvpTeamId || game.awayTeamId === rsvpTeamId)) {
         const existing  = state.rsvps.find(r => r.gameId === game.id && r.playerId === rsvpPlayerId);
         const curStatus = existing?.status || null;
@@ -802,7 +805,7 @@ function renderScheduleView() {
         li.appendChild(rsvpDiv);
       }
 
-      if (game.status !== 'completed') {
+      if (game.status === 'scheduled') {
         const allR = state.rsvps.filter(r => r.gameId === game.id);
         if (allR.length > 0) {
           const homeR = allR.filter(r => r.teamId === game.homeTeamId);
@@ -894,11 +897,25 @@ async function editGame(game = {}) {
       }
       if (!canEdit() || currentUser.uid !== uid) throw new Error('Your session changed. Reopen this game.');
       const { id, ...updates } = validated;
-      if (id) await updateDoc(doc(db, 'games', id), updates);
+      if (id) await updateDoc(doc(db, 'games', id), { ...updates, ...(existing.status === 'cancelled' ? { status: 'scheduled' } : {}) });
       else await setDoc(doc(collection(db, 'games')), { ...updates, status: 'scheduled', homeScore: null, awayScore: null });
       showBanner('Game saved.', 'success');
     },
   });
+}
+
+async function cancelGame(game) {
+  if (!canEdit() || !confirm(`Cancel ${game.homeName} vs ${game.awayName}? The game record and attendance history will be kept.`)) return;
+  const uid = currentUser.uid;
+  try {
+    await runTransaction(db, async transaction => {
+      const ref = doc(db, 'games', game.id);
+      const snapshot = await transaction.get(ref);
+      if (!canEdit() || currentUser.uid !== uid) throw new Error('Your session changed.');
+      transaction.update(ref, cancellationUpdate(snapshot.exists() ? snapshot.data() : null));
+    });
+    showBanner('Game cancelled.', 'success');
+  } catch (err) { showDbError(err); }
 }
 
 function showInlineScoreEdit(li, game) {
@@ -923,7 +940,14 @@ function showInlineScoreEdit(li, game) {
     catch (err) { showBanner(err.message, 'error'); return; }
     const button = event.currentTarget;
     button.disabled = true;
-    const saved = await firestoreWrite(updateDoc(doc(db, 'games', game.id), updates));
+    const uid = currentUser.uid;
+    const saved = await firestoreWrite(runTransaction(db, async transaction => {
+      const ref = doc(db, 'games', game.id);
+      const snapshot = await transaction.get(ref);
+      if (!canEdit() || currentUser.uid !== uid) throw new Error('Your session changed.');
+      if (!snapshot.exists() || snapshot.data().status === 'cancelled') throw new Error('This game was removed or cancelled. Refresh the schedule.');
+      transaction.update(ref, updates);
+    }));
     if (saved) showBanner('Result saved.', 'success');
     button.disabled = false;
   });
@@ -1493,7 +1517,7 @@ async function generateSchedule(teams, fields, config) {
   slots.sort((a, b) => a.date !== b.date ? a.date.localeCompare(b.date) : a.time !== b.time ? a.time.localeCompare(b.time) : a.fieldId.localeCompare(b.fieldId));
 
   const preserved = state.games.filter(g => g.status !== 'scheduled' || g.locked);
-  return { ...allocateMatchups(matchups, slots, gameDur, bufferMins, preserved), daylightConstrainedCount };
+  return { ...allocateMatchups(remainingMatchups(matchups, preserved), slots, gameDur, bufferMins, preserved), daylightConstrainedCount };
 }
 
 // ── Mobile sidebar drawer ──────────────────────────────────────────────────

@@ -21,6 +21,11 @@ The GitHub Pages workflow runs both checks before deployment.
   field/team/umpire conflicts. Completed games retain their participating teams.
 - Manually arranged games default to locked against regeneration. Locked and
   existing non-scheduled games reserve their time during generation.
+- Retained games count toward their home-away matchup quota during regeneration.
+  Cancelled games neither consume that quota nor block available time.
+- Organizers can cancel scheduled games without deleting game or attendance
+  history, then reschedule them through the game editor. Cancellation and result
+  saves check the current game status in a transaction.
 - Schedule replacement is one atomic batch, with a maximum of 500 combined
   deletions and additions. Larger changes are rejected without deleting data.
 - Zero-capacity generation keeps the current schedule; incomplete schedules
@@ -47,12 +52,12 @@ client identifiers in `firebase-config.js` for that environment.
 
 ## Remaining work
 
-Secure admin provisioning and tested database rules; cancellation workflows;
+Secure admin provisioning and tested database rules;
 invitations and parent linking; attendance; persistent live scoring; reminders;
 backup and restoration; larger schedule publication; browser acceptance tests;
 and production configuration/verification remain outstanding. The test suite
 covers domain logic and subscription handling, not live Firebase authorization.
 The standalone `tests/game-editor.html` fixture exercises the editor without
-connecting to Firebase or writing live records. Concurrent organizer writes are
-not yet serialized, and regeneration does not yet deduct preserved matchups
-from the season's target count.
+connecting to Firebase or writing live records. Concurrent schedule edits and
+regeneration are not yet serialized. Cancellation and rescheduling do not yet
+notify participants or reset prior attendance responses.
