@@ -14,6 +14,7 @@ import { fieldUpdate, fieldFitsGame, fieldWindow, openFieldEditor } from './fiel
 import { invitationProfilePatch } from './invitations.mjs';
 import { openInvitationCreator, openInvitationRecipient } from './invitation-ui.mjs';
 import { dashboardScope, upcomingGames, rsvpTotals, dashboardRecord } from './dashboard.mjs';
+import { rsvpSchedule, isCurrentRsvp } from './rsvps.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -517,9 +518,10 @@ function saveScheduleConfig(cfg) {
 }
 
 function setRsvp(gameId, status, playerId, playerName, teamId) {
-  if (!playerId) return;
+  const game = state.games.find(g => g.id === gameId);
+  if (!playerId || !game || game.status !== 'scheduled') return;
   firestoreWrite(setDoc(doc(db, 'rsvps', `${gameId}_${playerId}`), {
-    gameId, playerId, playerName, teamId: teamId || null, status,
+    gameId, playerId, playerName, teamId: teamId || null, status, ...rsvpSchedule(game),
   }));
 }
 
@@ -651,7 +653,7 @@ function renderUpcomingGamesCard() {
     html += `<div style="padding:24px 16px;"><p class="muted">No upcoming games.</p></div>`;
   } else {
     for (const game of upcoming) {
-      const allR     = state.rsvps.filter(r => r.gameId === game.id);
+      const allR     = state.rsvps.filter(r => isCurrentRsvp(r, game));
       const going    = allR.filter(r => r.status === 'going').length;
       const notGoing = allR.filter(r => r.status === 'not_going').length;
       const maybe    = allR.filter(r => r.status === 'maybe').length;
@@ -693,7 +695,7 @@ function renderNeedsAttentionCard() {
   const rows = [];
   if (nextGame) {
     const inGame    = state.players.filter(p => !p.archived && (p.teamId === nextGame.homeTeamId || p.teamId === nextGame.awayTeamId));
-    const rsvpedIds = new Set(state.rsvps.filter(r => r.gameId === nextGame.id).map(r => r.playerId));
+    const rsvpedIds = new Set(state.rsvps.filter(r => isCurrentRsvp(r, nextGame)).map(r => r.playerId));
     const missing   = inGame.filter(p => !rsvpedIds.has(p.id));
     missing.slice(0, 8).forEach(p => rows.push({ who: p.name, what: `No RSVP for ${formatDateHeader(nextGame.date)}` }));
     if (missing.length > 8) rows.push({ who: `+${missing.length - 8} more`, what: 'players without RSVP' });
@@ -809,7 +811,8 @@ function renderScheduleView() {
 
       if (game.status === 'scheduled' && rsvpPlayerId && !rsvpPlayer?.archived && rsvpTeamId &&
           (game.homeTeamId === rsvpTeamId || game.awayTeamId === rsvpTeamId)) {
-        const existing  = state.rsvps.find(r => r.gameId === game.id && r.playerId === rsvpPlayerId);
+        const previous = state.rsvps.find(r => r.gameId === game.id && r.playerId === rsvpPlayerId);
+        const existing = previous && isCurrentRsvp(previous, game) ? previous : null;
         const curStatus = existing?.status || null;
         const rsvpDiv   = document.createElement('div');
         rsvpDiv.className = 'rsvp-buttons';
@@ -824,10 +827,16 @@ function renderScheduleView() {
           });
         });
         li.appendChild(rsvpDiv);
+        if (previous && !existing) {
+          const notice = document.createElement('p');
+          notice.className = 'muted';
+          notice.textContent = 'Please confirm your availability for this date, time, and field.';
+          li.appendChild(notice);
+        }
       }
 
       if (game.status === 'scheduled') {
-        const allR = state.rsvps.filter(r => r.gameId === game.id);
+        const allR = state.rsvps.filter(r => isCurrentRsvp(r, game));
         if (allR.length > 0) {
           const homeR = allR.filter(r => r.teamId === game.homeTeamId);
           const awayR = allR.filter(r => r.teamId === game.awayTeamId);
@@ -1136,7 +1145,7 @@ function showTeamDetail(team) {
     for (const game of upcomingGames) {
       const isHome = game.homeTeamId === team.id;
       const opp    = isHome ? game.awayName : game.homeName;
-      const gRsvps = state.rsvps.filter(r => r.gameId === game.id && r.teamId === team.id);
+      const gRsvps = state.rsvps.filter(r => isCurrentRsvp(r, game) && r.teamId === team.id);
       const going  = gRsvps.filter(r => r.status === 'going').length;
       const maybe  = gRsvps.filter(r => r.status === 'maybe').length;
       const out    = gRsvps.filter(r => r.status === 'not_going').length;

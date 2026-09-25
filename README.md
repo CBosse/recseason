@@ -138,7 +138,11 @@ covers domain logic and subscription handling, not live Firebase authorization.
 The standalone `tests/game-editor.html` fixture exercises the editor without
 connecting to Firebase or writing live records. Concurrent schedule edits and
 regeneration are not yet serialized. Cancellation and rescheduling do not yet
-notify participants or reset prior attendance responses.
+notify participants. RSVPs now confirm a specific date, time, and field. After
+rescheduling, old responses remain stored but are excluded from current totals
+and the participant is prompted to reconfirm. Legacy responses without these
+schedule fields also need reconfirmation. Deploy the matching candidate rules
+with this client change; stale-browser RSVP writes are rejected by those rules.
 The `tests/live-scoring.html` fixture checks the score form with in-memory data.
 Live scoring still needs Firebase authorization and cross-account integration
 tests before production use; client-side role checks are not security rules.

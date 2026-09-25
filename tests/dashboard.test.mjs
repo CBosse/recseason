@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { dashboardScope, upcomingGames, rsvpTotals, dashboardRecord } from '../dashboard.mjs';
+import { rsvpSchedule } from '../rsvps.mjs';
 const players = [{ id: 'child', teamId: 'a' }, { id: 'archived', teamId: 'b', archived: true }];
 const games = [
   { id: 'live', homeTeamId: 'a', awayTeamId: 'b', date: '2026-09-25', time: '18:00', status: 'live' },
-  { id: 'next', homeTeamId: 'a', awayTeamId: 'b', date: '2026-09-25', time: '20:00', status: 'scheduled' },
+  { id: 'next', homeTeamId: 'a', awayTeamId: 'b', date: '2026-09-25', time: '20:00', fieldId: 'main', status: 'scheduled' },
   { id: 'cancelled', homeTeamId: 'a', awayTeamId: 'b', date: '2026-09-25', time: '17:00', status: 'cancelled' },
   { id: 'unrelated', homeTeamId: 'c', awayTeamId: 'd', date: '2026-09-25', time: '16:00', status: 'scheduled' },
 ];
@@ -20,7 +21,7 @@ test('next game excludes live and cancelled games; live games can appear separat
   assert.deepEqual(upcomingGames(games.slice(0, 3), '2026-09-25', true).map(g => g.id), ['live', 'next']);
 });
 test('RSVP totals exclude archived and unrelated players and duplicate responses', () => {
-  const rsvps = ['child', 'child', 'archived', 'unknown'].map(playerId => ({ playerId, gameId: 'next', status: 'going' }));
+  const rsvps = ['child', 'child', 'archived', 'unknown'].map(playerId => ({ playerId, gameId: 'next', status: 'going', ...rsvpSchedule(games[1]) }));
   assert.deepEqual(rsvpTotals(games[1], players, rsvps), { going: 1, total: 1 });
 });
 test('record uses team IDs even for duplicate names and rejects null scores', () => {

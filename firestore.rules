@@ -103,7 +103,10 @@ service cloud.firestore {
     }
     match /rsvps/{id} {
       allow read: if manages(resource.data.teamId) || ownsPlayer(resource.data.playerId);
-      allow create, update: if request.resource.data.keys().hasOnly(['gameId', 'playerId', 'playerName', 'teamId', 'status']) &&
+      allow create, update: if request.resource.data.keys().hasOnly(['gameId', 'playerId', 'playerName', 'teamId', 'status', 'gameDate', 'gameTime', 'gameFieldId']) &&
+        request.resource.data.gameDate == get(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data.date &&
+        request.resource.data.gameTime == get(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data.time &&
+        request.resource.data.gameFieldId == get(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data.fieldId &&
         id == request.resource.data.gameId + '_' + request.resource.data.playerId &&
         request.resource.data.status in ['going', 'maybe', 'not_going'] &&
         (organizer() || ownsPlayer(request.resource.data.playerId)) &&

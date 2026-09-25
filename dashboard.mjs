@@ -1,4 +1,5 @@
 import { standings } from './results.mjs';
+import { isCurrentRsvp } from './rsvps.mjs';
 
 export function dashboardScope(user, players, games) {
   if (['siteAdmin', 'commissioner', 'leagueManager', 'visitor'].includes(user?.role)) return { games, teamIds: null };
@@ -15,7 +16,7 @@ export function upcomingGames(games, today, includeLive = false) {
 
 export function rsvpTotals(game, players, rsvps) {
   const ids = new Set(players.filter(p => !p.archived && [game.homeTeamId, game.awayTeamId].includes(p.teamId)).map(p => p.id));
-  const going = new Set(rsvps.filter(r => r.gameId === game.id && r.status === 'going' && ids.has(r.playerId)).map(r => r.playerId)).size;
+  const going = new Set(rsvps.filter(r => isCurrentRsvp(r, game) && r.status === 'going' && ids.has(r.playerId)).map(r => r.playerId)).size;
   return { going, total: ids.size };
 }
 

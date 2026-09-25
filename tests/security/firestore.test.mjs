@@ -5,9 +5,10 @@ import { doc, documentId, setDoc, getDoc, updateDoc, collection, getDocs, query,
 import { invitationProfilePatch } from '../../invitations.mjs';
 import { newPlayerProfile } from '../../accounts.mjs';
 import { liveScoreUpdate } from '../../live-scoring.mjs';
+import { rsvpSchedule } from '../../rsvps.mjs';
 let env;
 const profile = (uid, role, extra = {}) => ({ ...newPlayerProfile({ uid, email: `${uid}@example.test` }, uid), role, ...extra });
-const game = { status: 'scheduled', homeTeamId: 'a', awayTeamId: 'b', scorekeeperId: 'scorer' };
+const game = { status: 'scheduled', homeTeamId: 'a', awayTeamId: 'b', scorekeeperId: 'scorer', date: '2026-09-25', time: '18:00', fieldId: 'main' };
 before(async () => {
   env = await initializeTestEnvironment({ projectId: 'demo-recseason', firestore: { host: '127.0.0.1', port: 8180, rules: readFileSync('firestore.rules', 'utf8') } });
   await env.clearFirestore();
@@ -57,7 +58,7 @@ test('player and parent access is limited to linked players; manager cannot tran
   await assertFails(updateDoc(doc(dbFor('manager'), 'players', 'p'), { teamId: 'b' }));
 });
 test('RSVP cannot impersonate another player or target an unrelated team', async () => {
-  const data = { gameId: 'g', playerId: 'p', playerName: 'Player', teamId: 'a', status: 'going' };
+  const data = { gameId: 'g', playerId: 'p', playerName: 'Player', teamId: 'a', status: 'going', ...rsvpSchedule(game) };
   await assertSucceeds(setDoc(doc(dbFor('player'), 'rsvps', 'g_p'), data));
   await assertSucceeds(setDoc(doc(dbFor('parent'), 'rsvps', 'g_p'), { ...data, status: 'maybe' }));
   await assertSucceeds(getDocs(query(collection(dbFor('parent'), 'rsvps'), where('playerId', 'in', ['p']))));
@@ -65,6 +66,14 @@ test('RSVP cannot impersonate another player or target an unrelated team', async
   await assertFails(setDoc(doc(dbFor('player'), 'rsvps', 'g_p'), { ...data, teamId: 'b' }));
   await assertFails(setDoc(doc(dbFor('player'), 'rsvps', 'cancelled_p'), { ...data, gameId: 'cancelled' }));
   await assertFails(setDoc(doc(dbFor('archived'), 'rsvps', 'g_archived'), { ...data, playerId: 'archived' }));
+  for (const stale of [{ gameDate: '2026-09-26' }, { gameTime: '20:00' }, { gameFieldId: 'other' }]) {
+    await assertFails(setDoc(doc(dbFor('player'), 'rsvps', 'g_p'), { ...data, ...stale }));
+  }
+  const { gameDate, gameTime, gameFieldId, ...legacy } = data;
+  await assertFails(setDoc(doc(dbFor('player'), 'rsvps', 'g_p'), legacy));
+  await assertSucceeds(updateDoc(doc(dbFor('admin'), 'games', 'g'), { time: '20:00' }));
+  await assertFails(setDoc(doc(dbFor('player'), 'rsvps', 'g_p'), data));
+  await assertSucceeds(setDoc(doc(dbFor('player'), 'rsvps', 'g_p'), { ...data, gameTime: '20:00' }));
 });
 test('admin can assign links while other roles cannot; unknown collections deny access', async () => {
   await assertSucceeds(updateDoc(doc(dbFor('admin'), 'users', 'player'), { linkedTeamId: 'a' }));

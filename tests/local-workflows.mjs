@@ -7,6 +7,7 @@ import { newPlayerProfile } from '../accounts.mjs';
 import { invitationDetails, invitationProfilePatch } from '../invitations.mjs';
 import { liveScoreUpdate } from '../live-scoring.mjs';
 import { standings } from '../results.mjs';
+import { rsvpSchedule } from '../rsvps.mjs';
 
 const apps = [];
 async function session(role) {
@@ -49,9 +50,10 @@ try {
   await assert.rejects(getDoc(doc(player.db, 'players', 'child')), error => error.code === 'permission-denied');
   await assert.rejects(setDoc(doc(player.db, 'users', player.user.uid), { role: 'siteAdmin' }, { merge: true }), error => error.code === 'permission-denied');
   assert.equal((await getDocs(query(collection(player.db, 'players'), where(documentId(), 'in', ['player'])))).size, 1);
-  await setDoc(doc(player.db, 'rsvps', 'demo-game_player'), { gameId: 'demo-game', playerId: 'player', playerName: 'Demo Player', teamId: 'home', status: 'going' });
+  const confirmedSchedule = rsvpSchedule((await getDoc(doc(player.db, 'games', 'demo-game'))).data());
+  await setDoc(doc(player.db, 'rsvps', 'demo-game_player'), { gameId: 'demo-game', playerId: 'player', playerName: 'Demo Player', teamId: 'home', status: 'going', ...confirmedSchedule });
   const parent = await session('parent');
-  await setDoc(doc(parent.db, 'rsvps', 'demo-game_child'), { gameId: 'demo-game', playerId: 'child', playerName: 'Demo Child', teamId: 'away', status: 'maybe' });
+  await setDoc(doc(parent.db, 'rsvps', 'demo-game_child'), { gameId: 'demo-game', playerId: 'child', playerName: 'Demo Child', teamId: 'away', status: 'maybe', ...confirmedSchedule });
   assert.equal((await getDocs(query(collection(parent.db, 'rsvps'), where('playerId', 'in', ['child'])))).size, 1);
   const manager = await session('teamManager');
   assert.equal((await getDocs(query(collection(manager.db, 'players'), where('teamId', '==', 'home')))).size, 2);
