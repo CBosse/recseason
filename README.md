@@ -112,6 +112,14 @@ client identifiers in `firebase-config.js` for that environment.
 
 ## Remaining work
 
+Invitation domain validation and candidate database rules are implemented and
+emulator-tested. Only site admins may issue invitations, never for the site-admin
+role. Acceptance requires a verified matching email and an atomic profile/invite
+update; invitations expire within seven days and can be revoked. Parent invites
+carry explicit child links. Admin creation/queue UI, recipient acceptance UI,
+verification-email handling, delivery, and production deployment remain to be
+connected. Invitations are not yet available through the application screens.
+
 Secure admin provisioning and tested database rules;
 invitations and parent linking; attendance; per-inning linescores, runner tracking
 and play logs; reminders;

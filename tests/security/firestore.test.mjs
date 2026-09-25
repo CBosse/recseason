@@ -1,7 +1,8 @@
 import { before, after, test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
-import { doc, documentId, setDoc, getDoc, updateDoc, collection, getDocs, query, where } from 'firebase/firestore';
+import { doc, documentId, setDoc, getDoc, updateDoc, collection, getDocs, query, where, writeBatch, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { invitationProfilePatch } from '../../invitations.mjs';
 import { newPlayerProfile } from '../../accounts.mjs';
 import { liveScoreUpdate } from '../../live-scoring.mjs';
 let env;
@@ -79,4 +80,60 @@ test('scorekeeper can update only assigned game score fields with next revision'
   await assertFails(updateDoc(doc(dbFor('scorer'), 'games', 'g'), patch));
   await assertSucceeds(updateDoc(doc(dbFor('scorer'), 'games', 'g'), { ...patch, scoreRevision: 2, status: 'completed' }));
   await assertFails(updateDoc(doc(dbFor('scorer'), 'games', 'g'), { ...patch, scoreRevision: 3 }));
+});
+
+test('invitation creation is admin-only and cannot grant siteAdmin', async () => {
+  const invite = { email: 'recipient@example.test', role: 'parent', linkedTeamId: null, linkedPlayerId: null, linkedPlayerIds: ['p'], status: 'pending', createdBy: 'admin', createdAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 3600000) };
+  await assertFails(setDoc(doc(dbFor('player'), 'invitations', 'unauthorized'), invite));
+  await assertFails(setDoc(doc(dbFor('admin'), 'invitations', 'elevated'), { ...invite, role: 'siteAdmin' }));
+  await assertFails(setDoc(doc(dbFor('admin'), 'invitations', 'too-long'), { ...invite, expiresAt: Timestamp.fromMillis(Date.now() + 8 * 86400000) }));
+  await assertSucceeds(setDoc(doc(dbFor('admin'), 'invitations', 'parent-invite'), invite));
+  await assertSucceeds(setDoc(doc(dbFor('admin'), 'invitations', 'revocation-check'), invite));
+  await assertSucceeds(updateDoc(doc(dbFor('admin'), 'invitations', 'revocation-check'), { status: 'revoked' }));
+  await assertFails(updateDoc(doc(dbFor('admin'), 'invitations', 'revocation-check'), { status: 'pending' }));
+  await assertFails(getDoc(doc(dbFor('other'), 'invitations', 'parent-invite')));
+  await assertFails(getDocs(collection(dbFor('player'), 'invitations')));
+});
+
+test('invitation acceptance requires verified matching email and atomic consumption', async () => {
+  const invite = { role: 'parent', linkedTeamId: null, linkedPlayerId: null, linkedPlayerIds: ['p'] };
+  const recipient = env.authenticatedContext('recipient', { email: 'recipient@example.test', email_verified: true }).firestore();
+  const unverified = env.authenticatedContext('recipient', { email: 'recipient@example.test', email_verified: false }).firestore();
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users', 'recipient'), profile('recipient', 'player'));
+  });
+  const patch = invitationProfilePatch('parent-invite', invite);
+  const consume = { status: 'accepted', acceptedBy: 'recipient', acceptedAt: serverTimestamp() };
+  const accept = db => {
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'users', 'recipient'), patch);
+    batch.update(doc(db, 'invitations', 'parent-invite'), consume);
+    return batch.commit();
+  };
+  await assertFails(updateDoc(doc(recipient, 'users', 'recipient'), patch));
+  await assertFails(updateDoc(doc(recipient, 'invitations', 'parent-invite'), consume));
+  await assertFails(accept(unverified));
+  await assertFails(accept(env.authenticatedContext('recipient', { email: 'wrong@example.test', email_verified: true }).firestore()));
+  const forged = writeBatch(recipient);
+  forged.update(doc(recipient, 'users', 'recipient'), { ...patch, role: 'siteAdmin' });
+  forged.update(doc(recipient, 'invitations', 'parent-invite'), consume);
+  await assertFails(forged.commit());
+  await assertSucceeds(accept(recipient));
+  await assertFails(accept(recipient));
+  await assertSucceeds(getDoc(doc(recipient, 'players', 'p')));
+});
+
+test('expired and revoked invitations cannot update a profile', async () => {
+  const recipient = env.authenticatedContext('expired', { email: 'expired@example.test', email_verified: true }).firestore();
+  for (const [id, status, expiresAt] of [['expired', 'pending', Timestamp.fromMillis(1)], ['revoked', 'revoked', Timestamp.fromMillis(Date.now() + 3600000)]]) {
+    const invite = { email: 'expired@example.test', role: 'scorekeeper', linkedTeamId: null, linkedPlayerId: null, linkedPlayerIds: [], status, expiresAt };
+    await env.withSecurityRulesDisabled(async context => {
+      await setDoc(doc(context.firestore(), 'users', 'expired'), profile('expired', 'player'));
+      await setDoc(doc(context.firestore(), 'invitations', id), invite);
+    });
+    const batch = writeBatch(recipient);
+    batch.update(doc(recipient, 'users', 'expired'), invitationProfilePatch(id, invite));
+    batch.update(doc(recipient, 'invitations', id), { status: 'accepted', acceptedBy: 'expired', acceptedAt: serverTimestamp() });
+    await assertFails(batch.commit());
+  }
 });

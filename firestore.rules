@@ -11,11 +11,48 @@ service cloud.firestore {
         (profile().role == 'parent' && playerId in profile().linkedPlayerIds));
     }
     function validProfile(d) {
-      return d.keys().hasOnly(['email', 'displayName', 'role', 'linkedTeamId', 'linkedPlayerId', 'linkedPlayerIds', 'createdAt']) &&
+      return d.keys().hasOnly(['email', 'displayName', 'role', 'linkedTeamId', 'linkedPlayerId', 'linkedPlayerIds', 'createdAt', 'acceptedInvitationId']) &&
         d.email is string && d.displayName is string && d.displayName.size() <= 100 &&
         d.role in ['siteAdmin', 'commissioner', 'leagueManager', 'teamManager', 'captain', 'player', 'parent', 'umpire', 'scorekeeper', 'visitor'] &&
         (d.linkedTeamId == null || d.linkedTeamId is string) &&
         (d.linkedPlayerId == null || d.linkedPlayerId is string) && d.linkedPlayerIds is list && d.linkedPlayerIds.size() <= 30;
+    }
+    function invitationRecipient(invite) {
+      return signedIn() && request.auth.token.email_verified == true && request.auth.token.email.lower() == invite.email;
+    }
+    function matchesInvitation(user, invite) {
+      return user.role == invite.role && user.linkedTeamId == invite.linkedTeamId &&
+        user.linkedPlayerId == invite.linkedPlayerId && user.linkedPlayerIds == invite.linkedPlayerIds;
+    }
+    function acceptsInvitation(uid) {
+      let id = request.resource.data.acceptedInvitationId;
+      let invite = get(/databases/$(database)/documents/invitations/$(id)).data;
+      let accepted = getAfter(/databases/$(database)/documents/invitations/$(id)).data;
+      return request.auth.uid == uid && resource.data.role in ['player', 'visitor'] &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'linkedTeamId', 'linkedPlayerId', 'linkedPlayerIds', 'acceptedInvitationId']) &&
+        invitationRecipient(invite) && invite.status == 'pending' && invite.expiresAt > request.time &&
+        accepted.status == 'accepted' && accepted.acceptedBy == uid && matchesInvitation(request.resource.data, invite);
+    }
+    match /invitations/{id} {
+      allow get: if admin() || (signedIn() && request.auth.token.email.lower() == resource.data.email);
+      allow list: if admin();
+      allow create: if admin() && request.resource.data.keys().hasOnly(['email', 'role', 'linkedTeamId', 'linkedPlayerId', 'linkedPlayerIds', 'status', 'createdBy', 'createdAt', 'expiresAt']) &&
+        request.resource.data.email is string && request.resource.data.email == request.resource.data.email.lower() &&
+        request.resource.data.role in ['commissioner', 'leagueManager', 'teamManager', 'captain', 'player', 'parent', 'umpire', 'scorekeeper'] &&
+        (request.resource.data.linkedTeamId == null || request.resource.data.linkedTeamId is string) &&
+        (request.resource.data.linkedPlayerId == null || request.resource.data.linkedPlayerId is string) &&
+        request.resource.data.linkedPlayerIds is list && request.resource.data.linkedPlayerIds.size() <= 30 &&
+        request.resource.data.status == 'pending' && request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.createdAt == request.time && request.resource.data.expiresAt is timestamp &&
+        request.resource.data.expiresAt > request.time && request.resource.data.expiresAt <= request.time + duration.value(7, 'd');
+      allow update: if (admin() && resource.data.status == 'pending' && request.resource.data.status == 'revoked' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])) ||
+        (invitationRecipient(resource.data) && resource.data.status == 'pending' && resource.data.expiresAt > request.time &&
+        request.resource.data.status == 'accepted' && request.resource.data.acceptedBy == request.auth.uid && request.resource.data.acceptedAt == request.time &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedBy', 'acceptedAt']) &&
+        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.acceptedInvitationId == id &&
+        matchesInvitation(getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data, resource.data));
+      allow delete: if false;
     }
     match /users/{uid} {
       allow get: if signedIn() && (request.auth.uid == uid || admin() || (organizer() && resource.data.role == 'scorekeeper'));
@@ -24,7 +61,7 @@ service cloud.firestore {
         request.resource.data.email == request.auth.token.email && request.resource.data.role == 'player' &&
         request.resource.data.linkedTeamId == null && request.resource.data.linkedPlayerId == null && request.resource.data.linkedPlayerIds == [];
       allow update: if validProfile(request.resource.data) && (admin() || (signedIn() && request.auth.uid == uid &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName'])));
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName']) || acceptsInvitation(uid))));
       allow delete: if false;
     }
     match /teams/{id} {
