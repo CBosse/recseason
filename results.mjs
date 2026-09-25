@@ -11,7 +11,7 @@ export function scoreUpdate(home, away) {
 }
 
 export function standings(teams, games) {
-  const rows = new Map(teams.map(team => [team.id, { name: team.name, GP: 0, W: 0, L: 0, T: 0, GF: 0, GA: 0, Pts: 0 }]));
+  const rows = new Map(teams.map(team => [team.id, { id: team.id, name: team.name, GP: 0, W: 0, L: 0, T: 0, GF: 0, GA: 0, Pts: 0 }]));
   for (const game of games) {
     if (game.status !== 'completed' || game.homeTeamId === game.awayTeamId) continue;
     const home = rows.get(game.homeTeamId), away = rows.get(game.awayTeamId);

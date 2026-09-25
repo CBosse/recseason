@@ -14,8 +14,8 @@ test('result patch contains no schedule or umpire fields', () => {
 });
 test('wins, losses and ties update both teams and points', () => {
   const rows = standings(teams, [{ ...game, homeScore: 3, awayScore: 1 }, { ...game, homeScore: 0, awayScore: 0 }]);
-  assert.deepEqual(rows[0], { name: 'Alpha', GP: 2, W: 1, L: 0, T: 1, GF: 3, GA: 1, Pts: 4 });
-  assert.deepEqual(rows[1], { name: 'Beta', GP: 2, W: 0, L: 1, T: 1, GF: 1, GA: 3, Pts: 1 });
+  assert.deepEqual(rows[0], { id: 'a', name: 'Alpha', GP: 2, W: 1, L: 0, T: 1, GF: 3, GA: 1, Pts: 4 });
+  assert.deepEqual(rows[1], { id: 'b', name: 'Beta', GP: 2, W: 0, L: 1, T: 1, GF: 1, GA: 3, Pts: 1 });
 });
 test('invalid, unplayed, missing-team and self matches do not affect standings', () => {
   const rows = standings(teams, [{ ...game, homeScore: null, awayScore: null }, { ...game, homeScore: -1, awayScore: 2 }, { ...game, homeScore: 2, awayScore: 1, status: 'scheduled' }, { ...game, homeScore: 2, awayScore: 1, awayTeamId: 'a' }, { ...game, homeScore: 2, awayScore: 1, awayTeamId: 'missing' }]);

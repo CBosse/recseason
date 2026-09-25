@@ -13,6 +13,7 @@ import { openRosterEditor } from './roster-editor.mjs';
 import { fieldUpdate, fieldFitsGame, fieldWindow, openFieldEditor } from './field-editor.mjs';
 import { invitationProfilePatch } from './invitations.mjs';
 import { openInvitationCreator, openInvitationRecipient } from './invitation-ui.mjs';
+import { dashboardScope, upcomingGames, rsvpTotals, dashboardRecord } from './dashboard.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -560,7 +561,7 @@ function renderDashboard() {
   const today    = new Date();
   const dayName  = today.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
   const todayStr = today.toISOString().slice(0, 10);
-  const gameDay  = state.games.some(g => g.date === todayStr);
+  const gameDay  = dashboardScope(currentUser, state.players, state.games).games.some(g => g.date === todayStr && g.status !== 'cancelled');
   if (sub) {
     const prefix = ROLE_LABELS[currentUser?.role] ? `${ROLE_LABELS[currentUser.role].toUpperCase()} · ` : '';
     sub.textContent = prefix + (gameDay ? `GAME DAY · ${dayName}` : dayName);
@@ -572,44 +573,25 @@ function renderKpiStrip() {
   if (!strip) return;
 
   const today    = new Date().toISOString().slice(0, 10);
-  const myTeamId = currentUser?.linkedTeamId ||
-    (currentUser?.linkedPlayerId ? state.players.find(p => p.id === currentUser.linkedPlayerId)?.teamId : null);
-
-  const upcomingGames = state.games
-    .filter(g => g.status !== 'completed' && g.date >= today)
-    .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
-  const nextGame = upcomingGames[0] || null;
+  const scope = dashboardScope(currentUser, state.players, state.games);
+  const nextGame = upcomingGames(scope.games, today)[0] || null;
 
   const nextGameDate = nextGame ? formatDateHeader(nextGame.date) : '—';
   const nextGameSub  = nextGame ? `${formatTime(nextGame.time)} · ${escHtml(nextGame.fieldName)}` : 'No upcoming games';
 
   let rsvpRate = '—', rsvpSub = 'no next game';
   if (nextGame) {
-    const players = state.players.filter(p => p.teamId === nextGame.homeTeamId || p.teamId === nextGame.awayTeamId);
-    const going   = state.rsvps.filter(r => r.gameId === nextGame.id && r.status === 'going').length;
-    const total   = players.length;
+    const { going, total } = rsvpTotals(nextGame, state.players, state.rsvps);
     rsvpRate = total > 0 ? `${Math.round((going / total) * 100)}%` : '0%';
     rsvpSub  = total > 0 ? `${going}/${total} going` : 'no roster yet';
   }
 
-  let wins = 0, losses = 0, ties = 0;
-  for (const game of state.games) {
-    if (game.status !== 'completed') continue;
-    const hs = Number(game.homeScore), as = Number(game.awayScore);
-    if (isNaN(hs) || isNaN(as)) continue;
-    if (myTeamId) {
-      const isHome = game.homeTeamId === myTeamId, isAway = game.awayTeamId === myTeamId;
-      if (!isHome && !isAway) continue;
-      const mine = isHome ? hs : as, opp = isHome ? as : hs;
-      if (mine > opp) wins++; else if (opp > mine) losses++; else ties++;
-    } else {
-      if (hs > as) wins++; else if (as > hs) losses++; else ties++;
-    }
-  }
+  const { wins, losses, ties } = dashboardRecord(state.teams, scope.games, scope.teamIds);
   const recordStr = ties > 0 ? `${wins}-${losses}-${ties}` : `${wins}-${losses}`;
-  const recordSub = myTeamId ? 'your team' : 'all teams';
-  const total     = state.games.length;
-  const completed = state.games.filter(g => g.status === 'completed').length;
+  const recordSub = scope.teamIds === null ? 'league team results' : 'linked teams';
+  const total     = scope.games.filter(g => g.status !== 'cancelled').length;
+  const completed = scope.games.filter(g => g.status === 'completed').length;
+  const rsvpLabel = currentUser?.role === 'parent' ? 'Children\'s RSVPs' : ['player', 'captain'].includes(currentUser?.role) ? 'Your RSVPs' : 'RSVP Rate';
 
   strip.innerHTML = `
     <div class="kpi-card">
@@ -624,7 +606,7 @@ function renderKpiStrip() {
     </div>
     <div class="kpi-card">
       <div class="kpi-left">
-        <div class="kpi-label">RSVP Rate</div>
+        <div class="kpi-label">${rsvpLabel}</div>
         <div class="kpi-value">${rsvpRate}</div>
         <div class="kpi-sub">${rsvpSub}</div>
       </div>
@@ -658,18 +640,15 @@ function renderUpcomingGamesCard() {
   const card = document.getElementById('upcoming-games-card');
   if (!card) return;
   const today    = new Date().toISOString().slice(0, 10);
-  const upcoming = state.games
-    .filter(g => g.status !== 'completed' && g.date >= today)
-    .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
-    .slice(0, 6);
+  const upcoming = upcomingGames(dashboardScope(currentUser, state.players, state.games).games, today, true).slice(0, 6);
 
   let html = `<div class="card-header">
     <span class="card-header-title">Upcoming Games</span>
-    <span class="card-header-sub">${upcoming.length} scheduled</span>
+    <span class="card-header-sub">${upcoming.length} active</span>
   </div>`;
 
   if (upcoming.length === 0) {
-    html += `<div style="padding:24px 16px;"><p class="muted">No upcoming games. Generate a schedule in the Schedule view.</p></div>`;
+    html += `<div style="padding:24px 16px;"><p class="muted">No upcoming games.</p></div>`;
   } else {
     for (const game of upcoming) {
       const allR     = state.rsvps.filter(r => r.gameId === game.id);
@@ -698,7 +677,7 @@ function renderUpcomingGamesCard() {
           <div style="font-weight:600;font-size:13px;color:#161816">${escHtml(game.homeName)} <span style="color:#6e6f6a;font-weight:400">vs</span> ${escHtml(game.awayName)}</div>
           <div style="font-family:'Geist Mono',monospace;font-size:11px;color:#6e6f6a;margin-top:2px">${formatDateHeader(game.date)} · ${formatTime(game.time)} · ${escHtml(game.fieldName)}</div>
         </div>
-        ${rsvpHtml}
+        ${game.status === 'live' ? `<span class="rsvp-label">Live: ${escHtml(game.homeScore ?? 0)} - ${escHtml(game.awayScore ?? 0)}</span>` : rsvpHtml}
       </div>`;
     }
   }
@@ -709,21 +688,21 @@ function renderNeedsAttentionCard() {
   const card = document.getElementById('needs-attention-card');
   if (!card) return;
   const today    = new Date().toISOString().slice(0, 10);
-  const nextGame = state.games
-    .filter(g => g.status !== 'completed' && g.date >= today)
-    .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))[0];
+  const nextGame = upcomingGames(dashboardScope(currentUser, state.players, state.games).games, today)[0];
 
   const rows = [];
   if (nextGame) {
-    const inGame    = state.players.filter(p => p.teamId === nextGame.homeTeamId || p.teamId === nextGame.awayTeamId);
+    const inGame    = state.players.filter(p => !p.archived && (p.teamId === nextGame.homeTeamId || p.teamId === nextGame.awayTeamId));
     const rsvpedIds = new Set(state.rsvps.filter(r => r.gameId === nextGame.id).map(r => r.playerId));
     const missing   = inGame.filter(p => !rsvpedIds.has(p.id));
     missing.slice(0, 8).forEach(p => rows.push({ who: p.name, what: `No RSVP for ${formatDateHeader(nextGame.date)}` }));
     if (missing.length > 8) rows.push({ who: `+${missing.length - 8} more`, what: 'players without RSVP' });
   }
-  if (state.teams.length === 0)        rows.push({ who: 'No teams',     what: 'Add teams in Roster view' });
-  if (state.fields.length === 0)       rows.push({ who: 'No fields',    what: 'Add fields in Settings' });
-  if (!state.scheduleConfig.startDate) rows.push({ who: 'Season dates', what: 'Set start/end date in Settings' });
+  if (canEdit()) {
+    if (state.teams.length === 0)        rows.push({ who: 'No teams',     what: 'Add teams in Roster view' });
+    if (state.fields.length === 0)       rows.push({ who: 'No fields',    what: 'Add fields in Settings' });
+    if (!state.scheduleConfig.startDate) rows.push({ who: 'Season dates', what: 'Set start/end date in Settings' });
+  }
 
   let html = `<div class="card-header">
     <span class="card-header-title">Needs Attention</span>
@@ -1146,7 +1125,7 @@ function showTeamDetail(team) {
   const upcomingSection = document.getElementById('team-upcoming-section');
   const today = new Date().toISOString().slice(0, 10);
   const upcomingGames = state.games
-    .filter(g => g.status !== 'completed' && g.date >= today &&
+    .filter(g => ['scheduled', 'live'].includes(g.status) && g.date >= today &&
                  (g.homeTeamId === team.id || g.awayTeamId === team.id))
     .slice(0, 5);
 
@@ -1304,7 +1283,7 @@ function renderUmpireKpi() {
   const today   = new Date().toISOString().slice(0, 10);
   const myUid   = currentUser?.uid;
   const myGames = currentUser?.role === 'siteAdmin' ? state.games : state.games.filter(g => g.umpireId === myUid);
-  const upcoming = myGames.filter(g => g.status !== 'completed' && g.date >= today).length;
+  const upcoming = upcomingGames(myGames, today, true).length;
   const done     = myGames.filter(g => g.status === 'completed').length;
   const umpDoc   = state.umpires.find(u => u.id === myUid);
   const payRate  = umpDoc?.payRate ?? 0;
@@ -1336,7 +1315,7 @@ function renderUmpireGames() {
     return;
   }
 
-  const upcoming = myGames.filter(g => g.status !== 'completed' && g.date >= today);
+  const upcoming = upcomingGames(myGames, today, true);
   const past     = myGames.filter(g => g.status === 'completed' || g.date < today);
   let html = '';
 

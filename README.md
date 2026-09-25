@@ -79,6 +79,10 @@ acceptance coverage or proof of production deployment.
 - Standings award three points for a win and one for a tie; ties in ranking use
   goal difference, goals scored, then team name. Invalid results are excluded.
 - Account changes dispose database listeners and clear cached records.
+- Participant dashboards follow linked teams/children; RSVP totals exclude
+  archived players. Live games display live scores instead of RSVP prompts,
+  and cancelled games are excluded from upcoming views. Dashboard records use
+  the same validated results as the standings table.
 - Organizers and the assigned team manager can edit team/player metadata with
   stale-edit checks. Players can be archived/restored without deleting account
   links or attendance history. Archived players cannot submit new RSVPs under
