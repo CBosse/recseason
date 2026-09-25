@@ -21,10 +21,18 @@ before(async () => {
     await setDoc(doc(db, 'players', 'other'), { name: 'Other', phone: 'private', teamId: 'b' });
     await setDoc(doc(db, 'players', 'archived'), { name: 'Archived', phone: '', teamId: 'a', archived: true });
     await setDoc(doc(db, 'users', 'archived'), profile('archived', 'player', { linkedPlayerId: 'archived' }));
+    const { linkedPlayerIds, ...legacyAdmin } = profile('legacy-admin', 'siteAdmin');
+    await setDoc(doc(db, 'users', 'legacy-admin'), legacyAdmin);
   });
 });
 after(async () => { await env?.cleanup(); });
 const dbFor = uid => env.authenticatedContext(uid, { email: `${uid}@example.test` }).firestore();
+
+test('legacy admin without child links can update its profile without broadening access', async () => {
+  await assertSucceeds(updateDoc(doc(dbFor('legacy-admin'), 'users', 'legacy-admin'), { displayName: 'Admin' }));
+  await assertFails(updateDoc(doc(dbFor('player'), 'users', 'legacy-admin'), { linkedPlayerIds: ['p'] }));
+  await assertFails(updateDoc(doc(dbFor('legacy-admin'), 'users', 'legacy-admin'), { linkedPlayerIds: 'invalid' }));
+});
 test('public schedule does not expose profiles or phone records', async () => {
   const db = env.unauthenticatedContext().firestore();
   await assertSucceeds(getDoc(doc(db, 'games', 'g')));

@@ -15,7 +15,7 @@ service cloud.firestore {
         d.email is string && d.displayName is string && d.displayName.size() <= 100 &&
         d.role in ['siteAdmin', 'commissioner', 'leagueManager', 'teamManager', 'captain', 'player', 'parent', 'umpire', 'scorekeeper', 'visitor'] &&
         (d.linkedTeamId == null || d.linkedTeamId is string) &&
-        (d.linkedPlayerId == null || d.linkedPlayerId is string) && d.linkedPlayerIds is list && d.linkedPlayerIds.size() <= 30;
+        (d.linkedPlayerId == null || d.linkedPlayerId is string) && d.get('linkedPlayerIds', []) is list && d.get('linkedPlayerIds', []).size() <= 30;
     }
     function invitationRecipient(invite) {
       return signedIn() && request.auth.token.email_verified == true && request.auth.token.email.lower() == invite.email;

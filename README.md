@@ -19,11 +19,17 @@ non-production project ID `demo-recseason`. No Firebase login is needed. On this
 workstation Java 21 is available under `.tools/java21`; set `JAVA_HOME` to its
 JRE folder and prepend `$env:JAVA_HOME/bin` to PATH for the test command.
 
-`firestore.rules` is a candidate ruleset, not an assertion about currently
-deployed permissions. `firebase.test.json` is emulator-only configuration.
-Do not use it to deploy to the default database. Production rollout must target
-the named `recseason` database, preserve a copy of current rules, validate existing
-profiles against the schema, and pass authenticated role acceptance tests first.
+`firestore.rules` was deployed to the named production `recseason` database on
+September 25, 2026, replacing expired test-mode rules that denied all client access.
+`firebase.test.json` is emulator-only; never use it for production deployment.
+Use `firebase deploy --project bosse-testing --config firebase.production.json
+--only firestore:rules --non-interactive` for the named database only.
+Before any future rollout, run `node scripts/audit-production.mjs`. It uses the
+Firebase CLI login, reads production without changing it, saves deployed rules
+under ignored `.tools/production-audit`, and reports schema/reference issues
+without printing personal data. It depends on the pinned Firebase CLI internals.
+The audit snapshot is a rules rollback reference, not a database backup.
+Production role acceptance tests remain required before a live season.
 GitHub Pages publishes only static application files, not dependencies or tests.
 The initial tooling audit reports six moderate advisories in development-only
 dependencies. Track updates to Firebase CLI and its transitive dependencies;
@@ -86,7 +92,7 @@ acceptance coverage or proof of production deployment.
 - Organizers and the assigned team manager can edit team/player metadata with
   stale-edit checks. Players can be archived/restored without deleting account
   links or attendance history. Archived players cannot submit new RSVPs under
-  the candidate rules. Teams with roster/game history and fields with games are
+  the deployed rules. Teams with roster/game history and fields with games are
   protected from removal in the UI. These removal checks are not yet serialized
   with concurrent organizer writes; database-level referential enforcement is
   still required.
@@ -110,39 +116,43 @@ users. Other roles are assigned from the Admin Panel. Password recovery is avail
 on the sign-in screen.
 
 This client change is not a substitute for deployed Firestore security rules.
-Production permissions still require validation before this app is ready for a
-live season. Use a separate Firebase project for development and replace the public
+Production role workflows still require validation before this app is ready for a
+live season. The deployment audit found one existing admin profile; older profiles
+without `linkedPlayerIds` are accepted as having no child links. The live anonymous
+read check allows teams and denies players/users. Point-in-time recovery and deletion
+protection are currently disabled; backups and recovery work remain outstanding.
+Use a separate Firebase project for development and replace the public
 client identifiers in `firebase-config.js` for that environment.
 
 ## Remaining work
 
-Invitation domain validation and candidate database rules are implemented and
+Invitation domain validation and database rules are implemented and
 emulator-tested. Only site admins may issue invitations, never for the site-admin
 role. Acceptance requires a verified matching email and an atomic profile/invite
 update; invitations expire within seven days and can be revoked. Parent invites
-carry explicit child links. Automated invitation delivery and production rollout
-remain outstanding. The Admin Panel now creates shareable invitation links,
+carry explicit child links. Automated invitation delivery and authenticated production
+acceptance testing remain outstanding. The Admin Panel now creates shareable invitation links,
 shows status, and revokes pending invitations. Recipients open the link, sign in
 or register with the invited email, request verification if needed, and accept.
 Acceptance reloads the account with its assigned role and links. Created links
 expire after six days (the rules cap is seven). Invitations are not automatically
-emailed; admins share the displayed link. The screens require the candidate rules
-to be deployed, so test them with the local emulators until production rollout.
+emailed; admins share the displayed link. Test invitations in the local emulators
+before sending real invitations.
 
-Secure admin provisioning and tested database rules;
-invitations and parent linking; attendance; per-inning linescores, runner tracking
+Production admin acceptance testing; captain attendance; per-inning linescores, runner tracking
 and play logs; reminders;
 backup and restoration; larger schedule publication; browser acceptance tests;
 and production configuration/verification remain outstanding. The test suite
-covers domain logic and subscription handling, not live Firebase authorization.
+covers domain logic, subscription handling, emulator authorization, and authenticated
+emulator workflows, not signed-in production acceptance.
 The standalone `tests/game-editor.html` fixture exercises the editor without
 connecting to Firebase or writing live records. Concurrent schedule edits and
 regeneration are not yet serialized. Cancellation and rescheduling do not yet
 notify participants. RSVPs now confirm a specific date, time, and field. After
 rescheduling, old responses remain stored but are excluded from current totals
 and the participant is prompted to reconfirm. Legacy responses without these
-schedule fields also need reconfirmation. Deploy the matching candidate rules
-with this client change; stale-browser RSVP writes are rejected by those rules.
+schedule fields also need reconfirmation. The matching rules are deployed;
+stale-browser RSVP writes are rejected by those rules.
 The `tests/live-scoring.html` fixture checks the score form with in-memory data.
-Live scoring still needs Firebase authorization and cross-account integration
-tests before production use; client-side role checks are not security rules.
+Live scoring has emulator authorization and cross-account integration coverage;
+signed-in production verification remains required before a live season.
