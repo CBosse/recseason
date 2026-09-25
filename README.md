@@ -59,6 +59,10 @@ acceptance coverage or proof of production deployment.
 - Organizers can add and edit games, including field, teams, duration and umpire.
   Validation checks field hours, season dates, daylight for unlit fields, and
   field/team/umpire conflicts. Completed games retain their participating teams.
+- Fields can be edited with weekday, opening-hour and lighting validation against
+  existing scheduled/live games. Unlit fields require a ZIP code; scheduling
+  skips slots when daylight cannot be verified. Field-edit preflight checks are
+  not yet serialized with concurrent game creation.
 - Manually arranged games default to locked against regeneration. Locked and
   existing non-scheduled games reserve their time during generation.
 - Retained games count toward their home-away matchup quota during regeneration.

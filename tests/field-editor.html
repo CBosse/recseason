@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Field editor test fixture</title>
+<link rel="stylesheet" href="../style.css?v=game-editor-1">
+<body>
+<button id="open" type="button">Edit test field</button>
+<output id="result" aria-live="polite"></output>
+<script type="module">
+import { openFieldEditor } from '../field-editor.mjs';
+let field = { name: 'Community Field', openTime: '09:00', closeTime: '21:00', availableDays: [1, 3, 5], hasLights: true, zipCode: '' };
+document.getElementById('open').onclick = () => openFieldEditor(field, async values => {
+  field = values;
+  document.getElementById('result').textContent = `${field.name}: ${field.openTime}-${field.closeTime}; days=${field.availableDays.join(',')}`;
+});
+</script>
+</body>
+</html>

@@ -10,6 +10,7 @@ import { openGameEditor, validateGame } from './game-editor.mjs';
 import { firebaseConfig, databaseId } from './firebase-config.js';
 import { useLocalEmulators } from './local-runtime.mjs';
 import { openRosterEditor } from './roster-editor.mjs';
+import { fieldUpdate, fieldFitsGame, fieldWindow, openFieldEditor } from './field-editor.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -103,6 +104,7 @@ let _connectTimeout   = null;
 let authGeneration = 0;
 
 function clearSessionData() {
+  document.getElementById('field-editor-dialog')?.remove();
   document.getElementById('roster-editor-dialog')?.remove();
   document.getElementById('score-editor-dialog')?.remove();
   document.getElementById('game-editor-dialog')?.remove();
@@ -526,6 +528,7 @@ function renderCurrentView() {
   for (const game of state.games) {
     game.homeName = state.teams.find(t => t.id === game.homeTeamId)?.name ?? game.homeName;
     game.awayName = state.teams.find(t => t.id === game.awayTeamId)?.name ?? game.awayName;
+    game.fieldName = state.fields.find(f => f.id === game.fieldId)?.name ?? game.fieldName;
   }
   updateSidebarUserCard();
   if (_activeView === 'dashboard')   renderDashboard();
@@ -1384,7 +1387,8 @@ function renderFieldsSection() {
           <span class="name"><span class="field-lights-icon">${field.hasLights ? '💡' : '🌙'}</span>${escHtml(field.name)}</span>
           <span class="sub">${dayStr || 'No days'} · ${escHtml(field.openTime)} – ${escHtml(field.closeTime)}${field.zipCode ? ' · ZIP ' + escHtml(field.zipCode) : ''}</span>
         </span>
-        ${canEdit() ? `<button class="remove-btn">Remove</button>` : ''}`;
+        ${canEdit() ? `<button class="btn btn-ghost btn-sm edit-field-btn">Edit</button><button class="remove-btn">Remove</button>` : ''}`;
+      li.querySelector('.edit-field-btn')?.addEventListener('click', () => editField(field));
       li.querySelector('.remove-btn')?.addEventListener('click', () => {
         if (state.games.some(g => g.fieldId === field.id)) { showBanner('This field has game history and cannot be removed.', 'error'); return; }
         if (!canEdit() || !confirm('Remove this field?')) return;
@@ -1393,6 +1397,31 @@ function renderFieldsSection() {
       list.appendChild(li);
     });
   }
+}
+
+function editField(field) {
+  if (!canEdit()) return;
+  const uid = currentUser.uid;
+  openFieldEditor(field, async values => {
+    if (!canEdit() || currentUser?.uid !== uid) throw new Error('Your session changed.');
+    const snap = await getDocs(query(collection(db, 'games'), where('fieldId', '==', field.id)));
+    const games = snap.docs.map(d => d.data()).filter(g => ['scheduled', 'live'].includes(g.status));
+    for (const game of games) {
+      if (!fieldFitsGame(values, game, state.scheduleConfig.gameDuration)) throw new Error(`The game on ${game.date} at ${game.time} no longer fits. Reschedule it first.`);
+      if (!values.hasLights) {
+        const zip = await fetchZipInfo(values.zipCode);
+        const sun = zip && await fetchSunriseSunset(zip.lat, zip.lng, game.date, zip.timezone);
+        const mins = time => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
+        if (!sun || game.time < sun.sunrise || mins(game.time) + Number(game.durationMinutes ?? state.scheduleConfig.gameDuration) > mins(sun.sunset)) throw new Error(`Daylight cannot accommodate the game on ${game.date}. Reschedule it first.`);
+      }
+    }
+    await runTransaction(db, async transaction => {
+      const ref = doc(db, 'fields', field.id), current = await transaction.get(ref);
+      if (!canEdit() || currentUser?.uid !== uid || !current.exists()) throw new Error('Access changed or field was removed.');
+      if (Object.keys(values).some(key => JSON.stringify(current.data()[key] ?? '') !== JSON.stringify(field[key] ?? ''))) throw new Error('This field changed in another session. Close and reopen the editor.');
+      transaction.update(ref, values);
+    });
+  });
 }
 
 async function addField() {
@@ -1406,7 +1435,10 @@ async function addField() {
   const days = [];
   DAY_LABELS.forEach((_, i) => { const cb = document.getElementById(`field-day-${i}`); if (cb?.checked) days.push(i); });
   if (days.length === 0)       { alert('Select at least one available day.'); return; }
-  if (!await saveField({ id: genId('field'), name, availableDays: days, openTime, closeTime, hasLights: lightsEl?.checked ?? false, zipCode: zipEl?.value.trim() ?? '' })) return;
+  let values;
+  try { values = fieldUpdate({ name, availableDays: days, openTime, closeTime, hasLights: lightsEl?.checked ?? false, zipCode: zipEl?.value.trim() ?? '' }); }
+  catch (err) { showBanner(err.message, 'error'); return; }
+  if (!await saveField({ id: genId('field'), ...values })) return;
   nameEl.value = ''; openEl.value = ''; closeEl.value = '';
   if (lightsEl) lightsEl.checked = false;
   if (zipEl)    zipEl.value = '';
@@ -1582,21 +1614,15 @@ async function generateSchedule(teams, fields, config) {
 
     for (const field of fields) {
       if (!(Array.isArray(field.availableDays) ? field.availableDays : []).includes(dow)) continue;
-      let effOpen = field.openTime, effClose = field.closeTime;
-
-      if (!field.hasLights && field.zipCode) {
-        const zi = await fetchZipInfo(field.zipCode);
-        if (zi) {
-          const sun = await fetchSunriseSunset(zi.lat, zi.lng, dateStr, zi.timezone);
-          if (sun) {
-            const co = clampTimeToWindow(field.openTime, sun.sunrise, sun.sunset);
-            const cc = clampTimeToWindow(field.closeTime, sun.sunrise, sun.sunset);
-            if (co >= cc) { daylightConstrainedCount++; continue; }
-            if (co !== field.openTime || cc !== field.closeTime) daylightConstrainedCount++;
-            effOpen = co; effClose = cc;
-          }
-        }
+      let sun = null;
+      if (!field.hasLights) {
+        const zi = field.zipCode && await fetchZipInfo(field.zipCode);
+        if (zi) sun = await fetchSunriseSunset(zi.lat, zi.lng, dateStr, zi.timezone);
       }
+      const window = fieldWindow(field, sun);
+      if (!window) { daylightConstrainedCount++; continue; }
+      const { open: effOpen, close: effClose } = window;
+      if (effOpen !== field.openTime || effClose !== field.closeTime) daylightConstrainedCount++;
 
       const [oh, om] = effOpen.split(':').map(Number), [ch, cm] = effClose.split(':').map(Number);
       let slotStart = oh * 60 + om;
