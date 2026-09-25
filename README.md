@@ -35,6 +35,11 @@ The GitHub Pages workflow runs both checks before deployment.
 - Standings award three points for a win and one for a tie; ties in ranking use
   goal difference, goals scored, then team name. Invalid results are excluded.
 - Account changes dispose database listeners and clear cached records.
+- Game editors can assign a scorekeeper from registered scorekeeper accounts.
+  Assigned scorekeepers and league organizers can save live totals, inning/half,
+  balls, strikes, and outs, then finalize the result into the standings. Saves use
+  transactions and score revisions to reject stale edits. The schedule displays
+  live totals through its existing database subscription.
 
 ## Account setup
 
@@ -53,7 +58,8 @@ client identifiers in `firebase-config.js` for that environment.
 ## Remaining work
 
 Secure admin provisioning and tested database rules;
-invitations and parent linking; attendance; persistent live scoring; reminders;
+invitations and parent linking; attendance; per-inning linescores, runner tracking
+and play logs; reminders;
 backup and restoration; larger schedule publication; browser acceptance tests;
 and production configuration/verification remain outstanding. The test suite
 covers domain logic and subscription handling, not live Firebase authorization.
@@ -61,3 +67,6 @@ The standalone `tests/game-editor.html` fixture exercises the editor without
 connecting to Firebase or writing live records. Concurrent schedule edits and
 regeneration are not yet serialized. Cancellation and rescheduling do not yet
 notify participants or reset prior attendance responses.
+The `tests/live-scoring.html` fixture checks the score form with in-memory data.
+Live scoring still needs Firebase authorization and cross-account integration
+tests before production use; client-side role checks are not security rules.

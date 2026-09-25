@@ -19,7 +19,7 @@ export function validateGame(game, { teams, fields, games, config }) {
   return { ...game, durationMinutes: duration, homeName: home.name, awayName: away.name, fieldName: field.name };
 }
 
-export function openGameEditor({ game = {}, teams, fields, umpires, config, save }) {
+export function openGameEditor({ game = {}, teams, fields, umpires, scorekeepers = [], config, save }) {
   document.getElementById('game-editor-dialog')?.remove();
   const dialog = document.createElement('dialog');
   dialog.id = 'game-editor-dialog';
@@ -57,6 +57,10 @@ export function openGameEditor({ game = {}, teams, fields, umpires, config, save
   const umpireOptions = [{ id: '', name: 'Unassigned' }, ...umpires];
   if (game.umpireId && !umpires.some(u => u.id === game.umpireId)) umpireOptions.push({ id: game.umpireId, name: 'Current assignment (unavailable)' });
   field('umpireId', 'Umpire', '', game.umpireId || '', umpireOptions);
+  const scorerOptions = [{ id: '', name: 'Unassigned' }, ...scorekeepers];
+  if (game.scorekeeperId && !scorekeepers.some(u => u.id === game.scorekeeperId)) scorerOptions.push({ id: game.scorekeeperId, name: 'Current assignment (unavailable)' });
+  field('scorekeeperId', 'Scorekeeper', '', game.scorekeeperId || '', scorerOptions);
+  controls.scorekeeperId.required = false;
   field('locked', 'Keep during regeneration', 'checkbox', game.locked ?? true);
   const error = document.createElement('p');
   error.setAttribute('role', 'alert');
@@ -75,7 +79,7 @@ export function openGameEditor({ game = {}, teams, fields, umpires, config, save
     error.textContent = '';
     try {
       const values = Object.fromEntries(Object.entries(controls).map(([name, input]) => [name, input.type === 'checkbox' ? input.checked : input.value]));
-      await save({ ...values, id: game.id, durationMinutes: Number(values.durationMinutes), umpireId: values.umpireId || null });
+      await save({ ...values, id: game.id, durationMinutes: Number(values.durationMinutes), umpireId: values.umpireId || null, scorekeeperId: values.scorekeeperId || null });
       dialog.close();
     } catch (reason) { error.textContent = reason.message; }
     finally { submit.disabled = false; }

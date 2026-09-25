@@ -98,7 +98,7 @@
           </svg>
           My Games
         </div>
-        <div class="nav-item" data-view="scorekeeper" data-roles="scorekeeper,siteAdmin,leagueManager">
+        <div class="nav-item" data-view="scorekeeper" data-roles="scorekeeper,siteAdmin,leagueManager,commissioner">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
             <rect x="9" y="3" width="6" height="4" rx="1"/>
@@ -255,7 +255,7 @@
         </div>
       </div>
 
-      <!-- Scorekeeper View (placeholder) -->
+      <!-- Scorekeeper View -->
       <div id="view-scorekeeper" class="view">
         <div class="topbar">
           <div class="topbar-title">
@@ -264,30 +264,7 @@
           </div>
         </div>
         <div class="view-body">
-          <div class="scorekeeper-placeholder">
-            <div class="scorekeeper-icon">📋</div>
-            <h2 class="scorekeeper-title">Live Scoreboard</h2>
-            <p class="muted" style="max-width:420px;margin:0 auto 24px;">
-              Real-time game scoring is coming soon. This view will include ball/strike/out counts,
-              base runner tracking, inning-by-inning scoring, and a full play log.
-            </p>
-            <div class="scorekeeper-preview">
-              <div class="sk-preview-row">
-                <div class="sk-preview-team">Home Team</div>
-                <div class="sk-preview-score sk-disabled">—</div>
-                <div class="sk-preview-sep">vs</div>
-                <div class="sk-preview-score sk-disabled">—</div>
-                <div class="sk-preview-team">Away Team</div>
-              </div>
-              <div class="sk-preview-counts">
-                <div class="sk-count-chip sk-disabled">Balls: 0</div>
-                <div class="sk-count-chip sk-disabled">Strikes: 0</div>
-                <div class="sk-count-chip sk-disabled">Outs: 0</div>
-                <div class="sk-count-chip sk-disabled">Inning: 1</div>
-              </div>
-              <div class="sk-coming-soon-badge">Coming Soon</div>
-            </div>
-          </div>
+          <div id="scorekeeper-games"></div>
         </div>
       </div>
 

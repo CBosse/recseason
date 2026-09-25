@@ -2,6 +2,7 @@
 
 import { allocateMatchups, validateScheduleConfig, remainingMatchups } from './scheduling.mjs';
 import { cancellationUpdate } from './game-status.mjs';
+import { canScore, liveScoreUpdate, openScoreEditor } from './live-scoring.mjs';
 import { createSubscriptions, writeResult, replaceDocuments } from './data-lifecycle.mjs';
 import { scoreUpdate, standings } from './results.mjs';
 import { newPlayerProfile } from './accounts.mjs';
@@ -91,6 +92,7 @@ let _connectTimeout   = null;
 let authGeneration = 0;
 
 function clearSessionData() {
+  document.getElementById('score-editor-dialog')?.remove();
   document.getElementById('game-editor-dialog')?.remove();
   subscriptions.clear();
   clearTimeout(_connectTimeout);
@@ -502,7 +504,7 @@ function renderCurrentView() {
   if (_activeView === 'roster')      renderRosterView();
   if (_activeView === 'league')      renderLeagueView();
   if (_activeView === 'umpire')      renderUmpireView();
-  if (_activeView === 'scorekeeper') { /* static placeholder */ }
+  if (_activeView === 'scorekeeper') renderScorekeeperView();
   if (_activeView === 'settings')    renderSettingsView();
   if (_activeView === 'admin')       renderAdminView();
 }
@@ -765,7 +767,7 @@ function renderScheduleView() {
       const li = document.createElement('li');
       li.className = 'schedule-game-row';
 
-      const scoreDisplay = game.status === 'completed'
+      const scoreDisplay = ['completed', 'live'].includes(game.status)
         ? `<span class="score-display">${game.homeScore} &ndash; ${game.awayScore}</span>`
         : `<span class="score-vs">vs</span>`;
 
@@ -774,7 +776,7 @@ function renderScheduleView() {
 
       li.innerHTML = `
         <span class="game-time">${escHtml(formatTime(game.time))}</span>
-        <span class="game-field">${escHtml(game.fieldName)}${game.status === 'cancelled' ? ' (Cancelled)' : ''}</span>
+        <span class="game-field">${escHtml(game.fieldName)}${game.status === 'cancelled' ? ' (Cancelled)' : game.status === 'live' ? ' (Live)' : ''}</span>
         <span class="game-matchup">
           <span class="team-name-home">${escHtml(game.homeName)}</span>
           ${scoreDisplay}
@@ -877,7 +879,14 @@ async function editGame(game = {}) {
   if (!canEdit()) return;
   if (state.teams.length < 2 || !state.fields.length) { showBanner('Add two teams and a field first.', 'error'); return; }
   const uid = currentUser.uid;
+  let scorekeepers = [];
+  try {
+    const snap = await getDocs(query(collection(db, 'users'), where('role', '==', 'scorekeeper')));
+    scorekeepers = snap.docs.map(d => ({ id: d.id, name: d.data().displayName || d.data().email || d.id }));
+  } catch (err) { showDbError(err); return; }
+  if (!canEdit() || currentUser.uid !== uid) return;
   openGameEditor({ game, teams: state.teams, fields: state.fields, config: state.scheduleConfig,
+    scorekeepers,
     umpires: state.umpires.map(u => ({ id: u.id, name: u.name || u.displayName || u.email || u.id })),
     save: async values => {
       if (!canEdit() || currentUser.uid !== uid) throw new Error('Your session changed. Reopen this game.');
@@ -946,7 +955,7 @@ function showInlineScoreEdit(li, game) {
       const snapshot = await transaction.get(ref);
       if (!canEdit() || currentUser.uid !== uid) throw new Error('Your session changed.');
       if (!snapshot.exists() || snapshot.data().status === 'cancelled') throw new Error('This game was removed or cancelled. Refresh the schedule.');
-      transaction.update(ref, updates);
+      transaction.update(ref, { ...updates, scoreRevision: (snapshot.data().scoreRevision ?? 0) + 1 });
     }));
     if (saved) showBanner('Result saved.', 'success');
     button.disabled = false;
@@ -1158,6 +1167,32 @@ function removePlayer(id) {
 document.getElementById('team-back-btn').addEventListener('click', () => { _viewingTeamId = null; renderRosterView(); });
 
 // ── League View ────────────────────────────────────────────────────────────
+
+function renderScorekeeperView() {
+  const container = document.getElementById('scorekeeper-games');
+  container.replaceChildren();
+  const games = state.games.filter(game => canScore(currentUser, game) && ['scheduled', 'live'].includes(game.status));
+  if (!games.length) { container.textContent = 'No open games assigned.'; return; }
+  for (const game of games) {
+    const row = document.createElement('div'); row.className = 'schedule-game-row';
+    const title = document.createElement('span');
+    title.textContent = `${game.date} ${formatTime(game.time)} | ${game.fieldName} | ${game.homeName} ${game.homeScore ?? 0} - ${game.awayScore ?? 0} ${game.awayName}`;
+    const status = document.createElement('span');
+    status.textContent = game.status === 'live' ? `Live: ${game.half || 'top'} ${game.inning || 1}, ${game.balls || 0} balls, ${game.strikes || 0} strikes, ${game.outs || 0} outs` : 'Scheduled';
+    const button = document.createElement('button'); button.className = 'btn btn-primary btn-sm'; button.textContent = 'Record score';
+    button.onclick = () => {
+      const uid = currentUser?.uid;
+      openScoreEditor(game, values => runTransaction(db, async transaction => {
+        const ref = doc(db, 'games', game.id);
+        const snapshot = await transaction.get(ref);
+        if (currentUser?.uid !== uid) throw new Error('Your session changed.');
+        const patch = liveScoreUpdate(snapshot.exists() ? snapshot.data() : null, values, currentUser, game.scoreRevision ?? 0);
+        transaction.update(ref, patch);
+      }));
+    };
+    row.append(title, status, button); container.append(row);
+  }
+}
 
 function renderLeagueView() {
   const container = document.getElementById('standings-container');

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live scoring test fixture</title>
+<link rel="stylesheet" href="../style.css?v=game-editor-1">
+<body>
+<button id="open" type="button">Open test scoreboard</button>
+<output id="result" aria-live="polite"></output>
+<script type="module">
+import { openScoreEditor, liveScoreUpdate } from '../live-scoring.mjs';
+let game = { status: 'scheduled', homeName: 'Home Club', awayName: 'Away Club', scorekeeperId: 'test' };
+document.getElementById('open').onclick = () => openScoreEditor(game, async values => {
+  game = { ...game, ...liveScoreUpdate(game, values, { uid: 'test', role: 'scorekeeper' }, game.scoreRevision ?? 0) };
+  document.getElementById('result').textContent = `${game.status}: ${game.homeScore}-${game.awayScore}, ${game.half} ${game.inning}, revision ${game.scoreRevision}`;
+});
+</script>
+</body>
+</html>
