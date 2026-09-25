@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roster editor test fixture</title>
+<link rel="stylesheet" href="../style.css?v=game-editor-1">
+<body>
+<button id="open" type="button">Edit test player</button>
+<output id="result" aria-live="polite"></output>
+<script type="module">
+import { openRosterEditor } from '../roster-editor.mjs';
+let player = { id: 'p', teamId: 'home', name: 'Demo Player', number: '7', phone: '', archived: true };
+document.getElementById('open').onclick = () => openRosterEditor('player', player, async values => {
+  player = { ...player, ...values };
+  document.getElementById('result').textContent = `${player.name}, number ${player.number}; id=${player.id}, team=${player.teamId}, archived=${player.archived}`;
+});
+</script>
+</body>
+</html>

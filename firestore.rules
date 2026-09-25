@@ -71,6 +71,7 @@ service cloud.firestore {
         request.resource.data.status in ['going', 'maybe', 'not_going'] &&
         (organizer() || ownsPlayer(request.resource.data.playerId)) &&
         get(/databases/$(database)/documents/players/$(request.resource.data.playerId)).data.teamId == request.resource.data.teamId &&
+        get(/databases/$(database)/documents/players/$(request.resource.data.playerId)).data.get('archived', false) == false &&
         get(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data.status == 'scheduled' &&
         request.resource.data.teamId in [get(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data.homeTeamId,
           get(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data.awayTeamId];

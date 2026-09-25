@@ -17,6 +17,8 @@ before(async () => {
     await setDoc(doc(db, 'games', 'cancelled'), { ...game, status: 'cancelled' });
     await setDoc(doc(db, 'players', 'p'), { name: 'Player', phone: 'private', teamId: 'a' });
     await setDoc(doc(db, 'players', 'other'), { name: 'Other', phone: 'private', teamId: 'b' });
+    await setDoc(doc(db, 'players', 'archived'), { name: 'Archived', phone: '', teamId: 'a', archived: true });
+    await setDoc(doc(db, 'users', 'archived'), profile('archived', 'player', { linkedPlayerId: 'archived' }));
   });
 });
 after(async () => { await env?.cleanup(); });
@@ -61,6 +63,7 @@ test('RSVP cannot impersonate another player or target an unrelated team', async
   await assertFails(setDoc(doc(dbFor('other'), 'rsvps', 'g_p'), data));
   await assertFails(setDoc(doc(dbFor('player'), 'rsvps', 'g_p'), { ...data, teamId: 'b' }));
   await assertFails(setDoc(doc(dbFor('player'), 'rsvps', 'cancelled_p'), { ...data, gameId: 'cancelled' }));
+  await assertFails(setDoc(doc(dbFor('archived'), 'rsvps', 'g_archived'), { ...data, playerId: 'archived' }));
 });
 test('admin can assign links while other roles cannot; unknown collections deny access', async () => {
   await assertSucceeds(updateDoc(doc(dbFor('admin'), 'users', 'player'), { linkedTeamId: 'a' }));

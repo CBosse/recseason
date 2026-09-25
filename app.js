@@ -9,6 +9,7 @@ import { newPlayerProfile } from './accounts.mjs';
 import { openGameEditor, validateGame } from './game-editor.mjs';
 import { firebaseConfig, databaseId } from './firebase-config.js';
 import { useLocalEmulators } from './local-runtime.mjs';
+import { openRosterEditor } from './roster-editor.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -102,6 +103,7 @@ let _connectTimeout   = null;
 let authGeneration = 0;
 
 function clearSessionData() {
+  document.getElementById('roster-editor-dialog')?.remove();
   document.getElementById('score-editor-dialog')?.remove();
   document.getElementById('game-editor-dialog')?.remove();
   subscriptions.clear();
@@ -521,6 +523,10 @@ function genId(prefix) {
 // ── Render dispatcher ──────────────────────────────────────────────────────
 
 function renderCurrentView() {
+  for (const game of state.games) {
+    game.homeName = state.teams.find(t => t.id === game.homeTeamId)?.name ?? game.homeName;
+    game.awayName = state.teams.find(t => t.id === game.awayTeamId)?.name ?? game.awayName;
+  }
   updateSidebarUserCard();
   if (_activeView === 'dashboard')   renderDashboard();
   if (_activeView === 'schedule')    renderScheduleView();
@@ -811,7 +817,7 @@ function renderScheduleView() {
       li.querySelector('.edit-game-btn')?.addEventListener('click', () => editGame(game));
       li.querySelector('.cancel-game-btn')?.addEventListener('click', () => cancelGame(game));
 
-      if (game.status === 'scheduled' && rsvpPlayerId && rsvpTeamId &&
+      if (game.status === 'scheduled' && rsvpPlayerId && !rsvpPlayer?.archived && rsvpTeamId &&
           (game.homeTeamId === rsvpTeamId || game.awayTeamId === rsvpTeamId)) {
         const existing  = state.rsvps.find(r => r.gameId === game.id && r.playerId === rsvpPlayerId);
         const curStatus = existing?.status || null;
@@ -1052,7 +1058,7 @@ function showTeamList() {
   } else {
     msg.style.display = 'none';
     state.teams.forEach(team => {
-      const cnt = state.players.filter(p => p.teamId === team.id).length;
+      const cnt = state.players.filter(p => p.teamId === team.id && !p.archived).length;
       const li  = document.createElement('li');
       li.innerHTML = `
         <span class="info">
@@ -1060,7 +1066,9 @@ function showTeamList() {
           <span class="sub">${team.color ? escHtml(team.color) + ' &bull; ' : ''}${team.homefield ? escHtml(team.homefield) : ''}</span>
         </span>
         <span class="badge">${cnt} player${cnt !== 1 ? 's' : ''}</span>
+        ${canEditTeam(team.id) ? '<button class="btn btn-ghost btn-sm edit-team-btn">Edit</button>' : ''}
         ${canEdit() ? `<button class="remove-btn">Remove</button>` : ''}`;
+      li.querySelector('.edit-team-btn')?.addEventListener('click', () => editRosterRecord('team', team));
       li.querySelector('.name-btn').addEventListener('click', () => { _viewingTeamId = team.id; renderRosterView(); });
       li.querySelector('.remove-btn')?.addEventListener('click', () => removeTeam(team.id));
       list.appendChild(li);
@@ -1078,10 +1086,11 @@ function showTeamList() {
       const li   = document.createElement('li');
       li.innerHTML = `
         <span class="info">
-          <span class="name">${player.number ? `<span class="jersey-badge">#${escHtml(player.number)}</span>` : ''}${escHtml(player.name)}</span>
+          <span class="name">${player.number ? `<span class="jersey-badge">#${escHtml(player.number)}</span>` : ''}${escHtml(player.name)}${player.archived ? ' (Archived)' : ''}</span>
           <span class="sub">${team ? escHtml(team.name) : '<em>Unknown team</em>'}${player.phone ? ' &bull; ' + escHtml(player.phone) : ''}</span>
         </span>
-        ${canEdit() ? `<button class="remove-btn">Remove</button>` : ''}`;
+        ${canEditTeam(player.teamId) ? `<button class="btn btn-ghost btn-sm edit-player-btn">Edit</button><button class="remove-btn">${player.archived ? 'Restore' : 'Archive'}</button>` : ''}`;
+      li.querySelector('.edit-player-btn')?.addEventListener('click', () => editRosterRecord('player', player));
       li.querySelector('.remove-btn')?.addEventListener('click', () => removePlayer(player.id));
       allList.appendChild(li);
     });
@@ -1113,10 +1122,11 @@ function showTeamDetail(team) {
       const li = document.createElement('li');
       li.innerHTML = `
         <span class="info">
-          <span class="name">${player.number ? `<span class="jersey-badge">#${escHtml(player.number)}</span>` : ''}${escHtml(player.name)}</span>
+          <span class="name">${player.number ? `<span class="jersey-badge">#${escHtml(player.number)}</span>` : ''}${escHtml(player.name)}${player.archived ? ' (Archived)' : ''}</span>
           ${player.phone ? `<span class="sub">${escHtml(player.phone)}</span>` : ''}
         </span>
-        ${canEditTeam(team.id) ? `<button class="remove-btn">Remove</button>` : ''}`;
+        ${canEditTeam(team.id) ? `<button class="btn btn-ghost btn-sm edit-player-btn">Edit</button><button class="remove-btn">${player.archived ? 'Restore' : 'Archive'}</button>` : ''}`;
+      li.querySelector('.edit-player-btn')?.addEventListener('click', () => editRosterRecord('player', player));
       li.querySelector('.remove-btn')?.addEventListener('click', () => removePlayer(player.id));
       list.appendChild(li);
     });
@@ -1163,11 +1173,13 @@ async function addTeam() {
   nameEl.value = ''; colorEl.value = ''; fieldEl.value = ''; nameEl.focus();
 }
 
-function removeTeam(id) {
-  if (!canEdit() || !confirm('Remove this team? All players on this team will also be removed.')) return;
-  const players = state.players.filter(p => p.teamId === id);
-  Promise.all([deleteTeam(id), ...players.map(p => deletePlayer(p.id))]);
-  if (_viewingTeamId === id) { _viewingTeamId = null; renderRosterView(); }
+async function removeTeam(id) {
+  if (!canEdit()) return;
+  if (state.players.some(p => p.teamId === id) || state.games.some(g => g.homeTeamId === id || g.awayTeamId === id)) {
+    showBanner('This team has roster or game history and cannot be removed.', 'error'); return;
+  }
+  if (!confirm('Remove this empty team?')) return;
+  if (await deleteTeam(id) && _viewingTeamId === id) { _viewingTeamId = null; renderRosterView(); }
 }
 
 document.getElementById('add-player-btn').addEventListener('click', addPlayer);
@@ -1182,9 +1194,32 @@ async function addPlayer() {
   nameEl.value = ''; numEl.value = ''; phoneEl.value = ''; nameEl.focus();
 }
 
-function removePlayer(id) {
-  if (!confirm('Remove this player?')) return;
-  deletePlayer(id);
+async function removePlayer(id) {
+  const player = state.players.find(p => p.id === id);
+  if (!player || !canEditTeam(player.teamId)) return;
+  const archived = !player.archived;
+  if (!confirm(`${archived ? 'Archive' : 'Restore'} ${player.name}? Account links and attendance history will be kept.`)) return;
+  const uid = currentUser.uid;
+  await firestoreWrite(runTransaction(db, async transaction => {
+    const ref = doc(db, 'players', id);
+    const snapshot = await transaction.get(ref);
+    if (currentUser?.uid !== uid || !snapshot.exists() || !canEditTeam(snapshot.data().teamId)) throw new Error('Player access changed. Refresh the roster.');
+    transaction.update(ref, { archived });
+  }));
+}
+
+function editRosterRecord(kind, record) {
+  const teamId = kind === 'team' ? record.id : record.teamId;
+  if (!canEditTeam(teamId)) return;
+  const uid = currentUser.uid;
+  openRosterEditor(kind, record, values => runTransaction(db, async transaction => {
+    const ref = doc(db, kind === 'team' ? 'teams' : 'players', record.id);
+    const snapshot = await transaction.get(ref);
+    if (currentUser?.uid !== uid || !snapshot.exists() || !canEditTeam(kind === 'team' ? record.id : snapshot.data().teamId)) throw new Error('Access changed or record was removed. Refresh the roster.');
+    const changed = Object.keys(values).some(key => (snapshot.data()[key] ?? '') !== (record[key] ?? ''));
+    if (changed) throw new Error('This record changed in another session. Close and reopen the editor.');
+    transaction.update(ref, values);
+  }));
 }
 
 document.getElementById('team-back-btn').addEventListener('click', () => { _viewingTeamId = null; renderRosterView(); });
@@ -1351,6 +1386,7 @@ function renderFieldsSection() {
         </span>
         ${canEdit() ? `<button class="remove-btn">Remove</button>` : ''}`;
       li.querySelector('.remove-btn')?.addEventListener('click', () => {
+        if (state.games.some(g => g.fieldId === field.id)) { showBanner('This field has game history and cannot be removed.', 'error'); return; }
         if (!canEdit() || !confirm('Remove this field?')) return;
         deleteField(field.id);
       });

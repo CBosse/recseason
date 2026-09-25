@@ -75,6 +75,13 @@ acceptance coverage or proof of production deployment.
 - Standings award three points for a win and one for a tie; ties in ranking use
   goal difference, goals scored, then team name. Invalid results are excluded.
 - Account changes dispose database listeners and clear cached records.
+- Organizers and the assigned team manager can edit team/player metadata with
+  stale-edit checks. Players can be archived/restored without deleting account
+  links or attendance history. Archived players cannot submit new RSVPs under
+  the candidate rules. Teams with roster/game history and fields with games are
+  protected from removal in the UI. These removal checks are not yet serialized
+  with concurrent organizer writes; database-level referential enforcement is
+  still required.
 - Private player and attendance queries are scoped to linked players/children
   or the manager's team; organizers can access league records. Visitors do not
   request private player or attendance data. Team-wide participant views need a
