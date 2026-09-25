@@ -1,8 +1,10 @@
 import '../scripts/seed-local.mjs';
 import assert from 'node:assert/strict';
 import { initializeApp, deleteApp } from 'firebase/app';
-import { getAuth, connectAuthEmulator, signInWithEmailAndPassword } from 'firebase/auth';
-import { getFirestore, connectFirestoreEmulator, collection, query, where, documentId, getDocs, doc, setDoc, getDoc, runTransaction } from 'firebase/firestore';
+import { getAuth, connectAuthEmulator, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, applyActionCode, reload } from 'firebase/auth';
+import { getFirestore, connectFirestoreEmulator, collection, query, where, documentId, getDocs, doc, setDoc, getDoc, runTransaction, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { newPlayerProfile } from '../accounts.mjs';
+import { invitationDetails, invitationProfilePatch } from '../invitations.mjs';
 import { liveScoreUpdate } from '../live-scoring.mjs';
 import { standings } from '../results.mjs';
 
@@ -18,6 +20,30 @@ async function session(role) {
 }
 try {
   const admin = await session('siteAdmin');
+  const inviteApp = initializeApp({ apiKey: 'demo-key', projectId: 'demo-recseason' }, 'invited'); apps.push(inviteApp);
+  const inviteAuth = getAuth(inviteApp); connectAuthEmulator(inviteAuth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  const inviteDb = getFirestore(inviteApp, 'recseason'); connectFirestoreEmulator(inviteDb, '127.0.0.1', 8180);
+  const { user: invited } = await createUserWithEmailAndPassword(inviteAuth, 'invited@recseason.test', 'LocalDemo123!');
+  await setDoc(doc(inviteDb, 'users', invited.uid), newPlayerProfile(invited, 'Invited Parent'));
+  const invitation = invitationDetails({ email: invited.email, role: 'parent', linkedPlayerIds: ['child'] }, { teams: [], players: [{ id: 'child', teamId: 'away' }] });
+  await setDoc(doc(admin.db, 'invitations', 'workflow-invite'), { ...invitation, status: 'pending', createdBy: admin.user.uid, createdAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 3600000) });
+  await sendEmailVerification(invited);
+  const codesResponse = await fetch('http://127.0.0.1:9099/emulator/v1/projects/demo-recseason/oobCodes');
+  assert.equal(codesResponse.ok, true);
+  const codes = await codesResponse.json();
+  const code = codes.oobCodes.find(item => item.email === invited.email && item.requestType === 'VERIFY_EMAIL');
+  assert.ok(code);
+  await applyActionCode(inviteAuth, code.oobCode); await reload(invited); await invited.getIdToken(true);
+  assert.equal(invited.emailVerified, true);
+  await runTransaction(inviteDb, async transaction => {
+    const ref = doc(inviteDb, 'invitations', 'workflow-invite');
+    const snapshot = await transaction.get(ref);
+    transaction.update(doc(inviteDb, 'users', invited.uid), invitationProfilePatch(ref.id, snapshot.data()));
+    transaction.update(ref, { status: 'accepted', acceptedBy: invited.uid, acceptedAt: serverTimestamp() });
+  });
+  assert.equal((await getDoc(doc(inviteDb, 'users', invited.uid))).data().role, 'parent');
+  assert.equal((await getDoc(doc(inviteDb, 'players', 'child'))).exists(), true);
+  console.log('PASS: invitation creation, verification, atomic acceptance and linked-child access.');
   assert.equal((await getDocs(collection(admin.db, 'players'))).size, 3);
   const player = await session('player');
   await assert.rejects(getDoc(doc(player.db, 'players', 'child')), error => error.code === 'permission-denied');

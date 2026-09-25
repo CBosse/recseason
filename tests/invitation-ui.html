@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invitation UI test fixture</title>
+<link rel="stylesheet" href="../style.css?v=invitations-1">
+<body>
+<button id="create" type="button">Create test invitation</button>
+<button id="accept" type="button">Open test invitation</button>
+<output id="result" aria-live="polite"></output>
+<script type="module">
+import { openInvitationCreator, openInvitationRecipient } from '../invitation-ui.mjs';
+const result = document.getElementById('result');
+document.getElementById('create').onclick = () => openInvitationCreator({
+  teams: [{ id: 'home', name: 'Riverside' }], players: [{ id: 'p', name: 'Demo Player', teamId: 'home' }], roleLabels: { parent: 'Parent', player: 'Player' },
+  create: async invite => { result.textContent = `Created ${invite.role}: ${invite.email}; children=${invite.linkedPlayerIds.join(',')}`; return `${location.origin}/?invite=test`; },
+});
+document.getElementById('accept').onclick = () => openInvitationRecipient({
+  invitation: { email: 'parent@example.test' }, roleLabel: 'Parent', verify: async () => {},
+  accept: async () => { result.textContent = 'Accepted test invitation'; },
+});
+</script>
+</body>
+</html>

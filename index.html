@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=game-editor-1" />
+  <link rel="stylesheet" href="style.css?v=invitations-1" />
 </head>
 <body>
 
@@ -350,6 +350,7 @@
           </div>
           <div class="topbar-actions">
             <button id="admin-refresh-btn" class="btn btn-ghost">Refresh Users</button>
+            <button id="admin-invite-btn" class="btn btn-primary">Invite</button>
           </div>
         </div>
         <div class="view-body">
@@ -357,6 +358,10 @@
             <div class="settings-label">All Users</div>
             <div id="admin-users-list"></div>
             <p id="admin-no-users-msg" class="muted" style="display:none">No users found.</p>
+          </div>
+          <div class="settings-group">
+            <div class="settings-label">Invitations</div>
+            <div id="admin-invitations-list" aria-live="polite"></div>
           </div>
         </div>
       </div>

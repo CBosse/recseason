@@ -11,6 +11,8 @@ import { firebaseConfig, databaseId } from './firebase-config.js';
 import { useLocalEmulators } from './local-runtime.mjs';
 import { openRosterEditor } from './roster-editor.mjs';
 import { fieldUpdate, fieldFitsGame, fieldWindow, openFieldEditor } from './field-editor.mjs';
+import { invitationProfilePatch } from './invitations.mjs';
+import { openInvitationCreator, openInvitationRecipient } from './invitation-ui.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -29,6 +31,8 @@ import {
   runTransaction,
   documentId,
   connectFirestoreEmulator,
+  serverTimestamp,
+  Timestamp,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 import {
   getAuth,
@@ -38,6 +42,8 @@ import {
   signOut as fbSignOut,
   onAuthStateChanged,
   connectAuthEmulator,
+  sendEmailVerification,
+  reload,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 
 // ── Firebase ───────────────────────────────────────────────────────────────
@@ -104,6 +110,7 @@ let _connectTimeout   = null;
 let authGeneration = 0;
 
 function clearSessionData() {
+  document.getElementById('invitation-dialog')?.remove();
   document.getElementById('field-editor-dialog')?.remove();
   document.getElementById('roster-editor-dialog')?.remove();
   document.getElementById('score-editor-dialog')?.remove();
@@ -184,6 +191,7 @@ onAuthStateChanged(auth, async (user) => {
     }
     if (generation !== authGeneration) return;
     showApp();
+    await showPendingInvitation();
   } else {
     currentUser = null;
     showAuthScreen();
@@ -1480,6 +1488,8 @@ function renderAdminView() {
   if (currentUser?.role !== 'siteAdmin') return;
 
   document.getElementById('admin-refresh-btn').onclick = () => renderAdminView();
+  document.getElementById('admin-invite-btn').onclick = createInvitation;
+  renderInvitations();
 
   const container = document.getElementById('admin-users-list');
   const noMsg     = document.getElementById('admin-no-users-msg');
@@ -1532,6 +1542,101 @@ function renderAdminView() {
         .then(saved => { if (saved) showBanner(`${ROLE_LABELS[role]} saved.`, 'success'); });
     });
   });
+}
+
+function invitationUrl(id) {
+  const url = new URL(window.location.href);
+  url.searchParams.set('invite', id);
+  url.hash = '';
+  return url.href;
+}
+
+function createInvitation() {
+  if (currentUser?.role !== 'siteAdmin') return;
+  const uid = currentUser.uid;
+  openInvitationCreator({ teams: state.teams, players: state.players, roleLabels: ROLE_LABELS,
+    create: async details => {
+      if (currentUser?.uid !== uid || currentUser.role !== 'siteAdmin') throw new Error('Your session changed.');
+      const ref = doc(collection(db, 'invitations'));
+      await setDoc(ref, { ...details, status: 'pending', createdBy: uid, createdAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 6 * 86400000) });
+      if (currentUser?.uid === uid) renderInvitations();
+      return invitationUrl(ref.id);
+    },
+  });
+}
+
+async function renderInvitations() {
+  const container = document.getElementById('admin-invitations-list');
+  if (!container || currentUser?.role !== 'siteAdmin') return;
+  const uid = currentUser.uid;
+  try {
+    const snapshot = await getDocs(collection(db, 'invitations'));
+    if (currentUser?.uid !== uid || currentUser.role !== 'siteAdmin') return;
+    container.replaceChildren();
+    if (snapshot.empty) { container.textContent = 'No invitations.'; return; }
+    for (const item of snapshot.docs) {
+      const invite = item.data();
+      const expired = invite.expiresAt.toMillis() <= Date.now();
+      const row = document.createElement('div'); row.className = 'admin-user-row';
+      const text = document.createElement('span'); text.textContent = `${invite.email} - ${ROLE_LABELS[invite.role] || invite.role} - ${invite.status === 'pending' && expired ? 'expired' : invite.status}`;
+      row.append(text);
+      if (invite.status === 'pending' && !expired) {
+        const link = document.createElement('input'); link.readOnly = true; link.value = invitationUrl(item.id); link.setAttribute('aria-label', `Invitation link for ${invite.email}`); link.style.minWidth = '0';
+        link.onclick = () => link.select();
+        const revoke = document.createElement('button'); revoke.className = 'btn btn-ghost btn-sm'; revoke.textContent = 'Revoke';
+        revoke.onclick = async () => {
+          if (currentUser?.uid !== uid || currentUser.role !== 'siteAdmin' || !confirm(`Revoke the invitation for ${invite.email}?`)) return;
+          revoke.disabled = true;
+          if (await firestoreWrite(updateDoc(item.ref, { status: 'revoked' }))) renderInvitations();
+          else revoke.disabled = false;
+        };
+        row.append(link, revoke);
+      }
+      container.append(row);
+    }
+  } catch (error) {
+    if (currentUser?.uid === uid) container.textContent = `Invitations unavailable: ${error.message}`;
+  }
+}
+
+async function showPendingInvitation() {
+  const id = new URLSearchParams(window.location.search).get('invite');
+  const user = auth.currentUser;
+  if (!id || !user || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) return;
+  try {
+    const ref = doc(db, 'invitations', id);
+    const snapshot = await getDoc(ref);
+    if (auth.currentUser?.uid !== user.uid) return;
+    if (!snapshot.exists()) throw new Error('Invitation unavailable for this account.');
+    const invitation = snapshot.data();
+    if (invitation.status !== 'pending' || invitation.expiresAt.toMillis() <= Date.now()) throw new Error('This invitation is expired or no longer pending.');
+    openInvitationRecipient({ invitation, roleLabel: ROLE_LABELS[invitation.role] || invitation.role,
+      verify: async () => {
+        if (auth.currentUser?.uid !== user.uid) throw new Error('Your session changed.');
+        await sendEmailVerification(user);
+      },
+      accept: async () => {
+        if (auth.currentUser?.uid !== user.uid) throw new Error('Your session changed.');
+        await reload(user);
+        await user.getIdToken(true);
+        if (!user.emailVerified) throw new Error('Verify your email address before accepting.');
+        await runTransaction(db, async transaction => {
+          const fresh = await transaction.get(ref);
+          const profileRef = doc(db, 'users', user.uid);
+          const profile = await transaction.get(profileRef);
+          if (auth.currentUser?.uid !== user.uid) throw new Error('Your session changed.');
+          const invite = fresh.data();
+          if (!invite || invite.status !== 'pending' || invite.expiresAt.toMillis() <= Date.now()) throw new Error('Invitation is no longer available.');
+          if (invite.email !== user.email?.toLowerCase()) throw new Error('Sign in with the invited email address.');
+          if (!profile.exists() || !['player', 'visitor'].includes(profile.data().role)) throw new Error('An admin must update this existing staff account directly.');
+          transaction.update(profileRef, invitationProfilePatch(id, invite));
+          transaction.update(ref, { status: 'accepted', acceptedBy: user.uid, acceptedAt: serverTimestamp() });
+        });
+        const url = new URL(window.location.href); url.searchParams.delete('invite');
+        window.location.replace(url.href);
+      },
+    });
+  } catch (error) { if (auth.currentUser?.uid === user.uid) showBanner(error.message, 'error'); }
 }
 
 // ── Timezone + sunrise/sunset ──────────────────────────────────────────────

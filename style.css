@@ -942,6 +942,7 @@ body {
 .game-editor-grid input[type=checkbox] { width: 20px; height: 20px; }
 .game-editor-dialog [role=alert] { color: #b1361b; margin: 16px 0; }
 .game-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.game-editor-dialog [hidden] { display: none !important; }
 @media (max-width: 480px) { .game-editor-grid { grid-template-columns: 1fr; } }
 
 /* ── Responsive ───────────────────────────────────────────────────────────── */

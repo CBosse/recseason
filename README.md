@@ -116,9 +116,14 @@ Invitation domain validation and candidate database rules are implemented and
 emulator-tested. Only site admins may issue invitations, never for the site-admin
 role. Acceptance requires a verified matching email and an atomic profile/invite
 update; invitations expire within seven days and can be revoked. Parent invites
-carry explicit child links. Admin creation/queue UI, recipient acceptance UI,
-verification-email handling, delivery, and production deployment remain to be
-connected. Invitations are not yet available through the application screens.
+carry explicit child links. Automated invitation delivery and production rollout
+remain outstanding. The Admin Panel now creates shareable invitation links,
+shows status, and revokes pending invitations. Recipients open the link, sign in
+or register with the invited email, request verification if needed, and accept.
+Acceptance reloads the account with its assigned role and links. Created links
+expire after six days (the rules cap is seven). Invitations are not automatically
+emailed; admins share the displayed link. The screens require the candidate rules
+to be deployed, so test them with the local emulators until production rollout.
 
 Secure admin provisioning and tested database rules;
 invitations and parent linking; attendance; per-inning linescores, runner tracking
