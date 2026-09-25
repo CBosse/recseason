@@ -36,6 +36,8 @@ jobs:
       - run: npm ci
       - name: Test Firestore authorization
         run: npm run test:rules
+      - name: Test authenticated league workflows
+        run: npm run test:workflows
       - name: Assemble static application
         run: node scripts/build-site.mjs
       - uses: actions/configure-pages@v4

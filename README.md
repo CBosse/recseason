@@ -29,6 +29,30 @@ The initial tooling audit reports six moderate advisories in development-only
 dependencies. Track updates to Firebase CLI and its transitive dependencies;
 these packages are excluded from the published application.
 
+## Local sample season
+
+With Java 21 and Node 22 on PATH, run `npm run emulators` in one terminal. In a
+second terminal run `npm run seed:local`, then serve the repository over HTTP and
+open `http://127.0.0.1:8080/?emulator=1`. The query parameter is required; ordinary
+URLs still use the configured production project. Emulator mode is restricted to
+localhost and uses a separate Firebase app/auth session and the `demo-recseason`
+project's named `recseason` database.
+
+Sample accounts are `siteadmin@recseason.test`, `leaguemanager@recseason.test`,
+`teammanager@recseason.test`, `captain@recseason.test`, `player@recseason.test`,
+`parent@recseason.test`, `umpire@recseason.test`, and `scorekeeper@recseason.test`.
+All use the local-only password `LocalDemo123!`. The seed includes two teams,
+three players, a lit field, and a scheduled game with an umpire and scorekeeper.
+These accounts exist only in the local Auth emulator. The seed refuses to
+overwrite an existing sample season; stopping the emulators discards its data.
+
+`npm run test:workflows` starts disposable Auth and Firestore emulators, seeds
+the season, signs in real emulator accounts, verifies scoped rosters and RSVPs,
+records a live and final score, and checks the resulting standings. It then
+stops the emulators. Stop an interactive emulator session before running tests
+because both use the same ports. This is SDK integration coverage, not browser
+acceptance coverage or proof of production deployment.
+
 ## Current behavior
 
 - Schedules prevent overlapping field and team bookings, including buffer time.

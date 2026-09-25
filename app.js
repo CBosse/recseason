@@ -8,6 +8,7 @@ import { scoreUpdate, standings } from './results.mjs';
 import { newPlayerProfile } from './accounts.mjs';
 import { openGameEditor, validateGame } from './game-editor.mjs';
 import { firebaseConfig, databaseId } from './firebase-config.js';
+import { useLocalEmulators } from './local-runtime.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -25,6 +26,7 @@ import {
   writeBatch,
   runTransaction,
   documentId,
+  connectFirestoreEmulator,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 import {
   getAuth,
@@ -33,13 +35,20 @@ import {
   sendPasswordResetEmail,
   signOut as fbSignOut,
   onAuthStateChanged,
+  connectAuthEmulator,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 
 // ── Firebase ───────────────────────────────────────────────────────────────
 
-const firebaseApp = initializeApp(firebaseConfig);
+const localMode = useLocalEmulators(window.location);
+const firebaseApp = initializeApp(localMode ? { apiKey: 'demo-key', projectId: 'demo-recseason', authDomain: 'localhost' } : firebaseConfig, localMode ? 'local-demo' : '[DEFAULT]');
 const db   = getFirestore(firebaseApp, databaseId);
 const auth = getAuth(firebaseApp);
+if (localMode) {
+  connectFirestoreEmulator(db, '127.0.0.1', 8180);
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099');
+  document.title = 'RecSeason - Local Demo';
+}
 const subscriptions = createSubscriptions(firebaseOnSnapshot);
 const onSnapshot = (...args) => subscriptions.listen(...args);
 
