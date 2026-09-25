@@ -3,6 +3,8 @@
 import { allocateMatchups, validateScheduleConfig } from './scheduling.mjs';
 import { createSubscriptions, writeResult, replaceDocuments } from './data-lifecycle.mjs';
 import { scoreUpdate, standings } from './results.mjs';
+import { newPlayerProfile } from './accounts.mjs';
+import { firebaseConfig, databaseId } from './firebase-config.js';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -23,23 +25,15 @@ import {
   getAuth,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   signOut as fbSignOut,
   onAuthStateChanged,
 } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 
 // ── Firebase ───────────────────────────────────────────────────────────────
 
-const firebaseConfig = {
-  apiKey: "AIzaSyB_qR9FLOCc0uRKmBNmiNBAoAq98tlZ1WU",
-  authDomain: "bosse-testing.firebaseapp.com",
-  projectId: "bosse-testing",
-  storageBucket: "bosse-testing.firebasestorage.app",
-  messagingSenderId: "327987648702",
-  appId: "1:327987648702:web:b0a2337dc099e6772aa6ef",
-};
-
 const firebaseApp = initializeApp(firebaseConfig);
-const db   = getFirestore(firebaseApp, 'recseason');
+const db   = getFirestore(firebaseApp, databaseId);
 const auth = getAuth(firebaseApp);
 const subscriptions = createSubscriptions(firebaseOnSnapshot);
 const onSnapshot = (...args) => subscriptions.listen(...args);
@@ -150,24 +144,14 @@ onAuthStateChanged(auth, async (user) => {
           linkedPlayerIds: d.linkedPlayerIds || [],
         };
       } else {
-        // No user doc yet — new sign-up.
-        // Check if ANY users exist to decide whether this is the first (siteAdmin).
-        const usersSnap = await getDocs(collection(db, 'users'));
-        if (generation !== authGeneration) return;
-        const role = usersSnap.empty ? 'siteAdmin' : 'player';
-        // Use the name captured from the sign-up form, fall back to email.
-        const displayName = _pendingDisplayName || user.email;
+        const profile = newPlayerProfile(user, _pendingDisplayName);
         _pendingDisplayName = null;
+        await setDoc(doc(db, 'users', user.uid), profile);
+        if (generation !== authGeneration) return;
         currentUser = {
-          uid: user.uid, email: user.email,
-          displayName,
-          role, linkedPlayerId: null, linkedTeamId: null,
+          uid: user.uid, ...profile,
           linkedLeagueId: null, linkedLeagueIds: [], linkedPlayerIds: [],
         };
-        await setDoc(doc(db, 'users', user.uid), {
-          email: currentUser.email, displayName: currentUser.displayName,
-          role: currentUser.role, createdAt: new Date().toISOString(),
-        });
       }
     } catch (err) {
       if (generation !== authGeneration) return;
@@ -219,6 +203,20 @@ document.getElementById('auth-toggle-btn').addEventListener('click', () => {
 
 document.getElementById('auth-submit-btn').addEventListener('click', handleAuthSubmit);
 document.getElementById('auth-password').addEventListener('keydown', e => { if (e.key === 'Enter') handleAuthSubmit(); });
+document.getElementById('auth-reset-btn').addEventListener('click', async event => {
+  const email = document.getElementById('auth-email').value.trim();
+  if (!email) { showAuthError('Enter your email address first.'); return; }
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    await sendPasswordResetEmail(auth, email);
+    showAuthError('If this email has an account, a password reset link will arrive shortly.');
+  } catch (err) {
+    showAuthError(err.code === 'auth/user-not-found'
+      ? 'If this email has an account, a password reset link will arrive shortly.'
+      : 'Unable to request a reset. Check the email address and try again.');
+  } finally { button.disabled = false; }
+});
 
 async function handleAuthSubmit() {
   const email    = document.getElementById('auth-email').value.trim();
@@ -232,11 +230,9 @@ async function handleAuthSubmit() {
 
   try {
     if (_authMode === 'signup') {
-      // Store name so onAuthStateChanged can use it — do NOT write the user doc
-      // here to avoid racing with onAuthStateChanged's first-user siteAdmin check.
+      // The auth listener creates the unprivileged profile exactly once.
       _pendingDisplayName = document.getElementById('auth-name').value.trim() || email;
       await createUserWithEmailAndPassword(auth, email, password);
-      // onAuthStateChanged fires next and handles user doc creation with correct role.
     } else {
       await signInWithEmailAndPassword(auth, email, password);
     }

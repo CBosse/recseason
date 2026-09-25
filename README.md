@@ -6,7 +6,7 @@ Authentication, and the named Firestore database `recseason`.
 ## Development and verification
 
 Serve this folder over HTTP (`python -m http.server 8080`) and open
-http://localhost:8080. Firebase configuration currently lives in `app.js`.
+http://localhost:8080. Firebase configuration lives in `firebase-config.js`.
 The application requires an appropriately configured Firebase project; a local
 server alone does not provide an offline database.
 
@@ -27,7 +27,21 @@ The GitHub Pages workflow runs both checks before deployment.
   goal difference, goals scored, then team name. Invalid results are excluded.
 - Account changes dispose database listeners and clear cached records.
 
-## MVP work still required
+## Account setup
+
+New accounts always start as players. To bootstrap a new deployment, the Firebase
+project owner creates an account, then sets that account's `users/{uid}.role` to
+`siteAdmin` in the named `recseason` database through Firebase Console. Existing
+admin records continue to work. The app never chooses an administrator by counting
+users. Other roles are assigned from the Admin Panel. Password recovery is available
+on the sign-in screen.
+
+This client change is not a substitute for deployed Firestore security rules.
+Production permissions still require validation before this app is ready for a
+live season. Use a separate Firebase project for development and replace the public
+client identifiers in `firebase-config.js` for that environment.
+
+## Remaining work
 
 Secure admin provisioning and tested database rules; manual game management;
 invitations and parent linking; attendance; persistent live scoring; reminders;
