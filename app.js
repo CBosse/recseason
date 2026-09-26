@@ -15,6 +15,7 @@ import { invitationProfilePatch } from './invitations.mjs';
 import { openInvitationCreator, openInvitationRecipient } from './invitation-ui.mjs';
 import { dashboardScope, upcomingGames, rsvpTotals, dashboardRecord } from './dashboard.mjs';
 import { rsvpSchedule, isCurrentRsvp } from './rsvps.mjs';
+import { localDateKey } from './calendar.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -562,7 +563,7 @@ function renderDashboard() {
   const sub      = document.getElementById('dashboard-subtitle');
   const today    = new Date();
   const dayName  = today.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
-  const todayStr = today.toISOString().slice(0, 10);
+  const todayStr = localDateKey(today);
   const gameDay  = dashboardScope(currentUser, state.players, state.games).games.some(g => g.date === todayStr && g.status !== 'cancelled');
   if (sub) {
     const prefix = ROLE_LABELS[currentUser?.role] ? `${ROLE_LABELS[currentUser.role].toUpperCase()} · ` : '';
@@ -574,7 +575,7 @@ function renderKpiStrip() {
   const strip = document.getElementById('kpi-strip');
   if (!strip) return;
 
-  const today    = new Date().toISOString().slice(0, 10);
+  const today    = localDateKey();
   const scope = dashboardScope(currentUser, state.players, state.games);
   const nextGame = upcomingGames(scope.games, today)[0] || null;
 
@@ -641,7 +642,7 @@ function renderKpiStrip() {
 function renderUpcomingGamesCard() {
   const card = document.getElementById('upcoming-games-card');
   if (!card) return;
-  const today    = new Date().toISOString().slice(0, 10);
+  const today    = localDateKey();
   const upcoming = upcomingGames(dashboardScope(currentUser, state.players, state.games).games, today, true).slice(0, 6);
 
   let html = `<div class="card-header">
@@ -689,7 +690,7 @@ function renderUpcomingGamesCard() {
 function renderNeedsAttentionCard() {
   const card = document.getElementById('needs-attention-card');
   if (!card) return;
-  const today    = new Date().toISOString().slice(0, 10);
+  const today    = localDateKey();
   const nextGame = upcomingGames(dashboardScope(currentUser, state.players, state.games).games, today)[0];
 
   const rows = [];
@@ -1132,7 +1133,7 @@ function showTeamDetail(team) {
   }
 
   const upcomingSection = document.getElementById('team-upcoming-section');
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateKey();
   const upcomingGames = state.games
     .filter(g => ['scheduled', 'live'].includes(g.status) && g.date >= today &&
                  (g.homeTeamId === team.id || g.awayTeamId === team.id))
@@ -1289,7 +1290,7 @@ function renderUmpireView() {
 function renderUmpireKpi() {
   const strip = document.getElementById('umpire-kpi');
   if (!strip) return;
-  const today   = new Date().toISOString().slice(0, 10);
+  const today   = localDateKey();
   const myUid   = currentUser?.uid;
   const myGames = currentUser?.role === 'siteAdmin' ? state.games : state.games.filter(g => g.umpireId === myUid);
   const upcoming = upcomingGames(myGames, today, true).length;
@@ -1315,7 +1316,7 @@ function renderUmpireKpi() {
 function renderUmpireGames() {
   const container = document.getElementById('umpire-games');
   if (!container) return;
-  const today   = new Date().toISOString().slice(0, 10);
+  const today   = localDateKey();
   const myUid   = currentUser?.uid;
   const myGames = currentUser?.role === 'siteAdmin' ? state.games : state.games.filter(g => g.umpireId === myUid);
 
@@ -1702,8 +1703,7 @@ async function generateSchedule(teams, fields, config) {
 
   for (let cur = new Date(start); cur <= end; cur.setDate(cur.getDate() + 1)) {
     const dow = cur.getDay();
-    const yy  = cur.getFullYear(), mm = String(cur.getMonth() + 1).padStart(2, '0'), dd = String(cur.getDate()).padStart(2, '0');
-    const dateStr = `${yy}-${mm}-${dd}`;
+    const dateStr = localDateKey(cur);
 
     for (const field of fields) {
       if (!(Array.isArray(field.availableDays) ? field.availableDays : []).includes(dow)) continue;

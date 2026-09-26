@@ -89,6 +89,8 @@ acceptance coverage or proof of production deployment.
   archived players. Live games display live scores instead of RSVP prompts,
   and cancelled games are excluded from upcoming views. Dashboard records use
   the same validated results as the standings table.
+- Upcoming-game and game-day boundaries use the device's local calendar date,
+  not UTC midnight. Explicit league-timezone configuration is not implemented.
 - Organizers and the assigned team manager can edit team/player metadata with
   stale-edit checks. Players can be archived/restored without deleting account
   links or attendance history. Archived players cannot submit new RSVPs under
