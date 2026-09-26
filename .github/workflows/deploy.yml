@@ -38,6 +38,8 @@ jobs:
         run: npm run test:rules
       - name: Test authenticated league workflows
         run: npm run test:workflows
+      - name: Test backup recovery
+        run: npm run test:recovery
       - name: Assemble static application
         run: node scripts/build-site.mjs
       - uses: actions/configure-pages@v4

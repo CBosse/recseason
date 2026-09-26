@@ -139,6 +139,33 @@ client identifiers in `firebase-config.js` for that environment.
 
 ## Remaining work
 
+### Backup and recovery
+
+Run `npm run backup:production` with the Firebase CLI signed in. The export reads
+the named production database only and writes a checksummed JSON file under
+ignored `.tools/backups`. It includes all eleven app collections, retains raw
+Firestore value types, and uses one `readTime` for every page for a consistent
+snapshot. This follows the [Firestore list API](https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.documents/list).
+The file contains private data. Keep it protected and out of Git, Pages, and shared
+folders. The checksum detects corruption; it is not encryption or authentication.
+
+With a fresh local Firestore emulator on port 8180 and
+`FIRESTORE_EMULATOR_HOST=127.0.0.1:8180`, run
+`node scripts/restore-recovery.mjs <backup-file>` to restore into the isolated
+`demo-recseason` project's `recovery` database. The script refuses other endpoints,
+nonempty app collections, overwrites, invalid checksums, and snapshots above 500
+documents. It verifies every restored document after one atomic create-only commit.
+`npm run test:recovery` tests this workflow with synthetic data and an overwrite
+attempt; it runs in CI. A five-document production export was successfully restored
+and verified locally on September 26, 2026. Production was not modified.
+
+This is an app-data recovery tool, not complete disaster recovery. Auth accounts,
+storage files, indexes, rules and unknown collections/subcollections are not included.
+Scheduled encrypted off-device backups, larger snapshots, retention policy, and an
+operator-approved production restore procedure remain outstanding.
+
+### Feature gaps
+
 Invitation domain validation and database rules are implemented and
 emulator-tested. Only site admins may issue invitations, never for the site-admin
 role. Acceptance requires a verified matching email and an atomic profile/invite

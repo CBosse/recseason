@@ -5,6 +5,8 @@
   "scripts": {
     "emulators": "firebase emulators:start --project demo-recseason --config firebase.local.json --only auth,firestore",
     "seed:local": "node scripts/seed-local.mjs",
+    "backup:production": "node scripts/backup-production.mjs",
+    "test:recovery": "firebase emulators:exec --project demo-recseason --config firebase.test.json --only firestore \"node tests/recovery-workflow.mjs\"",
     "test:workflows": "firebase emulators:exec --project demo-recseason --config firebase.local.json --only auth,firestore \"node tests/local-workflows.mjs\"",
     "test": "node --test tests/*.test.mjs",
     "test:rules": "firebase emulators:exec --project demo-recseason --config firebase.test.json --only firestore \"node --test tests/security/*.test.mjs\""
