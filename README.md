@@ -102,6 +102,12 @@ acceptance coverage or proof of production deployment.
   or the manager's team; organizers can access league records. Visitors do not
   request private player or attendance data. Team-wide participant views need a
   separate contact-free roster projection before they can be exposed safely.
+- Player creation, editing, and archiving now atomically synchronize a `teamRoster`
+  record containing only name, jersey number, team, and archive status. Rules require
+  both records to agree. Active captains may read only their team's projection,
+  not teammates' private player records. The captain check-in UI is still pending.
+  Existing installations with players need projection backfill before these rules
+  are deployed; older browser clients cannot make unsynchronized roster edits.
 - Game editors can assign a scorekeeper from registered scorekeeper accounts.
   Assigned scorekeepers and league organizers can save live totals, inning/half,
   balls, strikes, and outs, then finalize the result into the standings. Saves use

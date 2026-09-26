@@ -6,6 +6,7 @@ import { invitationProfilePatch } from '../../invitations.mjs';
 import { newPlayerProfile } from '../../accounts.mjs';
 import { liveScoreUpdate } from '../../live-scoring.mjs';
 import { rsvpSchedule } from '../../rsvps.mjs';
+import { rosterEntry } from '../../team-roster.mjs';
 let env;
 const profile = (uid, role, extra = {}) => ({ ...newPlayerProfile({ uid, email: `${uid}@example.test` }, uid), role, ...extra });
 const game = { status: 'scheduled', homeTeamId: 'a', awayTeamId: 'b', scorekeeperId: 'scorer', date: '2026-09-25', time: '18:00', fieldId: 'main' };
@@ -23,6 +24,11 @@ before(async () => {
     await setDoc(doc(db, 'users', 'archived'), profile('archived', 'player', { linkedPlayerId: 'archived' }));
     const { linkedPlayerIds, ...legacyAdmin } = profile('legacy-admin', 'siteAdmin');
     await setDoc(doc(db, 'users', 'legacy-admin'), legacyAdmin);
+    await setDoc(doc(db, 'users', 'captain'), profile('captain', 'captain', { linkedPlayerId: 'p' }));
+    await setDoc(doc(db, 'teamRoster', 'p'), rosterEntry({ name: 'Player', teamId: 'a' }));
+    await setDoc(doc(db, 'teamRoster', 'other'), rosterEntry({ name: 'Other', teamId: 'b' }));
+    await setDoc(doc(db, 'players', 'teammate'), { name: 'Teammate', teamId: 'a', phone: 'private' });
+    await setDoc(doc(db, 'teamRoster', 'teammate'), rosterEntry({ name: 'Teammate', teamId: 'a' }));
   });
 });
 after(async () => { await env?.cleanup(); });
@@ -61,9 +67,55 @@ test('player and parent access is limited to linked players; manager cannot tran
     await assertSucceeds(getDocs(query(collection(dbFor(uid), 'players'), where(documentId(), 'in', ['p']))));
     await assertFails(getDoc(doc(dbFor(uid), 'players', 'other')));
   }
-  await assertSucceeds(updateDoc(doc(dbFor('manager'), 'players', 'p'), { name: 'Renamed' }));
+  const managerDb = dbFor('manager');
+  const batch = writeBatch(managerDb);
+  batch.update(doc(managerDb, 'players', 'p'), { name: 'Renamed' });
+  batch.set(doc(managerDb, 'teamRoster', 'p'), rosterEntry({ name: 'Renamed', teamId: 'a' }));
+  await assertSucceeds(batch.commit());
   await assertSucceeds(getDocs(query(collection(dbFor('manager'), 'players'), where('teamId', '==', 'a'))));
   await assertFails(updateDoc(doc(dbFor('manager'), 'players', 'p'), { teamId: 'b' }));
+});
+
+test('captain sees only contact-free own-team roster; projection changes must stay atomic', async () => {
+  const captainDb = dbFor('captain');
+  await assertSucceeds(getDocs(query(collection(captainDb, 'teamRoster'), where('teamId', '==', 'a'))));
+  await assertFails(getDocs(collection(captainDb, 'teamRoster')));
+  await assertFails(getDoc(doc(captainDb, 'teamRoster', 'other')));
+  await assertFails(getDoc(doc(captainDb, 'players', 'other')));
+  await assertSucceeds(getDoc(doc(captainDb, 'teamRoster', 'teammate')));
+  await assertFails(getDoc(doc(captainDb, 'players', 'teammate')));
+  await assertFails(getDocs(collection(env.unauthenticatedContext().firestore(), 'teamRoster')));
+  await assertFails(updateDoc(doc(captainDb, 'teamRoster', 'p'), { name: 'Changed' }));
+  const managerDb = dbFor('manager');
+  await assertFails(updateDoc(doc(managerDb, 'players', 'p'), { name: 'Unsynchronized' }));
+  await assertFails(updateDoc(doc(managerDb, 'teamRoster', 'p'), { phone: 'private' }));
+  await assertFails(updateDoc(doc(managerDb, 'teamRoster', 'p'), { name: 'Unsynchronized' }));
+  const batch = writeBatch(managerDb);
+  batch.update(doc(managerDb, 'players', 'p'), { archived: true });
+  batch.update(doc(managerDb, 'teamRoster', 'p'), { archived: true });
+  await assertSucceeds(batch.commit());
+  await assertFails(getDocs(query(collection(captainDb, 'teamRoster'), where('teamId', '==', 'a'))));
+  const restore = writeBatch(managerDb);
+  restore.update(doc(managerDb, 'players', 'p'), { archived: false });
+  restore.update(doc(managerDb, 'teamRoster', 'p'), { archived: false });
+  await assertSucceeds(restore.commit());
+});
+
+test('player creation and deletion require the matching roster projection', async () => {
+  const db = dbFor('manager');
+  const player = { name: 'New Player', number: '9', phone: 'private', teamId: 'a' };
+  await assertFails(setDoc(doc(db, 'players', 'new-player'), player));
+  const create = writeBatch(db);
+  create.set(doc(db, 'players', 'new-player'), player);
+  create.set(doc(db, 'teamRoster', 'new-player'), rosterEntry(player));
+  await assertSucceeds(create.commit());
+  const partialDelete = writeBatch(db);
+  partialDelete.delete(doc(db, 'players', 'new-player'));
+  await assertFails(partialDelete.commit());
+  const remove = writeBatch(db);
+  remove.delete(doc(db, 'players', 'new-player'));
+  remove.delete(doc(db, 'teamRoster', 'new-player'));
+  await assertSucceeds(remove.commit());
 });
 test('RSVP cannot impersonate another player or target an unrelated team', async () => {
   const data = { gameId: 'g', playerId: 'p', playerName: 'Player', teamId: 'a', status: 'going', ...rsvpSchedule(game) };

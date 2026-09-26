@@ -1,4 +1,5 @@
 import { newPlayerProfile } from '../accounts.mjs';
+import { rosterEntry } from '../team-roster.mjs';
 
 // These endpoints are deliberately fixed: this script must never seed production.
 const authEndpoint = 'http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:signUp?key=demo-key';
@@ -35,7 +36,11 @@ for (const role of ['siteAdmin', 'leagueManager', 'teamManager', 'captain', 'pla
 }
 add('teams/home', { name: 'Riverside', color: '#206c4b', homefield: 'Community Field' });
 add('teams/away', { name: 'Northside', color: '#ad3b3b', homefield: 'Community Field' });
-for (const [id, name, teamId] of [['player', 'Demo Player', 'home'], ['captain', 'Demo Captain', 'home'], ['child', 'Demo Child', 'away']]) add(`players/${id}`, { name, teamId, number: '1', phone: '' });
+for (const [id, name, teamId] of [['player', 'Demo Player', 'home'], ['captain', 'Demo Captain', 'home'], ['child', 'Demo Child', 'away']]) {
+  const player = { name, teamId, number: '1', phone: '' };
+  add(`players/${id}`, player);
+  add(`teamRoster/${id}`, rosterEntry(player));
+}
 add('fields/main', { name: 'Community Field', availableDays: [0, 1, 2, 3, 4, 5, 6], openTime: '08:00', closeTime: '22:00', hasLights: true, zipCode: '' });
 const today = new Date().toISOString().slice(0, 10);
 const end = new Date(Date.now() + 28 * 86400000).toISOString().slice(0, 10);

@@ -77,11 +77,29 @@ service cloud.firestore {
       allow read: if true;
       allow write: if organizer();
     }
+    function rosterMatches(id) {
+      let player = getAfter(/databases/$(database)/documents/players/$(id)).data;
+      let roster = getAfter(/databases/$(database)/documents/teamRoster/$(id)).data;
+      return roster.keys().hasOnly(['name', 'number', 'teamId', 'archived']) &&
+        roster.name == player.name && roster.number == player.get('number', '') &&
+        roster.teamId == player.teamId && roster.archived == player.get('archived', false);
+    }
+    function captains(teamId) {
+      return signedIn() && profile().role == 'captain' &&
+        get(/databases/$(database)/documents/players/$(profile().linkedPlayerId)).data.teamId == teamId &&
+        get(/databases/$(database)/documents/players/$(profile().linkedPlayerId)).data.get('archived', false) == false;
+    }
+    match /teamRoster/{id} {
+      allow read: if manages(resource.data.teamId) || captains(resource.data.teamId);
+      allow create: if manages(request.resource.data.teamId) && rosterMatches(id);
+      allow update: if manages(resource.data.teamId) && manages(request.resource.data.teamId) && rosterMatches(id);
+      allow delete: if manages(resource.data.teamId) && !existsAfter(/databases/$(database)/documents/players/$(id));
+    }
     match /players/{id} {
       allow read: if manages(resource.data.teamId) || ownsPlayer(id);
-      allow create: if manages(request.resource.data.teamId);
-      allow update: if manages(resource.data.teamId) && manages(request.resource.data.teamId);
-      allow delete: if manages(resource.data.teamId);
+      allow create: if manages(request.resource.data.teamId) && rosterMatches(id);
+      allow update: if manages(resource.data.teamId) && manages(request.resource.data.teamId) && rosterMatches(id);
+      allow delete: if manages(resource.data.teamId) && !existsAfter(/databases/$(database)/documents/teamRoster/$(id));
     }
     function validScore(d) {
       return d.homeScore is int && d.homeScore >= 0 && d.homeScore <= 9007199254740991 &&

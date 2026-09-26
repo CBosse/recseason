@@ -16,6 +16,7 @@ import { openInvitationCreator, openInvitationRecipient } from './invitation-ui.
 import { dashboardScope, upcomingGames, rsvpTotals, dashboardRecord } from './dashboard.mjs';
 import { rsvpSchedule, isCurrentRsvp } from './rsvps.mjs';
 import { localDateKey } from './calendar.mjs';
+import { rosterEntry } from './team-roster.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -496,11 +497,13 @@ function saveTeam(team) {
 function deleteTeam(id)   { return firestoreWrite(deleteDoc(doc(db, 'teams', id))); }
 
 function savePlayer(player) {
-  return firestoreWrite(setDoc(doc(db, 'players', player.id), {
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'players', player.id), {
     name: player.name, number: player.number ?? '', phone: player.phone ?? '', teamId: player.teamId,
-  }));
+  });
+  batch.set(doc(db, 'teamRoster', player.id), rosterEntry(player));
+  return firestoreWrite(batch.commit());
 }
-function deletePlayer(id) { return firestoreWrite(deleteDoc(doc(db, 'players', id))); }
 
 function saveField(field) {
   return firestoreWrite(setDoc(doc(db, 'fields', field.id), {
@@ -1205,6 +1208,7 @@ async function removePlayer(id) {
     const snapshot = await transaction.get(ref);
     if (currentUser?.uid !== uid || !snapshot.exists() || !canEditTeam(snapshot.data().teamId)) throw new Error('Player access changed. Refresh the roster.');
     transaction.update(ref, { archived });
+    transaction.set(doc(db, 'teamRoster', id), rosterEntry({ ...snapshot.data(), archived }));
   }));
 }
 
@@ -1219,6 +1223,7 @@ function editRosterRecord(kind, record) {
     const changed = Object.keys(values).some(key => (snapshot.data()[key] ?? '') !== (record[key] ?? ''));
     if (changed) throw new Error('This record changed in another session. Close and reopen the editor.');
     transaction.update(ref, values);
+    if (kind === 'player') transaction.set(doc(db, 'teamRoster', record.id), rosterEntry({ ...snapshot.data(), ...values }));
   }));
 }
 
