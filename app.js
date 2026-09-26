@@ -17,6 +17,7 @@ import { dashboardScope, upcomingGames, rsvpTotals, dashboardRecord } from './da
 import { rsvpSchedule, isCurrentRsvp } from './rsvps.mjs';
 import { localDateKey } from './calendar.mjs';
 import { rosterEntry } from './team-roster.mjs';
+import { checkInTeams, attendanceUpdate, openCheckIn } from './attendance.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -119,6 +120,7 @@ function clearSessionData() {
   document.getElementById('roster-editor-dialog')?.remove();
   document.getElementById('score-editor-dialog')?.remove();
   document.getElementById('game-editor-dialog')?.remove();
+  document.getElementById('attendance-dialog')?.remove();
   subscriptions.clear();
   clearTimeout(_connectTimeout);
   _listenersStarted = false;
@@ -521,6 +523,31 @@ function saveScheduleConfig(cfg) {
   }));
 }
 
+async function showCheckIn(game, teamId, teamName) {
+  const uid = currentUser.uid;
+  const roster = await getDocs(query(collection(db, 'teamRoster'), where('teamId', '==', teamId)));
+  const attendance = await getDocs(query(collection(db, 'attendance'), where('teamId', '==', teamId)));
+  if (currentUser?.uid !== uid) return;
+  openCheckIn(game, teamName, roster.docs.map(d => ({ id: d.id, ...d.data() })),
+    attendance.docs.map(d => ({ id: d.id, ...d.data() })).filter(d => d.gameId === game.id),
+    changes => runTransaction(db, async transaction => {
+      if (currentUser?.uid !== uid) throw new Error('Account changed. Reopen check-in.');
+      if (changes.length > 10) throw new Error('Save up to 10 attendance changes at a time.');
+      const current = await transaction.get(doc(db, 'games', game.id));
+      if (!current.exists() || !isCurrentRsvp({ gameId: game.id, ...rsvpSchedule(game) }, { id: game.id, ...current.data() })) throw new Error('The game was rescheduled. Reopen check-in.');
+      const updates = [];
+      for (const change of changes) {
+        const player = await transaction.get(doc(db, 'teamRoster', change.player.id));
+        const ref = doc(db, 'attendance', `${game.id}_${change.player.id}`);
+        const saved = await transaction.get(ref);
+        if (!player.exists() || player.data().teamId !== teamId) throw new Error('The roster changed. Reopen check-in.');
+        if ((saved.data()?.revision ?? 0) !== (change.previous?.revision ?? 0)) throw new Error('Attendance changed in another session. Reopen check-in.');
+        updates.push({ ref, data: attendanceUpdate({ id: game.id, ...current.data() }, { id: player.id, ...player.data() }, change.status, saved.data(), uid) });
+      }
+      for (const update of updates) transaction.set(update.ref, { ...update.data, checkedAt: serverTimestamp() });
+    }));
+}
+
 function setRsvp(gameId, status, playerId, playerName, teamId) {
   const game = state.games.find(g => g.id === gameId);
   if (!playerId || !game || game.status !== 'scheduled') return;
@@ -812,6 +839,17 @@ function renderScheduleView() {
       li.querySelector('.edit-score-btn')?.addEventListener('click', () => showInlineScoreEdit(li, game));
       li.querySelector('.edit-game-btn')?.addEventListener('click', () => editGame(game));
       li.querySelector('.cancel-game-btn')?.addEventListener('click', () => cancelGame(game));
+      for (const teamId of checkInTeams(currentUser, state.players, game)) {
+        const button = document.createElement('button'); button.className = 'btn btn-ghost btn-sm';
+        const teamName = teamId === game.homeTeamId ? game.homeName : game.awayName;
+        button.textContent = `${teamName} check-in`;
+        button.onclick = async () => {
+          button.disabled = true;
+          try { await showCheckIn(game, teamId, teamName); } catch (error) { showDbError(error); }
+          finally { button.disabled = false; }
+        };
+        li.querySelector('.game-actions').append(button);
+      }
 
       if (game.status === 'scheduled' && rsvpPlayerId && !rsvpPlayer?.archived && rsvpTeamId &&
           (game.homeTeamId === rsvpTeamId || game.awayTeamId === rsvpTeamId)) {

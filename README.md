@@ -105,9 +105,14 @@ acceptance coverage or proof of production deployment.
 - Player creation, editing, and archiving now atomically synchronize a `teamRoster`
   record containing only name, jersey number, team, and archive status. Rules require
   both records to agree. Active captains may read only their team's projection,
-  not teammates' private player records. The captain check-in UI is still pending.
+  not teammates' private player records.
   Existing installations with players need projection backfill before these rules
   are deployed; older browser clients cannot make unsynchronized roster edits.
+- Schedule rows offer team check-in for active captains, team managers, and
+  organizers. Present/absent/unmarked attendance is separate from RSVPs. Saves
+  validate the current roster, game schedule and attendance revision atomically;
+  cancelled/completed games reject changes. Up to ten changed players can be saved
+  at once. Reopen the dialog to review saved attendance or resolve a stale edit.
 - Game editors can assign a scorekeeper from registered scorekeeper accounts.
   Assigned scorekeepers and league organizers can save live totals, inning/half,
   balls, strikes, and outs, then finalize the result into the standings. Saves use
@@ -147,7 +152,7 @@ expire after six days (the rules cap is seven). Invitations are not automaticall
 emailed; admins share the displayed link. Test invitations in the local emulators
 before sending real invitations.
 
-Production admin acceptance testing; captain attendance; per-inning linescores, runner tracking
+Production admin and captain acceptance testing; per-inning linescores, runner tracking
 and play logs; reminders;
 backup and restoration; larger schedule publication; browser acceptance tests;
 and production configuration/verification remain outstanding. The test suite

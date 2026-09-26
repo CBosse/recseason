@@ -8,6 +8,7 @@ import { invitationDetails, invitationProfilePatch } from '../invitations.mjs';
 import { liveScoreUpdate } from '../live-scoring.mjs';
 import { standings } from '../results.mjs';
 import { rsvpSchedule } from '../rsvps.mjs';
+import { attendanceUpdate } from '../attendance.mjs';
 
 const apps = [];
 async function session(role) {
@@ -58,6 +59,19 @@ try {
   const manager = await session('teamManager');
   assert.equal((await getDocs(query(collection(manager.db, 'players'), where('teamId', '==', 'home')))).size, 2);
   const scorer = await session('scorekeeper');
+  const captain = await session('captain');
+  const captainRoster = await getDocs(query(collection(captain.db, 'teamRoster'), where('teamId', '==', 'home')));
+  assert.equal(captainRoster.size, 2);
+  await assert.rejects(getDoc(doc(captain.db, 'players', 'player')), error => error.code === 'permission-denied');
+  const attendanceRef = doc(captain.db, 'attendance', 'demo-game_player');
+  await runTransaction(captain.db, async tx => {
+    const gameDoc = await tx.get(doc(captain.db, 'games', 'demo-game'));
+    const playerDoc = await tx.get(doc(captain.db, 'teamRoster', 'player'));
+    const previous = await tx.get(attendanceRef);
+    tx.set(attendanceRef, { ...attendanceUpdate({ id: gameDoc.id, ...gameDoc.data() }, { id: playerDoc.id, ...playerDoc.data() }, 'present', previous.data(), captain.user.uid), checkedAt: serverTimestamp() });
+  });
+  assert.equal((await getDoc(attendanceRef)).data().status, 'present');
+  console.log('PASS: captain reads contact-free team roster and persists attendance.');
   await assert.rejects(setDoc(doc(scorer.db, 'games', 'unassigned'), { status: 'scheduled' }), error => error.code === 'permission-denied');
   const score = { homeScore: 3, awayScore: 1, inning: 7, half: 'bottom', balls: 0, strikes: 0, outs: 2 };
   for (const [revision, status] of [[0, 'live'], [1, 'completed']]) {

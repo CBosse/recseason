@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Check-in test</title><link rel="stylesheet" href="../style.css"></head>
+<body><main><button id="open" class="btn btn-primary">Open check-in</button><output id="result"></output></main>
+<script type="module">
+import { openCheckIn } from '../attendance.mjs';
+document.querySelector('#open').onclick = () => openCheckIn({ id: 'g', date: '2026-09-26', time: '18:00', fieldId: 'main' }, 'Riverside',
+  [{ id: 'p', name: 'Demo Player', number: '7', teamId: 'a' }, { id: 'c', name: 'Demo Captain', number: '12', teamId: 'a' }], [],
+  async changes => { document.querySelector('#result').textContent = changes.map(c => `${c.player.name}: ${c.status}`).join(', '); });
+</script></body></html>

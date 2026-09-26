@@ -39,6 +39,22 @@ test('legacy admin without child links can update its profile without broadening
   await assertFails(updateDoc(doc(dbFor('player'), 'users', 'legacy-admin'), { linkedPlayerIds: ['p'] }));
   await assertFails(updateDoc(doc(dbFor('legacy-admin'), 'users', 'legacy-admin'), { linkedPlayerIds: 'invalid' }));
 });
+test('captain attendance requires own team, current schedule and next revision', async () => {
+  const data = { gameId: 'g', playerId: 'teammate', teamId: 'a', status: 'present', ...rsvpSchedule(game), revision: 1, checkedBy: 'captain', checkedAt: serverTimestamp() };
+  const ref = doc(dbFor('captain'), 'attendance', 'g_teammate');
+  await assertSucceeds(getDoc(ref));
+  await assertSucceeds(setDoc(ref, data));
+  await assertSucceeds(getDocs(query(collection(dbFor('captain'), 'attendance'), where('teamId', '==', 'a'))));
+  await assertFails(setDoc(ref, data));
+  await assertSucceeds(setDoc(ref, { ...data, status: 'absent', revision: 2 }));
+  await assertFails(setDoc(ref, { ...data, revision: 3, gameTime: '23:00' }));
+  await assertFails(setDoc(ref, { ...data, revision: 3, checkedBy: 'admin' }));
+  await assertFails(setDoc(doc(dbFor('player'), 'attendance', 'g_teammate'), { ...data, revision: 3, checkedBy: 'player' }));
+  await assertFails(setDoc(doc(dbFor('captain'), 'attendance', 'g_other'), { ...data, playerId: 'other', teamId: 'b' }));
+  await assertFails(setDoc(doc(dbFor('captain'), 'attendance', 'cancelled_teammate'), { ...data, gameId: 'cancelled' }));
+  await assertFails(getDocs(collection(env.unauthenticatedContext().firestore(), 'attendance')));
+});
+
 test('public schedule does not expose profiles or phone records', async () => {
   const db = env.unauthenticatedContext().firestore();
   await assertSucceeds(getDoc(doc(db, 'games', 'g')));
