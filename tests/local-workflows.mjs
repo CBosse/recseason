@@ -9,6 +9,7 @@ import { liveScoreUpdate } from '../live-scoring.mjs';
 import { standings } from '../results.mjs';
 import { rsvpSchedule } from '../rsvps.mjs';
 import { attendanceUpdate } from '../attendance.mjs';
+import { scheduleRevision, nextScheduleRevision } from '../schedule-version.mjs';
 
 const apps = [];
 async function session(role) {
@@ -22,6 +23,20 @@ async function session(role) {
 }
 try {
   const admin = await session('siteAdmin');
+  const revisionRef = doc(admin.db, 'config', 'scheduleRevision');
+  const expectedRevision = scheduleRevision((await getDoc(revisionRef)).data());
+  const baseGame = (await getDoc(doc(admin.db, 'games', 'demo-game'))).data();
+  const publish = id => runTransaction(admin.db, async tx => {
+    const current = await tx.get(revisionRef);
+    const next = nextScheduleRevision(current.data(), expectedRevision, admin.user.uid);
+    tx.set(doc(admin.db, 'games', id), { ...baseGame, date: '2026-12-01', time: '20:00' });
+    tx.set(revisionRef, next);
+  });
+  const publications = await Promise.allSettled([publish('concurrent-a'), publish('concurrent-b')]);
+  assert.equal(publications.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal(publications.filter(result => result.status === 'rejected').length, 1);
+  assert.equal((await getDoc(revisionRef)).data().revision, expectedRevision + 1);
+  console.log('PASS: concurrent schedule publications admit one writer and reject the stale snapshot.');
   const inviteApp = initializeApp({ apiKey: 'demo-key', projectId: 'demo-recseason' }, 'invited'); apps.push(inviteApp);
   const inviteAuth = getAuth(inviteApp); connectAuthEmulator(inviteAuth, 'http://127.0.0.1:9099', { disableWarnings: true });
   const inviteDb = getFirestore(inviteApp, 'recseason'); connectFirestoreEmulator(inviteDb, '127.0.0.1', 8180);
@@ -83,7 +98,7 @@ try {
   }
   const games = (await getDocs(collection(admin.db, 'games'))).docs.map(d => ({ id: d.id, ...d.data() }));
   const teams = (await getDocs(collection(admin.db, 'teams'))).docs.map(d => ({ id: d.id, ...d.data() }));
-  assert.equal(games[0].status, 'completed');
+  assert.equal(games.find(game => game.id === 'demo-game').status, 'completed');
   const table = standings(teams, games);
   assert.equal(table.find(row => row.name === 'Riverside').Pts, 3);
   console.log('PASS: authenticated admin, player, parent, manager and scorer workflows in named recseason database.');

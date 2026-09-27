@@ -147,10 +147,30 @@ test('RSVP cannot impersonate another player or target an unrelated team', async
   }
   const { gameDate, gameTime, gameFieldId, ...legacy } = data;
   await assertFails(setDoc(doc(dbFor('player'), 'rsvps', 'g_p'), legacy));
-  await assertSucceeds(updateDoc(doc(dbFor('admin'), 'games', 'g'), { time: '20:00' }));
+  const scheduleDb = dbFor('admin');
+  const scheduleBatch = writeBatch(scheduleDb);
+  scheduleBatch.update(doc(scheduleDb, 'games', 'g'), { time: '20:00' });
+  scheduleBatch.set(doc(scheduleDb, 'config', 'scheduleRevision'), { revision: 1, updatedBy: 'admin' });
+  await assertSucceeds(scheduleBatch.commit());
   await assertFails(setDoc(doc(dbFor('player'), 'rsvps', 'g_p'), data));
   await assertSucceeds(setDoc(doc(dbFor('player'), 'rsvps', 'g_p'), { ...data, gameTime: '20:00' }));
 });
+test('schedule writes require a matching revision advance and stale batches fail', async () => {
+  const db = dbFor('admin');
+  await assertFails(setDoc(doc(db, 'games', 'new-game'), game));
+  await assertFails(updateDoc(doc(db, 'games', 'g'), { time: '21:00' }));
+  const stale = writeBatch(db);
+  stale.set(doc(db, 'games', 'new-game'), game);
+  stale.set(doc(db, 'config', 'scheduleRevision'), { revision: 1, updatedBy: 'admin' });
+  await assertFails(stale.commit());
+  const fresh = writeBatch(db);
+  fresh.set(doc(db, 'games', 'new-game'), game);
+  fresh.set(doc(db, 'config', 'scheduleRevision'), { revision: 2, updatedBy: 'admin' });
+  await assertSucceeds(fresh.commit());
+  const reset = writeBatch(db); reset.delete(doc(db, 'config', 'scheduleRevision'));
+  await assertFails(reset.commit());
+});
+
 test('admin can assign links while other roles cannot; unknown collections deny access', async () => {
   await assertSucceeds(updateDoc(doc(dbFor('admin'), 'users', 'player'), { linkedTeamId: 'a' }));
   await assertFails(updateDoc(doc(dbFor('organizer'), 'users', 'player'), { role: 'siteAdmin' }));

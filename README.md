@@ -76,8 +76,12 @@ acceptance coverage or proof of production deployment.
 - Organizers can cancel scheduled games without deleting game or attendance
   history, then reschedule them through the game editor. Cancellation and result
   saves check the current game status in a transaction.
-- Schedule replacement is one atomic batch, with a maximum of 500 combined
-  deletions and additions. Larger changes are rejected without deleting data.
+- Schedule publication uses a shared revision in a transaction, with a maximum
+  of 499 combined game deletions/additions plus the revision write. Manual game
+  saves, cancellation, clearing and regeneration use the same revision. Stale
+  publications reject instead of overwriting another organizer's changes; all
+  previously read game documents are rechecked, including scoring status changes.
+  Larger changes are rejected without deleting data.
 - Zero-capacity generation keeps the current schedule; incomplete schedules
   require confirmation.
 - Final scores must be non-negative whole numbers. Result updates retain other
@@ -192,8 +196,9 @@ and production configuration/verification remain outstanding. The test suite
 covers domain logic, subscription handling, emulator authorization, and authenticated
 emulator workflows, not signed-in production acceptance.
 The standalone `tests/game-editor.html` fixture exercises the editor without
-connecting to Firebase or writing live records. Concurrent schedule edits and
-regeneration are not yet serialized. Cancellation and rescheduling do not yet
+connecting to Firebase or writing live records. Game publications are serialized;
+concurrent field, team, and season-configuration edits are not yet coordinated with
+game publication. Cancellation and rescheduling do not yet
 notify participants. RSVPs now confirm a specific date, time, and field. After
 rescheduling, old responses remain stored but are excluded from current totals
 and the participant is prompted to reconfirm. Legacy responses without these

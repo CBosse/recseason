@@ -3,7 +3,7 @@
 import { allocateMatchups, validateScheduleConfig, remainingMatchups } from './scheduling.mjs';
 import { cancellationUpdate } from './game-status.mjs';
 import { canScore, liveScoreUpdate, openScoreEditor } from './live-scoring.mjs';
-import { createSubscriptions, writeResult, replaceDocuments } from './data-lifecycle.mjs';
+import { createSubscriptions, writeResult } from './data-lifecycle.mjs';
 import { scoreUpdate, standings } from './results.mjs';
 import { newPlayerProfile } from './accounts.mjs';
 import { openGameEditor, validateGame } from './game-editor.mjs';
@@ -19,6 +19,7 @@ import { localDateKey } from './calendar.mjs';
 import { rosterEntry } from './team-roster.mjs';
 import { checkInTeams, attendanceUpdate, openCheckIn } from './attendance.mjs';
 import { gameReminder, openReminderDraft } from './reminders.mjs';
+import { scheduleRevision, nextScheduleRevision } from './schedule-version.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -492,6 +493,30 @@ function showDbError(err) {
 }
 
 function firestoreWrite(p) { return writeResult(p, showDbError); }
+
+async function scheduleSnapshot() {
+  const revision = await getDoc(doc(db, 'config', 'scheduleRevision'));
+  const games = await getDocs(collection(db, 'games'));
+  return { revision: scheduleRevision(revision.data()), games };
+}
+
+async function publishSchedule(snapshot, removed, replacements, uid) {
+  if (removed.length + replacements.length > 499) throw new Error('This schedule update exceeds 499 game changes.');
+  await runTransaction(db, async transaction => {
+    const ref = doc(db, 'config', 'scheduleRevision');
+    const current = await transaction.get(ref);
+    if (!canEdit() || currentUser?.uid !== uid) throw new Error('Your session changed.');
+    const revision = nextScheduleRevision(current.data(), snapshot.revision, uid);
+    // Scoring can change game status without changing its reserved time slot.
+    for (const previous of snapshot.games.docs) {
+      const latest = await transaction.get(previous.ref);
+      if (!latest.exists() || JSON.stringify(latest.data()) !== JSON.stringify(previous.data())) throw new Error('A game changed during scheduling. Refresh and try again.');
+    }
+    transaction.set(ref, revision);
+    removed.forEach(ref => transaction.delete(ref));
+    replacements.forEach(({ ref, data }) => transaction.set(ref, data, { merge: true }));
+  });
+}
 
 function saveTeam(team) {
   return firestoreWrite(setDoc(doc(db, 'teams', team.id), {
@@ -979,10 +1004,12 @@ async function editGame(game = {}) {
     umpires: state.umpires.map(u => ({ id: u.id, name: u.name || u.displayName || u.email || u.id })),
     save: async values => {
       if (!canEdit() || currentUser.uid !== uid) throw new Error('Your session changed. Reopen this game.');
-      const fresh = await getDocs(collection(db, 'games'));
+      const snapshot = await scheduleSnapshot();
+      const fresh = snapshot.games;
       const games = fresh.docs.map(d => ({ id: d.id, ...d.data() }));
       const existing = game.id ? games.find(g => g.id === game.id) : null;
       if (game.id && !existing) throw new Error('This game was removed.');
+      if (existing && ['date', 'time', 'fieldId', 'homeTeamId', 'awayTeamId', 'durationMinutes', 'umpireId', 'scorekeeperId', 'locked', 'status'].some(key => existing[key] !== game[key])) throw new Error('This game changed in another session. Close and reopen the editor.');
       if (existing?.status === 'completed' && (existing.homeTeamId !== values.homeTeamId || existing.awayTeamId !== values.awayTeamId)) throw new Error('Teams cannot be changed on a completed game.');
       const validated = validateGame(values, { teams: state.teams, fields: state.fields, games, config: state.scheduleConfig });
       const field = state.fields.find(f => f.id === values.fieldId);
@@ -995,8 +1022,8 @@ async function editGame(game = {}) {
       }
       if (!canEdit() || currentUser.uid !== uid) throw new Error('Your session changed. Reopen this game.');
       const { id, ...updates } = validated;
-      if (id) await updateDoc(doc(db, 'games', id), { ...updates, ...(existing.status === 'cancelled' ? { status: 'scheduled' } : {}) });
-      else await setDoc(doc(collection(db, 'games')), { ...updates, status: 'scheduled', homeScore: null, awayScore: null });
+      await publishSchedule(snapshot, [], [{ ref: id ? doc(db, 'games', id) : doc(collection(db, 'games')),
+        data: id ? { ...updates, ...(existing.status === 'cancelled' ? { status: 'scheduled' } : {}) } : { ...updates, status: 'scheduled', homeScore: null, awayScore: null } }], uid);
       showBanner('Game saved.', 'success');
     },
   });
@@ -1009,8 +1036,11 @@ async function cancelGame(game) {
     await runTransaction(db, async transaction => {
       const ref = doc(db, 'games', game.id);
       const snapshot = await transaction.get(ref);
+      const revisionRef = doc(db, 'config', 'scheduleRevision');
+      const revision = await transaction.get(revisionRef);
       if (!canEdit() || currentUser.uid !== uid) throw new Error('Your session changed.');
       transaction.update(ref, cancellationUpdate(snapshot.exists() ? snapshot.data() : null));
+      transaction.set(revisionRef, nextScheduleRevision(revision.data(), scheduleRevision(revision.data()), uid));
     });
     showBanner('Game cancelled.', 'success');
   } catch (err) { showDbError(err); }
@@ -1055,8 +1085,9 @@ async function handleClearSchedule() {
   if (!canEdit()) return;
   if (!confirm('Delete ALL games? This cannot be undone.')) return;
   try {
-    const snap = await getDocs(collection(db, 'games'));
-    await replaceDocuments(() => writeBatch(db), snap.docs.map(d => d.ref), []);
+    const uid = currentUser.uid;
+    const snapshot = await scheduleSnapshot();
+    await publishSchedule(snapshot, snapshot.games.docs.map(d => d.ref), [], uid);
     showBanner('Schedule cleared.', 'success');
   } catch (err) { showDbError(err); }
 }
@@ -1075,14 +1106,16 @@ async function handleGenerateSchedule() {
 
   showBanner('Generating schedule…', 'success');
   try {
-    const { games: newGames, skipped, daylightConstrainedCount } = await generateSchedule(state.teams, state.fields, cfg);
+    const uid = currentUser.uid;
+    const snapshot = await scheduleSnapshot();
+    const existingGames = snapshot.games.docs.map(d => ({ id: d.id, ...d.data() }));
+    const { games: newGames, skipped, daylightConstrainedCount } = await generateSchedule(state.teams, state.fields, cfg, existingGames);
     if (skipped > 0 && !confirm(`${skipped} matchups do not fit. Publish ${newGames.length} games anyway?`)) return;
     if (newGames.length === 0) { showBanner('No games fit. The existing schedule has not been changed.', 'error'); return; }
-    const snap = await getDocs(query(collection(db, 'games'), where('status', '==', 'scheduled')));
-    await replaceDocuments(() => writeBatch(db), snap.docs.filter(d => !d.data().locked).map(d => d.ref), newGames.map(g => ({
+    await publishSchedule(snapshot, snapshot.games.docs.filter(d => d.data().status === 'scheduled' && !d.data().locked).map(d => d.ref), newGames.map(g => ({
       ref: doc(collection(db, 'games')),
       data: { ...g, homeScore: null, awayScore: null, status: 'scheduled' },
-    })));
+    })), uid);
     const parts = [`Schedule generated: ${newGames.length} game(s).`];
     if (daylightConstrainedCount > 0) parts.push(`${daylightConstrainedCount} field-date(s) daylight-limited.`);
     if (skipped > 0) parts.push(`${skipped} matchup(s) could not be scheduled.`);
@@ -1738,7 +1771,7 @@ function clampTimeToWindow(t, min, max) { return t < min ? min : t > max ? max :
 
 // ── Auto-Scheduler ─────────────────────────────────────────────────────────
 
-async function generateSchedule(teams, fields, config) {
+async function generateSchedule(teams, fields, config, existingGames = state.games) {
   validateScheduleConfig(config);
   const matchups = [];
   for (let i = 0; i < teams.length; i++) {
@@ -1791,7 +1824,7 @@ async function generateSchedule(teams, fields, config) {
 
   slots.sort((a, b) => a.date !== b.date ? a.date.localeCompare(b.date) : a.time !== b.time ? a.time.localeCompare(b.time) : a.fieldId.localeCompare(b.fieldId));
 
-  const preserved = state.games.filter(g => g.status !== 'scheduled' || g.locked);
+  const preserved = existingGames.filter(g => g.status !== 'scheduled' || g.locked);
   return { ...allocateMatchups(remainingMatchups(matchups, preserved), slots, gameDur, bufferMins, preserved), daylightConstrainedCount };
 }
 

@@ -75,7 +75,9 @@ service cloud.firestore {
     }
     match /config/{id} {
       allow read: if true;
-      allow write: if organizer();
+      allow write: if organizer() && (id != 'scheduleRevision' ||
+        (request.resource.data.keys().hasOnly(['revision', 'updatedBy']) && request.resource.data.updatedBy == request.auth.uid &&
+         request.resource.data.revision is int && request.resource.data.revision == (resource == null ? 1 : resource.data.revision + 1)));
     }
     function rosterMatches(id) {
       let player = getAfter(/databases/$(database)/documents/players/$(id)).data;
@@ -105,10 +107,14 @@ service cloud.firestore {
       return d.homeScore is int && d.homeScore >= 0 && d.homeScore <= 9007199254740991 &&
         d.awayScore is int && d.awayScore >= 0 && d.awayScore <= 9007199254740991;
     }
+    function scheduleAdvanced() {
+      let path = /databases/$(database)/documents/config/scheduleRevision;
+      return getAfter(path).data.revision == (exists(path) ? get(path).data.revision + 1 : 1) && getAfter(path).data.updatedBy == request.auth.uid;
+    }
     match /games/{id} {
       allow read: if true;
-      allow create, delete: if organizer();
-      allow update: if organizer() || (signedIn() && profile().role == 'scorekeeper' && resource.data.scorekeeperId == request.auth.uid &&
+      allow create, delete: if organizer() && scheduleAdvanced();
+      allow update: if (organizer() && (scheduleAdvanced() || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'scoreRevision', 'scoredBy']))) || (signedIn() && profile().role == 'scorekeeper' && resource.data.scorekeeperId == request.auth.uid &&
         resource.data.status in ['scheduled', 'live'] && request.resource.data.status in ['live', 'completed'] &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'scoreRevision', 'scoredBy']) &&
         validScore(request.resource.data) && request.resource.data.scoredBy == request.auth.uid &&
