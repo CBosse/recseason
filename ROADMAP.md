@@ -1,15 +1,25 @@
 # RecSeason — Feature Roadmap
 
-## Role Hierarchy (implemented)
+## Current Status (September 27, 2026)
+
+See [project-overview.html](project-overview.html) for the current implementation
+review, verification limits, and MVP completion gates. The lists below preserve
+the broader product ambitions; a role name does not imply its entire roadmap is
+implemented. In particular, the app is still a single-league instance without
+multi-league isolation. Captain check-in, invitation acceptance, parent RSVPs,
+umpire assignment, and basic live scoring are now implemented. Automatic email
+delivery and deeper scoring remain unfinished.
+
+## Role Hierarchy (product intent)
 1. **Site Admin** — full control, user management, admin panel
 2. **Commissioner** — manages multiple leagues
 3. **League Manager** — manages one league (assigned by commissioner)
 4. **Team Manager** — manages one team (linkedTeamId)
-5. **Captain** — attendance/nudge for one team (linkedTeamId)
+5. **Captain** — attendance for the team derived from linkedPlayerId; nudges remain planned
 6. **Player** — personal RSVP + stats (linkedPlayerId)
 7. **Parent** — RSVP on behalf of child/children (linkedPlayerIds[])
 8. **Umpire** — cross-league game assignments (separate umpires collection)
-9. **Scorekeeper** — live score entry (placeholder view only)
+9. **Scorekeeper** — assigned live totals and inning/counter entry; deeper scoring remains planned
 10. **Visitor** — read-only, no auth required
 
 ---
@@ -17,16 +27,16 @@
 ## High Priority
 
 ### Role Features (incomplete / in progress)
-- **Captain** — attendance marking flow (game-day check-in per player)
+- **Captain** — attendance marking is implemented; full production acceptance remains open
 - **Parent** — linked-child management UI (add/remove children from account)
 - **Parent** — fee tracking per child
 - **Team Manager** — lineup / batting order builder
 - **Commissioner** — multi-league dashboard with league switcher
-- **League Manager** — assign umpires to specific games from umpire pool
-- **Role invitation flow** — invite by email, pending acceptance queue in Admin Panel
+- **League Manager** — umpire assignment is implemented; production acceptance remains open
+- **Role invitation flow** — shareable links and verified acceptance are implemented; automatic email delivery remains open
 
 ### Scorekeeper (Live Scoreboard)
-- Ball / strike / out counter
+- Ball / strike / out counter (implemented)
 - Base runner diamond (interactive)
 - Inning-by-inning scoring grid
 - Play-by-play log with auto stat calculation

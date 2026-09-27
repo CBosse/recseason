@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RecSeason | Project Overview and MVP Plan</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 16px/1.55 system-ui, sans-serif; color: #202623; background: #fff; letter-spacing: 0; }
+    header { border-top: 8px solid #236b4b; border-bottom: 1px solid #d6ded9; background: #f3f7f4; }
+    header > div, main, footer { max-width: 1080px; margin: auto; padding: 28px; }
+    h1 { font-size: 36px; line-height: 1.15; margin: 10px 0; }
+    h2 { font-size: 23px; margin: 0 0 12px; }
+    h3 { font-size: 17px; margin: 0 0 6px; }
+    p { margin: 8px 0 16px; }
+    a { color: #185a87; text-underline-offset: 3px; overflow-wrap: anywhere; }
+    .eyebrow { font-size: 13px; font-weight: 700; text-transform: uppercase; color: #42614e; }
+    .status { border-left: 4px solid #a34436; padding: 8px 16px; margin-top: 20px; background: #fff; }
+    .status strong { color: #91382c; }
+    nav { display: flex; flex-wrap: wrap; gap: 10px 22px; margin-top: 20px; }
+    section { padding: 26px 0; border-bottom: 1px solid #d6ded9; }
+    .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+    ul, ol { margin: 8px 0; padding-left: 22px; }
+    li { margin: 7px 0; }
+    .evidence { display: flex; flex-wrap: wrap; gap: 20px 40px; margin: 18px 0; }
+    .evidence div { border-left: 3px solid #236b4b; padding-left: 12px; }
+    .evidence strong { display: block; font-size: 25px; }
+    .muted { color: #536259; font-size: 14px; }
+    .phase { display: grid; grid-template-columns: 185px 1fr; gap: 24px; padding: 22px 0; border-top: 1px solid #d6ded9; }
+    .gate { color: #214e6b; margin-bottom: 0; }
+    code { font-size: 13px; overflow-wrap: anywhere; }
+    footer { color: #536259; font-size: 13px; }
+    @media (max-width: 640px) { header > div, main, footer { padding: 20px; } h1 { font-size: 30px; } .columns, .phase { grid-template-columns: 1fr; gap: 12px; } }
+    @media print { body { font-size: 10pt; } nav { display: none; } header > div, main, footer { padding: 12px; } section, .phase { break-inside: avoid; } h1 { font-size: 25pt; } }
+  </style>
+</head>
+<body>
+<header><div>
+  <div class="eyebrow">Project review &middot; September 27, 2026</div>
+  <h1>RecSeason</h1>
+  <p>A recreational league operations app: organize teams and fields, publish a season schedule, collect availability, check players in, record scores, and maintain standings.</p>
+  <div class="status"><strong>MVP in progress. Not yet approved for a live season.</strong><br>Core workflows are implemented and emulator-tested. Signed-in production acceptance, several data-integrity checks, and operational recovery remain open.</div>
+  <nav aria-label="Overview sections"><a href="#features">Current features</a><a href="#gaps">Open issues</a><a href="#plan">MVP completion plan</a><a href="#acceptance">Launch checklist</a><a href="https://cbosse.github.io/recseason/">Open app</a></nav>
+</div></header>
+<main>
+  <section id="features">
+    <h2>What Works Today</h2>
+    <div class="columns">
+      <div><h3>League operations</h3><ul>
+        <li>Team and player creation/editing; reversible player archive; field availability, lighting, and daylight checks.</li>
+        <li>Generated and manual schedules, locks, capacity warnings, cancellation, rescheduling, umpire and scorekeeper assignment.</li>
+        <li>Field/team/umpire overlap checks; atomic schedule publication with stale-revision rejection.</li>
+        <li>Field and season-setting edits share schedule concurrency protection. Season changes cannot exclude active games or create buffer conflicts.</li>
+      </ul></div>
+      <div><h3>Game-day participation</h3><ul>
+        <li>Player and parent RSVPs, linked-child selection, scoped dashboards, and reconfirmation after date/time/field changes.</li>
+        <li>Captain and team-manager check-in: present, absent, or unmarked; private contact details remain separate.</li>
+        <li>Assigned live scoring: totals, inning/half, balls, strikes, outs, and final results with stale-edit protection.</li>
+        <li>Standings with points and deterministic tiebreaks; read-only visitor schedule and league views.</li>
+      </ul></div>
+    </div>
+    <p><strong>Accounts and operations:</strong> unprivileged signup, password recovery, administrator-managed links/roles, verified-email invitation acceptance, expiring/revocable invite links, and reviewable reminder email drafts. Role rules are deployed. A local app-data backup and recovery rehearsal is available.</p>
+    <p class="muted">The current deployment is one league instance. Commissioner and league-manager role names do not provide separate league data boundaries. Invitation and reminder emails are not automatically delivered.</p>
+  </section>
+  <section id="evidence">
+    <h2>Verification, Not Just Feature Claims</h2>
+    <div class="evidence"><div><strong>63</strong>Unit tests passing</div><div><strong>16</strong>Security tests passing</div><div><strong>Passed</strong>Authenticated emulator workflows</div><div><strong>Passed</strong>Local recovery rehearsal</div></div>
+    <p>Tests cover role access, RSVP ownership, invitation acceptance, live scoring, captain attendance, and concurrent schedule publication. Selected dialogs have browser checks, including mobile reminder layout. Anonymous production reads allow public league data and deny private records.</p>
+    <p class="muted">These results do not prove every production role journey or every browser layout. Recovery was verified locally, not by overwriting production. Test counts are a dated snapshot, not a permanent release guarantee.</p>
+  </section>
+  <section id="gaps">
+    <h2>Open Issues and Limits</h2>
+    <ul>
+      <li><strong>Production acceptance:</strong> a real administrator still needs to complete a small season with invited participant accounts, including refresh, logout, mobile use, and denied-access checks.</li>
+      <li><strong>Remaining data-integrity risks:</strong> team removal is not coordinated with concurrent roster creation; organizer writes still need stronger schema/reference validation. Stale permissions, role changes, and invitation link validity need broader lifecycle tests.</li>
+      <li><strong>Communication:</strong> drafts and shareable invitations exist, but automatic delivery, reminders, preferences, delivery logs, and cancellation/change alerts are unfinished. A sending service is needed.</li>
+      <li><strong>Recovery:</strong> local exports cover app collections only, up to 500 documents. Auth accounts, storage, indexes, rules, unknown collections, scheduled off-device backups, and an approved production restore procedure are not covered by that export.</li>
+      <li><strong>Capacity and usability:</strong> schedule writes cap at 499 records plus a revision; check-in caps at ten changed players per save. Offline/reconnect behavior, loading errors, accessibility, and full mobile journeys need acceptance coverage.</li>
+      <li><strong>Scoring depth:</strong> per-inning linescores, runners, play-by-play, and derived player statistics remain unfinished.</li>
+    </ul>
+  </section>
+  <section id="plan">
+    <h2>Detailed MVP Completion Plan</h2>
+    <p>Finish these in dependency order. A passing test for one feature must not be used as proof that another requirement is complete.</p>
+    <article class="phase"><div><h3>1. Close integrity gaps</h3><span class="muted">Implementation + rules</span></div><div><ul>
+      <li>Coordinate team removal with player creation and game publication; prevent dangling team/player/field references.</li>
+      <li>Validate organizer writes at the database boundary; test direct unauthorized and malformed requests, not only UI controls.</li>
+      <li>Exercise concurrent roster edits, role revocation, cancelled games, deleted records, and stale invitation links.</li>
+    </ul><p class="gate"><strong>Exit gate:</strong> concurrent emulator tests show no dangling references, lost updates, unauthorized private reads, or partial publications.</p></div></article>
+    <article class="phase"><div><h3>2. Complete user journeys</h3><span class="muted">Browser + mobile</span></div><div><ul>
+      <li>Run setup, roster entry, schedule generation, manual correction, RSVP, parent RSVP, check-in, live score, final result, and standings as their intended roles.</li>
+      <li>Verify invitation acceptance, missing links, archived players, no available slots, daylight failure, stale forms, and account switching.</li>
+      <li>Remove misleading partial-roster counts and outdated promotional labels; test keyboard focus, narrow layouts, and long names.</li>
+    </ul><p class="gate"><strong>Exit gate:</strong> an independent user completes the season workflow without console intervention, with persistent results and clear failure states.</p></div></article>
+    <article class="phase"><div><h3>3. Finish scoring and notices</h3><span class="muted">Game-day functionality</span></div><div><ul>
+      <li>Add per-inning scoring, runner state, and a correction-aware play log; derive totals consistently and test replay/correction scenarios.</li>
+      <li>Connect a sending service; keep credentials server-side. Add opt-out preferences, bounded recipients, idempotent jobs, retries, and delivery status.</li>
+      <li>Deliver invitation, RSVP reminder, reschedule, and cancellation notices; verify links and timezone handling.</li>
+    </ul><p class="gate"><strong>Exit gate:</strong> scoring remains consistent after corrections; test messages reach controlled inboxes without duplicates or recipient-address disclosure.</p></div></article>
+    <article class="phase"><div><h3>4. Prove operational recovery</h3><span class="muted">Deployment + operations</span></div><div><ul>
+      <li>Define backup ownership, retention, encryption, off-device storage, and recovery targets; include Auth and deployment configuration.</li>
+      <li>Rehearse a production-style restore in an isolated environment, preserve identity links, and document an operator-approved live restore procedure.</li>
+      <li>Record deploy/rollback steps, surface application errors, and verify CI against the exact release commit.</li>
+    </ul><p class="gate"><strong>Exit gate:</strong> restore and rollback drills pass, monitoring is actionable, and the operator has a documented recovery path.</p></div></article>
+    <article class="phase"><div><h3>5. Run the production pilot</h3><span class="muted">Final acceptance</span></div><div><ul>
+      <li>Use a small consented roster, two teams, a field, assigned officials, and a short schedule.</li>
+      <li>Repeat every role journey on the deployed release; verify data and permissions after refresh and on a second device.</li>
+      <li>Resolve pilot defects and explicitly review every open item before declaring the MVP complete.</li>
+    </ul><p class="gate"><strong>Exit gate:</strong> the launch checklist below has direct evidence for every item, with no unresolved required workflow.</p></div></article>
+  </section>
+  <section id="acceptance">
+    <h2>Launch Checklist</h2>
+    <ol>
+      <li>Setup, invitation, scheduling, participation, attendance, scoring, and standings work end to end in production.</li>
+      <li>Role boundaries and privacy hold across direct requests, account switching, and stale sessions.</li>
+      <li>Concurrent operations do not lose data or create invalid references or bookings.</li>
+      <li>Required notices are delivered and auditable, or their scope is explicitly resolved with the project owner.</li>
+      <li>Mobile, keyboard, empty, error, and reconnect states have been exercised.</li>
+      <li>Backups, recovery, deployment, rollback, and monitoring have been rehearsed.</li>
+    </ol>
+    <p><strong>Broader roadmap, not claimed as implemented:</strong> multi-league management, lineups, chat, payments, tournaments, advanced statistics, weather, video, AI helpers, and native mobile apps remain tracked in the repository roadmap. They are not silently counted as completed by this MVP review.</p>
+  </section>
+</main>
+<footer>
+  <p>This page was reconstructed from the current code, README, test results, and recorded task scope. The earlier overview was not present in the checkout; this is not a recovered copy of that original file.</p>
+  <p><a href="https://github.com/CBosse/recseason/blob/main/README.md">Setup and operational details</a> &middot; <a href="https://github.com/CBosse/recseason/blob/main/ROADMAP.md">Feature roadmap</a> &middot; <a href="https://github.com/CBosse/recseason/actions">Build and deployment history</a></p>
+</footer>
+</body></html>
