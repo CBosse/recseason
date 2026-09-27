@@ -68,7 +68,7 @@ acceptance coverage or proof of production deployment.
 - Fields can be edited with weekday, opening-hour and lighting validation against
   existing scheduled/live games. Unlit fields require a ZIP code; scheduling
   skips slots when daylight cannot be verified. Field-edit preflight checks are
-  not yet serialized with concurrent game creation.
+  coordinated with concurrent game creation through the shared schedule revision.
 - Manually arranged games default to locked against regeneration. Locked and
   existing non-scheduled games reserve their time during generation.
 - Retained games count toward their home-away matchup quota during regeneration.
@@ -78,9 +78,13 @@ acceptance coverage or proof of production deployment.
   saves check the current game status in a transaction.
 - Schedule publication uses a shared revision in a transaction, with a maximum
   of 499 combined game deletions/additions plus the revision write. Manual game
-  saves, cancellation, clearing and regeneration use the same revision. Stale
+  saves, field creation/editing/removal, season settings, cancellation, clearing
+  and regeneration use the same revision. Stale
   publications reject instead of overwriting another organizer's changes; all
-  previously read game documents are rechecked, including scoring status changes.
+  previously read game, field, team and season-setting documents are rechecked,
+  including scoring status changes. Season settings cannot exclude active games
+  or introduce buffer conflicts. Legacy games need explicit durations before the
+  default duration can change.
   Larger changes are rejected without deleting data.
 - Zero-capacity generation keeps the current schedule; incomplete schedules
   require confirmation.
@@ -196,9 +200,9 @@ and production configuration/verification remain outstanding. The test suite
 covers domain logic, subscription handling, emulator authorization, and authenticated
 emulator workflows, not signed-in production acceptance.
 The standalone `tests/game-editor.html` fixture exercises the editor without
-connecting to Firebase or writing live records. Game publications are serialized;
-concurrent field, team, and season-configuration edits are not yet coordinated with
-game publication. Cancellation and rescheduling do not yet
+connecting to Firebase or writing live records. Game, field and season-setting
+publications are serialized; team removal still needs coordinated referential
+checks. Cancellation and rescheduling do not yet
 notify participants. RSVPs now confirm a specific date, time, and field. After
 rescheduling, old responses remain stored but are excluded from current totals
 and the participant is prompted to reconfirm. Legacy responses without these

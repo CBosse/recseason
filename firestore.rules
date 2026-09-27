@@ -71,12 +71,12 @@ service cloud.firestore {
     }
     match /fields/{id} {
       allow read: if true;
-      allow write: if organizer();
+      allow write: if organizer() && scheduleAdvanced();
     }
     match /config/{id} {
       allow read: if true;
-      allow write: if organizer() && (id != 'scheduleRevision' ||
-        (request.resource.data.keys().hasOnly(['revision', 'updatedBy']) && request.resource.data.updatedBy == request.auth.uid &&
+      allow write: if organizer() && ((id == 'schedule' && scheduleAdvanced()) || (id != 'schedule' && id != 'scheduleRevision') ||
+        (id == 'scheduleRevision' && request.resource.data.keys().hasOnly(['revision', 'updatedBy']) && request.resource.data.updatedBy == request.auth.uid &&
          request.resource.data.revision is int && request.resource.data.revision == (resource == null ? 1 : resource.data.revision + 1)));
     }
     function rosterMatches(id) {

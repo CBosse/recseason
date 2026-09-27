@@ -171,6 +171,24 @@ test('schedule writes require a matching revision advance and stale batches fail
   await assertFails(reset.commit());
 });
 
+test('fields and season settings require the shared schedule revision', async () => {
+  const db = dbFor('admin');
+  await assertFails(setDoc(doc(db, 'fields', 'main'), { name: 'Main' }));
+  await assertFails(setDoc(doc(db, 'config', 'schedule'), { gameDuration: 90 }));
+  const fields = writeBatch(db);
+  fields.set(doc(db, 'fields', 'main'), { name: 'Main' });
+  fields.set(doc(db, 'config', 'scheduleRevision'), { revision: 3, updatedBy: 'admin' });
+  await assertSucceeds(fields.commit());
+  const stale = writeBatch(db);
+  stale.set(doc(db, 'config', 'schedule'), { gameDuration: 90 });
+  stale.set(doc(db, 'config', 'scheduleRevision'), { revision: 3, updatedBy: 'admin' });
+  await assertFails(stale.commit());
+  const fresh = writeBatch(db);
+  fresh.set(doc(db, 'config', 'schedule'), { gameDuration: 90 });
+  fresh.set(doc(db, 'config', 'scheduleRevision'), { revision: 4, updatedBy: 'admin' });
+  await assertSucceeds(fresh.commit());
+});
+
 test('admin can assign links while other roles cannot; unknown collections deny access', async () => {
   await assertSucceeds(updateDoc(doc(dbFor('admin'), 'users', 'player'), { linkedTeamId: 'a' }));
   await assertFails(updateDoc(doc(dbFor('organizer'), 'users', 'player'), { role: 'siteAdmin' }));

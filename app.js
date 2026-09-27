@@ -20,6 +20,7 @@ import { rosterEntry } from './team-roster.mjs';
 import { checkInTeams, attendanceUpdate, openCheckIn } from './attendance.mjs';
 import { gameReminder, openReminderDraft } from './reminders.mjs';
 import { scheduleRevision, nextScheduleRevision } from './schedule-version.mjs';
+import { validateSeasonChange } from './season-config.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -497,20 +498,24 @@ function firestoreWrite(p) { return writeResult(p, showDbError); }
 async function scheduleSnapshot() {
   const revision = await getDoc(doc(db, 'config', 'scheduleRevision'));
   const games = await getDocs(collection(db, 'games'));
-  return { revision: scheduleRevision(revision.data()), games };
+  const fields = await getDocs(collection(db, 'fields'));
+  const teams = await getDocs(collection(db, 'teams'));
+  const configDocument = await getDoc(doc(db, 'config', 'schedule'));
+  const config = configDocument.exists() ? configDocument.data() : { gameDuration: 90, bufferMinutes: 15, rounds: 1, startDate: '', endDate: '' };
+  return { revision: scheduleRevision(revision.data()), games, fields, teams, configDocument, config };
 }
 
 async function publishSchedule(snapshot, removed, replacements, uid) {
-  if (removed.length + replacements.length > 499) throw new Error('This schedule update exceeds 499 game changes.');
+  if (removed.length + replacements.length > 499) throw new Error('This schedule update exceeds 499 record changes.');
   await runTransaction(db, async transaction => {
     const ref = doc(db, 'config', 'scheduleRevision');
     const current = await transaction.get(ref);
     if (!canEdit() || currentUser?.uid !== uid) throw new Error('Your session changed.');
     const revision = nextScheduleRevision(current.data(), snapshot.revision, uid);
     // Scoring can change game status without changing its reserved time slot.
-    for (const previous of snapshot.games.docs) {
+    for (const previous of [...snapshot.games.docs, ...snapshot.fields.docs, ...snapshot.teams.docs, snapshot.configDocument]) {
       const latest = await transaction.get(previous.ref);
-      if (!latest.exists() || JSON.stringify(latest.data()) !== JSON.stringify(previous.data())) throw new Error('A game changed during scheduling. Refresh and try again.');
+      if (latest.exists() !== previous.exists() || JSON.stringify(latest.data()) !== JSON.stringify(previous.data())) throw new Error('Schedule data changed. Refresh and try again.');
     }
     transaction.set(ref, revision);
     removed.forEach(ref => transaction.delete(ref));
@@ -534,20 +539,37 @@ function savePlayer(player) {
   return firestoreWrite(batch.commit());
 }
 
-function saveField(field) {
-  return firestoreWrite(setDoc(doc(db, 'fields', field.id), {
+async function saveField(field) {
+  return firestoreWrite((async () => {
+  const uid = currentUser.uid;
+  const snapshot = await scheduleSnapshot();
+  await publishSchedule(snapshot, [], [{ ref: doc(db, 'fields', field.id), data: {
     name: field.name, availableDays: field.availableDays,
     openTime: field.openTime, closeTime: field.closeTime,
     hasLights: field.hasLights ?? false, zipCode: field.zipCode ?? '',
-  }));
+  } }], uid);
+  })());
 }
-function deleteField(id)  { return firestoreWrite(deleteDoc(doc(db, 'fields', id))); }
+async function deleteField(id) {
+  return firestoreWrite((async () => {
+    const uid = currentUser.uid;
+    const snapshot = await scheduleSnapshot();
+    if (snapshot.games.docs.some(d => d.data().fieldId === id)) throw new Error('This field has game history and cannot be removed.');
+    await publishSchedule(snapshot, [doc(db, 'fields', id)], [], uid);
+  })());
+}
 
-function saveScheduleConfig(cfg) {
-  return firestoreWrite(setDoc(doc(db, 'config', 'schedule'), {
+function saveScheduleConfig(cfg, expected) {
+  return firestoreWrite((async () => {
+    const uid = currentUser.uid;
+    const snapshot = await scheduleSnapshot();
+    if (Object.keys(cfg).some(key => snapshot.config[key] !== expected[key])) throw new Error('Season settings changed. Refresh and try again.');
+    validateSeasonChange(cfg, snapshot.config, snapshot.games.docs.map(d => d.data()));
+    await publishSchedule(snapshot, [], [{ ref: doc(db, 'config', 'schedule'), data: {
     gameDuration: Number(cfg.gameDuration), bufferMinutes: Number(cfg.bufferMinutes),
     startDate: cfg.startDate, endDate: cfg.endDate, rounds: Number(cfg.rounds),
-  }));
+    } }], uid);
+  })());
 }
 
 async function showCheckIn(game, teamId, teamName) {
@@ -1011,8 +1033,10 @@ async function editGame(game = {}) {
       if (game.id && !existing) throw new Error('This game was removed.');
       if (existing && ['date', 'time', 'fieldId', 'homeTeamId', 'awayTeamId', 'durationMinutes', 'umpireId', 'scorekeeperId', 'locked', 'status'].some(key => existing[key] !== game[key])) throw new Error('This game changed in another session. Close and reopen the editor.');
       if (existing?.status === 'completed' && (existing.homeTeamId !== values.homeTeamId || existing.awayTeamId !== values.awayTeamId)) throw new Error('Teams cannot be changed on a completed game.');
-      const validated = validateGame(values, { teams: state.teams, fields: state.fields, games, config: state.scheduleConfig });
-      const field = state.fields.find(f => f.id === values.fieldId);
+      const fields = snapshot.fields.docs.map(d => ({ id: d.id, ...d.data() }));
+      const teams = snapshot.teams.docs.map(d => ({ id: d.id, ...d.data() }));
+      const validated = validateGame(values, { teams, fields, games, config: snapshot.config });
+      const field = fields.find(f => f.id === values.fieldId);
       if (!field.hasLights) {
         const zip = field.zipCode && await fetchZipInfo(field.zipCode);
         const sun = zip && await fetchSunriseSunset(zip.lat, zip.lng, values.date, zip.timezone);
@@ -1109,7 +1133,9 @@ async function handleGenerateSchedule() {
     const uid = currentUser.uid;
     const snapshot = await scheduleSnapshot();
     const existingGames = snapshot.games.docs.map(d => ({ id: d.id, ...d.data() }));
-    const { games: newGames, skipped, daylightConstrainedCount } = await generateSchedule(state.teams, state.fields, cfg, existingGames);
+    const teams = snapshot.teams.docs.map(d => ({ id: d.id, ...d.data() }));
+    const fields = snapshot.fields.docs.map(d => ({ id: d.id, ...d.data() }));
+    const { games: newGames, skipped, daylightConstrainedCount } = await generateSchedule(teams, fields, snapshot.config, existingGames);
     if (skipped > 0 && !confirm(`${skipped} matchups do not fit. Publish ${newGames.length} games anyway?`)) return;
     if (newGames.length === 0) { showBanner('No games fit. The existing schedule has not been changed.', 'error'); return; }
     await publishSchedule(snapshot, snapshot.games.docs.filter(d => d.data().status === 'scheduled' && !d.data().locked).map(d => d.ref), newGames.map(g => ({
@@ -1496,23 +1522,20 @@ function editField(field) {
   const uid = currentUser.uid;
   openFieldEditor(field, async values => {
     if (!canEdit() || currentUser?.uid !== uid) throw new Error('Your session changed.');
-    const snap = await getDocs(query(collection(db, 'games'), where('fieldId', '==', field.id)));
-    const games = snap.docs.map(d => d.data()).filter(g => ['scheduled', 'live'].includes(g.status));
+    const snapshot = await scheduleSnapshot();
+    const existingField = snapshot.fields.docs.find(d => d.id === field.id);
+    if (!existingField || Object.keys(values).some(key => JSON.stringify(existingField.data()[key] ?? '') !== JSON.stringify(field[key] ?? ''))) throw new Error('This field changed. Close and reopen the editor.');
+    const games = snapshot.games.docs.map(d => d.data()).filter(g => g.fieldId === field.id && ['scheduled', 'live'].includes(g.status));
     for (const game of games) {
-      if (!fieldFitsGame(values, game, state.scheduleConfig.gameDuration)) throw new Error(`The game on ${game.date} at ${game.time} no longer fits. Reschedule it first.`);
+      if (!fieldFitsGame(values, game, snapshot.config.gameDuration)) throw new Error(`The game on ${game.date} at ${game.time} no longer fits. Reschedule it first.`);
       if (!values.hasLights) {
         const zip = await fetchZipInfo(values.zipCode);
         const sun = zip && await fetchSunriseSunset(zip.lat, zip.lng, game.date, zip.timezone);
         const mins = time => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
-        if (!sun || game.time < sun.sunrise || mins(game.time) + Number(game.durationMinutes ?? state.scheduleConfig.gameDuration) > mins(sun.sunset)) throw new Error(`Daylight cannot accommodate the game on ${game.date}. Reschedule it first.`);
+        if (!sun || game.time < sun.sunrise || mins(game.time) + Number(game.durationMinutes ?? snapshot.config.gameDuration) > mins(sun.sunset)) throw new Error(`Daylight cannot accommodate the game on ${game.date}. Reschedule it first.`);
       }
     }
-    await runTransaction(db, async transaction => {
-      const ref = doc(db, 'fields', field.id), current = await transaction.get(ref);
-      if (!canEdit() || currentUser?.uid !== uid || !current.exists()) throw new Error('Access changed or field was removed.');
-      if (Object.keys(values).some(key => JSON.stringify(current.data()[key] ?? '') !== JSON.stringify(field[key] ?? ''))) throw new Error('This field changed in another session. Close and reopen the editor.');
-      transaction.update(ref, values);
-    });
+    await publishSchedule(snapshot, [], [{ ref: doc(db, 'fields', field.id), data: values }], uid);
   });
 }
 
@@ -1558,7 +1581,7 @@ function renderScheduleConfigSection() {
       if (!canEdit()) return;
       const config = { gameDuration: Number(durEl.value), bufferMinutes: Number(bufEl.value), startDate: startEl.value, endDate: endEl.value, rounds: Number(rndEl.value) };
       try { validateScheduleConfig(config); } catch (err) { showBanner(err.message, 'error'); return; }
-      saveScheduleConfig(config)
+      saveScheduleConfig(config, cfg)
         .then(saved => { if (saved) showBanner('Schedule config saved.', 'success'); });
     });
   }
