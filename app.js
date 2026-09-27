@@ -18,6 +18,7 @@ import { rsvpSchedule, isCurrentRsvp } from './rsvps.mjs';
 import { localDateKey } from './calendar.mjs';
 import { rosterEntry } from './team-roster.mjs';
 import { checkInTeams, attendanceUpdate, openCheckIn } from './attendance.mjs';
+import { gameReminder, openReminderDraft } from './reminders.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -121,6 +122,7 @@ function clearSessionData() {
   document.getElementById('score-editor-dialog')?.remove();
   document.getElementById('game-editor-dialog')?.remove();
   document.getElementById('attendance-dialog')?.remove();
+  document.getElementById('reminder-dialog')?.remove();
   subscriptions.clear();
   clearTimeout(_connectTimeout);
   _listenersStarted = false;
@@ -839,6 +841,23 @@ function renderScheduleView() {
       li.querySelector('.edit-score-btn')?.addEventListener('click', () => showInlineScoreEdit(li, game));
       li.querySelector('.edit-game-btn')?.addEventListener('click', () => editGame(game));
       li.querySelector('.cancel-game-btn')?.addEventListener('click', () => cancelGame(game));
+      if (currentUser?.role === 'siteAdmin' && game.status === 'scheduled') {
+        const reminder = document.createElement('button'); reminder.className = 'btn btn-ghost btn-sm'; reminder.textContent = 'Reminder draft';
+        reminder.onclick = async () => {
+          const uid = currentUser.uid; reminder.disabled = true;
+          try {
+            const users = await getDocs(collection(db, 'users'));
+            const latest = await getDoc(doc(db, 'games', game.id));
+            if (currentUser?.uid !== uid || currentUser.role !== 'siteAdmin') return;
+            if (!latest.exists()) throw new Error('The game no longer exists.');
+            const url = new URL(window.location.pathname, window.location.origin);
+            if (localMode) url.searchParams.set('emulator', '1');
+            openReminderDraft(gameReminder(latest.data(), state.players, users.docs.map(d => ({ id: d.id, ...d.data() })), url.href));
+          } catch (error) { showDbError(error); }
+          finally { reminder.disabled = false; }
+        };
+        li.querySelector('.game-actions').append(reminder);
+      }
       for (const teamId of checkInTeams(currentUser, state.players, game)) {
         const button = document.createElement('button'); button.className = 'btn btn-ghost btn-sm';
         const teamName = teamId === game.homeTeamId ? game.homeName : game.awayName;

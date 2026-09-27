@@ -19,9 +19,9 @@ export function attendanceUpdate(game, player, status, previous, uid) {
 
 export function openCheckIn(game, teamName, players, records, save) {
   document.getElementById('attendance-dialog')?.remove();
-  const dialog = document.createElement('dialog'); dialog.id = 'attendance-dialog'; dialog.className = 'game-editor';
+  const dialog = document.createElement('dialog'); dialog.id = 'attendance-dialog'; dialog.className = 'game-editor-dialog'; dialog.setAttribute('aria-labelledby', 'attendance-title');
   const form = document.createElement('form');
-  const heading = document.createElement('h2'); heading.textContent = `${teamName} check-in`;
+  const heading = document.createElement('h2'); heading.id = 'attendance-title'; heading.textContent = `${teamName} check-in`;
   const grid = document.createElement('div'); grid.className = 'game-editor-grid';
   const controls = [];
   for (const player of players.filter(p => !p.archived)) {

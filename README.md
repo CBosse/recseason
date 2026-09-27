@@ -113,6 +113,12 @@ acceptance coverage or proof of production deployment.
   validate the current roster, game schedule and attendance revision atomically;
   cancelled/completed games reject changes. Up to ten changed players can be saved
   at once. Reopen the dialog to review saved attendance or resolve a stale edit.
+- Site admins can open a reminder draft from a scheduled game. Recipients are
+  deduplicated linked players/parents, team managers and assigned officials.
+  The preview reports players without a linked email and exports an editable
+  `.eml` draft with Bcc recipients. No email is sent by RecSeason, and downloading
+  never marks a reminder as delivered. Automatic delivery, preferences and a
+  delivery log still need a sending service and server-side implementation.
 - Game editors can assign a scorekeeper from registered scorekeeper accounts.
   Assigned scorekeepers and league organizers can save live totals, inning/half,
   balls, strikes, and outs, then finalize the result into the standings. Saves use
