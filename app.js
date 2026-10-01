@@ -1013,7 +1013,9 @@ function renderIdentityBar() {
   }
 
   if (role === 'visitor') {
-    bar.innerHTML = `<div class="identity-bar"><span>Read-only view &mdash; <a href="#" id="visitor-signin-link" style="color:#1e6b4a;font-weight:600">Sign in</a> to RSVP</span></div>`;
+    bar.innerHTML = currentUser?.uid
+      ? '<div class="identity-bar"><span>Your account has read-only access.</span></div>'
+      : `<div class="identity-bar"><span>Read-only view &mdash; <a href="#" id="visitor-signin-link" style="color:#1e6b4a;font-weight:600">Sign in</a> to RSVP</span></div>`;
     bar.querySelector('#visitor-signin-link')?.addEventListener('click', e => { e.preventDefault(); currentUser = null; showAuthScreen(); });
     return;
   }
