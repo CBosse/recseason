@@ -9,6 +9,16 @@ export function rosterUpdate(kind, values) {
   return result;
 }
 
+export function checkedRosterUpdate(kind, original, current, values) {
+  if (!current) throw new Error('This record was removed. Refresh the roster.');
+  const patch = rosterUpdate(kind, values);
+  const changed = Object.keys(patch).some(key => (current[key] ?? '') !== (original[key] ?? ''));
+  const contextChanged = kind === 'player' && (current.teamId !== original.teamId ||
+    Boolean(current.archived) !== Boolean(original.archived));
+  if (changed || contextChanged) throw new Error('This record changed in another session. Close and reopen the editor.');
+  return patch;
+}
+
 export function openRosterEditor(kind, record, save) {
   document.getElementById('roster-editor-dialog')?.remove();
   const dialog = document.createElement('dialog'); dialog.id = 'roster-editor-dialog'; dialog.className = 'game-editor-dialog';

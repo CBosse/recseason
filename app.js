@@ -9,7 +9,7 @@ import { newPlayerProfile } from './accounts.mjs';
 import { openGameEditor, validateGame } from './game-editor.mjs';
 import { firebaseConfig, databaseId } from './firebase-config.js';
 import { useLocalEmulators } from './local-runtime.mjs';
-import { openRosterEditor } from './roster-editor.mjs';
+import { openRosterEditor, checkedRosterUpdate } from './roster-editor.mjs';
 import { fieldUpdate, fieldFitsGame, fieldWindow, openFieldEditor } from './field-editor.mjs';
 import { invitationProfilePatch } from './invitations.mjs';
 import { openInvitationCreator, openInvitationRecipient } from './invitation-ui.mjs';
@@ -1359,10 +1359,9 @@ function editRosterRecord(kind, record) {
     const ref = doc(db, kind === 'team' ? 'teams' : 'players', record.id);
     const snapshot = await transaction.get(ref);
     if (currentUser?.uid !== uid || !snapshot.exists() || !canEditTeam(kind === 'team' ? record.id : snapshot.data().teamId)) throw new Error('Access changed or record was removed. Refresh the roster.');
-    const changed = Object.keys(values).some(key => (snapshot.data()[key] ?? '') !== (record[key] ?? ''));
-    if (changed) throw new Error('This record changed in another session. Close and reopen the editor.');
-    transaction.update(ref, values);
-    if (kind === 'player') transaction.set(doc(db, 'teamRoster', record.id), rosterEntry({ ...snapshot.data(), ...values }));
+    const patch = checkedRosterUpdate(kind, record, snapshot.data(), values);
+    transaction.update(ref, patch);
+    if (kind === 'player') transaction.set(doc(db, 'teamRoster', record.id), rosterEntry({ ...snapshot.data(), ...patch }));
   }));
 }
 
