@@ -77,6 +77,15 @@ const invalidProfiles = users.filter(({ keys, data: d }) =>
   !(d.linkedPlayerId === null || typeof d.linkedPlayerId === 'string') ||
   (d.linkedPlayerIds !== undefined && (!Array.isArray(d.linkedPlayerIds) || d.linkedPlayerIds.length > 30))).length;
 const candidate = await readFile('firestore.rules', 'utf8');
+const boundedText = (value, max) => typeof value === 'string' && value.length <= max;
+const validName = value => boundedText(value, 100) && /\S/.test(value);
+const invalidTeams = teams.filter(({ keys, data: d }) =>
+  keys.some(k => !['name', 'color', 'homefield'].includes(k)) || !validName(d.name) ||
+  !boundedText(d.color === undefined ? '' : d.color, 40) || !boundedText(d.homefield === undefined ? '' : d.homefield, 100)).length;
+const invalidPlayers = players.filter(({ keys, data: d }) =>
+  keys.some(k => !['name', 'number', 'phone', 'teamId', 'archived'].includes(k)) || !validName(d.name) ||
+  !boundedText(d.number === undefined ? '' : d.number, 10) || !boundedText(d.phone === undefined ? '' : d.phone, 40) ||
+  (d.archived !== undefined && typeof d.archived !== 'boolean') || !teamIds.has(d.teamId)).length;
 const hash = text => createHash('sha256').update(text.replaceAll('\r\n', '\n').trim()).digest('hex');
 const report = {
   auditedAt: new Date().toISOString(), project, database, ruleset: release.rulesetName,
@@ -87,6 +96,8 @@ const report = {
   profileSchemaDetails,
   issues: {
     profilesIncompatibleWithCandidateRules: invalidProfiles,
+    teamsIncompatibleWithCandidateRules: invalidTeams,
+    playersIncompatibleWithCandidateRules: invalidPlayers,
     missingAdmin: users.some(d => d.data.role === 'siteAdmin') ? 0 : 1,
     profilesWithBrokenLinks: users.filter(({ data: d }) =>
       (d.linkedTeamId && !teamIds.has(d.linkedTeamId)) || (d.linkedPlayerId && !playerIds.has(d.linkedPlayerId)) ||

@@ -15,6 +15,8 @@ before(async () => {
   await env.clearFirestore();
   await env.withSecurityRulesDisabled(async context => {
     const db = context.firestore();
+    await setDoc(doc(db, 'teams', 'a'), { name: 'Home' });
+    await setDoc(doc(db, 'teams', 'b'), { name: 'Away' });
     for (const [uid, role, extra] of [['admin', 'siteAdmin'], ['organizer', 'leagueManager'], ['scorer', 'scorekeeper'], ['other', 'scorekeeper'], ['player', 'player', { linkedPlayerId: 'p' }], ['parent', 'parent', { linkedPlayerIds: ['p'] }], ['manager', 'teamManager', { linkedTeamId: 'a' }]]) await setDoc(doc(db, 'users', uid), profile(uid, role, extra));
     await setDoc(doc(db, 'games', 'g'), game);
     await setDoc(doc(db, 'games', 'cancelled'), { ...game, status: 'cancelled' });
@@ -33,6 +35,31 @@ before(async () => {
 });
 after(async () => { await env?.cleanup(); });
 const dbFor = uid => env.authenticatedContext(uid, { email: `${uid}@example.test` }).firestore();
+
+test('roster writes reject malformed fields and nonexistent teams at the database boundary', async () => {
+  const db = dbFor('admin');
+  for (const patch of [{ name: '' }, { name: '   ' }, { name: 'x'.repeat(101) }, { color: 42 }, { homefield: 'x'.repeat(101) }, { unexpected: true }]) {
+    await assertFails(setDoc(doc(db, 'teams', 'invalid'), { name: 'Team', ...patch }));
+  }
+  await assertSucceeds(setDoc(doc(db, 'teams', 'valid'), { name: 'Valid', color: '', homefield: '' }));
+  const writePlayer = values => {
+    const player = { name: 'Valid player', teamId: 'a', number: '', phone: '', ...values };
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'players', 'schema-test'), player);
+    batch.set(doc(db, 'teamRoster', 'schema-test'), rosterEntry(player));
+    return batch.commit();
+  };
+  for (const patch of [{ name: '' }, { name: '  ' }, { name: 'x'.repeat(101) }, { number: 'x'.repeat(11) }, { phone: 42 }, { phone: 'x'.repeat(41) }, { archived: 'false' }, { teamId: 'missing' }, { unexpected: true }]) {
+    await assertFails(writePlayer(patch));
+  }
+  await assertSucceeds(writePlayer({}));
+  const atomic = writeBatch(db);
+  atomic.set(doc(db, 'teams', 'new-atomic'), { name: 'New team' });
+  const player = { name: 'New player', teamId: 'new-atomic' };
+  atomic.set(doc(db, 'players', 'atomic'), player);
+  atomic.set(doc(db, 'teamRoster', 'atomic'), rosterEntry(player));
+  await assertSucceeds(atomic.commit());
+});
 
 test('legacy admin without child links can update its profile without broadening access', async () => {
   await assertSucceeds(updateDoc(doc(dbFor('legacy-admin'), 'users', 'legacy-admin'), { displayName: 'Admin' }));
