@@ -23,6 +23,7 @@ import { scheduleRevision, nextScheduleRevision } from './schedule-version.mjs';
 import { validateSeasonChange } from './season-config.mjs';
 import { rosterPresentation } from './roster-scope.mjs';
 import { profileSession } from './profile-session.mjs';
+import { gameRsvpSummary } from './rsvp-summary.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -963,16 +964,11 @@ function renderScheduleView() {
       }
 
       if (game.status === 'scheduled') {
-        const allR = state.rsvps.filter(r => isCurrentRsvp(r, game));
-        if (allR.length > 0) {
-          const homeR = allR.filter(r => r.teamId === game.homeTeamId);
-          const awayR = allR.filter(r => r.teamId === game.awayTeamId);
+        const summaries = gameRsvpSummary(currentUser, game, state.players, state.rsvps);
+        if (summaries.some(row => row.going + row.maybe + row.out > 0)) {
           const sumDiv = document.createElement('div');
           sumDiv.className = 'rsvp-summary';
-          sumDiv.innerHTML =
-            `<strong>${escHtml(game.homeName)}:</strong> ${homeR.filter(r=>r.status==='going').length} going &middot; ${homeR.filter(r=>r.status==='maybe').length} maybe &middot; ${homeR.filter(r=>r.status==='not_going').length} out` +
-            ` &nbsp;|&nbsp; ` +
-            `<strong>${escHtml(game.awayName)}:</strong> ${awayR.filter(r=>r.status==='going').length} going &middot; ${awayR.filter(r=>r.status==='maybe').length} maybe &middot; ${awayR.filter(r=>r.status==='not_going').length} out`;
+          sumDiv.innerHTML = summaries.map(row => `<strong>${escHtml(row.label)}:</strong> ${row.going} going &middot; ${row.maybe} maybe &middot; ${row.out} out`).join(' &nbsp;|&nbsp; ');
           li.appendChild(sumDiv);
         }
       }
