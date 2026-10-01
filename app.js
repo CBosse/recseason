@@ -24,6 +24,7 @@ import { validateSeasonChange } from './season-config.mjs';
 import { rosterPresentation } from './roster-scope.mjs';
 import { profileSession } from './profile-session.mjs';
 import { gameRsvpSummary } from './rsvp-summary.mjs';
+import { rosterRevision, nextRosterRevision } from './roster-version.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -33,12 +34,10 @@ import {
   onSnapshot as firebaseOnSnapshot,
   setDoc,
   updateDoc,
-  deleteDoc,
   getDocs,
   getDoc,
   query,
   where,
-  writeBatch,
   runTransaction,
   documentId,
   connectFirestoreEmulator,
@@ -525,19 +524,22 @@ async function scheduleSnapshot() {
   return { revision: scheduleRevision(revision.data()), games, fields, teams, configDocument, config };
 }
 
-async function publishSchedule(snapshot, removed, replacements, uid) {
-  if (removed.length + replacements.length > 499) throw new Error('This schedule update exceeds 499 record changes.');
+async function publishSchedule(snapshot, removed, replacements, uid, expectedRosterRevision = null) {
+  if (removed.length + replacements.length > (expectedRosterRevision === null ? 499 : 498)) throw new Error('This update exceeds the transaction size limit.');
   await runTransaction(db, async transaction => {
     const ref = doc(db, 'config', 'scheduleRevision');
     const current = await transaction.get(ref);
     if (!canEdit() || currentUser?.uid !== uid) throw new Error('Your session changed.');
     const revision = nextScheduleRevision(current.data(), snapshot.revision, uid);
+    const rosterRef = doc(db, 'config', 'rosterRevision');
+    const rosterVersion = expectedRosterRevision === null ? null : nextRosterRevision((await transaction.get(rosterRef)).data(), expectedRosterRevision, uid);
     // Scoring can change game status without changing its reserved time slot.
     for (const previous of [...snapshot.games.docs, ...snapshot.fields.docs, ...snapshot.teams.docs, snapshot.configDocument]) {
       const latest = await transaction.get(previous.ref);
       if (latest.exists() !== previous.exists() || JSON.stringify(latest.data()) !== JSON.stringify(previous.data())) throw new Error('Schedule data changed. Refresh and try again.');
     }
     transaction.set(ref, revision);
+    if (rosterVersion) transaction.set(rosterRef, rosterVersion);
     removed.forEach(ref => transaction.delete(ref));
     replacements.forEach(({ ref, data }) => transaction.set(ref, data, { merge: true }));
   });
@@ -548,15 +550,32 @@ function saveTeam(team) {
     name: team.name, color: team.color ?? '', homefield: team.homefield ?? '',
   }));
 }
-function deleteTeam(id)   { return firestoreWrite(deleteDoc(doc(db, 'teams', id))); }
+function deleteTeam(id) {
+  return firestoreWrite((async () => {
+    const uid = currentUser.uid;
+    const version = rosterRevision((await getDoc(doc(db, 'config', 'rosterRevision'))).data());
+    const snapshot = await scheduleSnapshot();
+    const players = await getDocs(query(collection(db, 'players'), where('teamId', '==', id)));
+    if (!players.empty || snapshot.games.docs.some(d => d.data().homeTeamId === id || d.data().awayTeamId === id)) throw new Error('This team has roster or game history and cannot be removed.');
+    if (!snapshot.teams.docs.some(d => d.id === id)) throw new Error('This team was already removed.');
+    await publishSchedule(snapshot, [doc(db, 'teams', id)], [], uid, version);
+  })());
+}
 
 function savePlayer(player) {
-  const batch = writeBatch(db);
-  batch.set(doc(db, 'players', player.id), {
-    name: player.name, number: player.number ?? '', phone: player.phone ?? '', teamId: player.teamId,
-  });
-  batch.set(doc(db, 'teamRoster', player.id), rosterEntry(player));
-  return firestoreWrite(batch.commit());
+  const uid = currentUser.uid;
+  return firestoreWrite(runTransaction(db, async transaction => {
+    const ref = doc(db, 'config', 'rosterRevision');
+    const version = await transaction.get(ref);
+    const team = await transaction.get(doc(db, 'teams', player.teamId));
+    if (currentUser?.uid !== uid || !canEditTeam(player.teamId)) throw new Error('Your roster access changed.');
+    if (!team.exists()) throw new Error('This team was removed. Refresh the roster.');
+    transaction.set(ref, nextRosterRevision(version.data(), rosterRevision(version.data()), uid));
+    transaction.set(doc(db, 'players', player.id), {
+      name: player.name, number: player.number ?? '', phone: player.phone ?? '', teamId: player.teamId,
+    });
+    transaction.set(doc(db, 'teamRoster', player.id), rosterEntry(player));
+  }));
 }
 
 async function saveField(field) {

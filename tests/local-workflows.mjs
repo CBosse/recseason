@@ -6,6 +6,7 @@ import { getFirestore, connectFirestoreEmulator, collection, query, where, docum
 import { profileSession } from '../profile-session.mjs';
 import { checkedRosterUpdate } from '../roster-editor.mjs';
 import { rosterEntry } from '../team-roster.mjs';
+import { rosterRevision, nextRosterRevision } from '../roster-version.mjs';
 import { newPlayerProfile } from '../accounts.mjs';
 import { invitationDetails, invitationProfilePatch } from '../invitations.mjs';
 import { liveScoreUpdate } from '../live-scoring.mjs';
@@ -148,6 +149,37 @@ try {
     await assert.rejects(getDoc(doc(parent.db, 'players', 'child')), error => error.code === 'permission-denied');
     console.log('PASS: signed-in profile listener observes role revocation and private access is removed.');
   } finally { clearTimeout(timer); stop?.(); }
+  const teamRef = doc(admin.db, 'teams', 'delete-race');
+  await setDoc(teamRef, { name: 'Deletion race' });
+  const rosterRef = doc(admin.db, 'config', 'rosterRevision');
+  const rosterBefore = rosterRevision((await getDoc(rosterRef)).data());
+  const scheduleBefore = scheduleRevision((await getDoc(revisionRef)).data());
+  assert.equal((await getDocs(query(collection(admin.db, 'players'), where('teamId', '==', 'delete-race')))).empty, true);
+  const removeEmptyTeam = () => runTransaction(admin.db, async tx => {
+    const roster = await tx.get(rosterRef);
+    const schedule = await tx.get(revisionRef);
+    const team = await tx.get(teamRef);
+    if (!team.exists()) throw new Error('Team removed');
+    tx.set(rosterRef, nextRosterRevision(roster.data(), rosterBefore, admin.user.uid));
+    tx.set(revisionRef, nextScheduleRevision(schedule.data(), scheduleBefore, admin.user.uid));
+    tx.delete(teamRef);
+  });
+  const addPlayer = () => runTransaction(admin.db, async tx => {
+    const roster = await tx.get(rosterRef);
+    const team = await tx.get(teamRef);
+    if (!team.exists()) throw new Error('Team removed');
+    const player = { name: 'Race player', teamId: 'delete-race' };
+    tx.set(rosterRef, nextRosterRevision(roster.data(), rosterRevision(roster.data()), admin.user.uid));
+    tx.set(doc(admin.db, 'players', 'race-player'), player);
+    tx.set(doc(admin.db, 'teamRoster', 'race-player'), rosterEntry(player));
+  });
+  const race = await Promise.allSettled([removeEmptyTeam(), addPlayer()]);
+  assert.equal(race.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal(race.filter(result => result.status === 'rejected').length, 1);
+  const remainingTeam = await getDoc(teamRef);
+  const remainingPlayer = await getDoc(doc(admin.db, 'players', 'race-player'));
+  assert.equal(remainingTeam.exists(), remainingPlayer.exists());
+  console.log('PASS: team deletion racing player creation cannot leave a dangling player.');
 } finally {
   await Promise.all(apps.map(deleteApp));
 }

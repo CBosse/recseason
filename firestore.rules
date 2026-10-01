@@ -67,7 +67,7 @@ service cloud.firestore {
     match /teams/{id} {
       allow read: if true;
       allow create: if organizer() && validTeam(request.resource.data);
-      allow delete: if organizer();
+      allow delete: if organizer() && scheduleAdvanced() && rosterAdvanced();
       allow update: if manages(id) && validTeam(request.resource.data);
     }
     function boundedText(value, limit) { return value is string && value.size() <= limit; }
@@ -88,9 +88,12 @@ service cloud.firestore {
     }
     match /config/{id} {
       allow read: if true;
-      allow write: if organizer() && ((id == 'schedule' && scheduleAdvanced()) || (id != 'schedule' && id != 'scheduleRevision') ||
+      allow write: if (id == 'rosterRevision' && signedIn() && (organizer() || profile().role == 'teamManager') &&
+        request.resource.data.keys().hasOnly(['revision', 'updatedBy']) && request.resource.data.updatedBy == request.auth.uid &&
+        request.resource.data.revision is int && request.resource.data.revision == (resource == null ? 1 : resource.data.revision + 1)) ||
+        (organizer() && ((id == 'schedule' && scheduleAdvanced()) || (id != 'schedule' && id != 'scheduleRevision' && id != 'rosterRevision') ||
         (id == 'scheduleRevision' && request.resource.data.keys().hasOnly(['revision', 'updatedBy']) && request.resource.data.updatedBy == request.auth.uid &&
-         request.resource.data.revision is int && request.resource.data.revision == (resource == null ? 1 : resource.data.revision + 1)));
+         request.resource.data.revision is int && request.resource.data.revision == (resource == null ? 1 : resource.data.revision + 1))));
     }
     function rosterMatches(id) {
       let player = getAfter(/databases/$(database)/documents/players/$(id)).data;
@@ -112,8 +115,9 @@ service cloud.firestore {
     }
     match /players/{id} {
       allow read: if manages(resource.data.teamId) || ownsPlayer(id);
-      allow create: if manages(request.resource.data.teamId) && validPlayer(request.resource.data) && rosterMatches(id);
-      allow update: if manages(resource.data.teamId) && manages(request.resource.data.teamId) && validPlayer(request.resource.data) && rosterMatches(id);
+      allow create: if manages(request.resource.data.teamId) && validPlayer(request.resource.data) && rosterMatches(id) && rosterAdvanced();
+      allow update: if manages(resource.data.teamId) && manages(request.resource.data.teamId) && validPlayer(request.resource.data) && rosterMatches(id) &&
+        (request.resource.data.teamId == resource.data.teamId || rosterAdvanced());
       allow delete: if manages(resource.data.teamId) && !existsAfter(/databases/$(database)/documents/teamRoster/$(id));
     }
     function validScore(d) {
@@ -122,6 +126,10 @@ service cloud.firestore {
     }
     function scheduleAdvanced() {
       let path = /databases/$(database)/documents/config/scheduleRevision;
+      return getAfter(path).data.revision == (exists(path) ? get(path).data.revision + 1 : 1) && getAfter(path).data.updatedBy == request.auth.uid;
+    }
+    function rosterAdvanced() {
+      let path = /databases/$(database)/documents/config/rosterRevision;
       return getAfter(path).data.revision == (exists(path) ? get(path).data.revision + 1 : 1) && getAfter(path).data.updatedBy == request.auth.uid;
     }
     match /games/{id} {

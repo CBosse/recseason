@@ -35,6 +35,11 @@ before(async () => {
 });
 after(async () => { await env?.cleanup(); });
 const dbFor = uid => env.authenticatedContext(uid, { email: `${uid}@example.test` }).firestore();
+async function addRosterVersion(batch, db, uid) {
+  const ref = doc(db, 'config', 'rosterRevision');
+  const before = await getDoc(ref);
+  batch.set(ref, { revision: (before.data()?.revision ?? 0) + 1, updatedBy: uid });
+}
 
 test('roster writes reject malformed fields and nonexistent teams at the database boundary', async () => {
   const db = dbFor('admin');
@@ -42,11 +47,12 @@ test('roster writes reject malformed fields and nonexistent teams at the databas
     await assertFails(setDoc(doc(db, 'teams', 'invalid'), { name: 'Team', ...patch }));
   }
   await assertSucceeds(setDoc(doc(db, 'teams', 'valid'), { name: 'Valid', color: '', homefield: '' }));
-  const writePlayer = values => {
+  const writePlayer = async values => {
     const player = { name: 'Valid player', teamId: 'a', number: '', phone: '', ...values };
     const batch = writeBatch(db);
     batch.set(doc(db, 'players', 'schema-test'), player);
     batch.set(doc(db, 'teamRoster', 'schema-test'), rosterEntry(player));
+    await addRosterVersion(batch, db, 'admin');
     return batch.commit();
   };
   for (const patch of [{ name: '' }, { name: '  ' }, { name: 'x'.repeat(101) }, { number: 'x'.repeat(11) }, { phone: 42 }, { phone: 'x'.repeat(41) }, { archived: 'false' }, { teamId: 'missing' }, { unexpected: true }]) {
@@ -58,6 +64,7 @@ test('roster writes reject malformed fields and nonexistent teams at the databas
   const player = { name: 'New player', teamId: 'new-atomic' };
   atomic.set(doc(db, 'players', 'atomic'), player);
   atomic.set(doc(db, 'teamRoster', 'atomic'), rosterEntry(player));
+  await addRosterVersion(atomic, db, 'admin');
   await assertSucceeds(atomic.commit());
 });
 
@@ -65,6 +72,22 @@ test('legacy admin without child links can update its profile without broadening
   await assertSucceeds(updateDoc(doc(dbFor('legacy-admin'), 'users', 'legacy-admin'), { displayName: 'Admin' }));
   await assertFails(updateDoc(doc(dbFor('player'), 'users', 'legacy-admin'), { linkedPlayerIds: ['p'] }));
   await assertFails(updateDoc(doc(dbFor('legacy-admin'), 'users', 'legacy-admin'), { linkedPlayerIds: 'invalid' }));
+});
+
+test('roster membership writes and team removal cannot bypass revision coordination', async () => {
+  const db = dbFor('admin');
+  const player = { name: 'Uncoordinated', teamId: 'a' };
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'players', 'uncoordinated'), player);
+  batch.set(doc(db, 'teamRoster', 'uncoordinated'), rosterEntry(player));
+  await assertFails(batch.commit());
+  const deletion = writeBatch(db);
+  deletion.delete(doc(db, 'teams', 'valid'));
+  await assertFails(deletion.commit());
+  await assertFails(setDoc(doc(dbFor('player'), 'config', 'rosterRevision'), { revision: 3, updatedBy: 'player' }));
+  const reset = writeBatch(db);
+  reset.delete(doc(db, 'config', 'rosterRevision'));
+  await assertFails(reset.commit());
 });
 test('captain attendance requires own team, current schedule and next revision', async () => {
   const data = { gameId: 'g', playerId: 'teammate', teamId: 'a', status: 'present', ...rsvpSchedule(game), revision: 1, checkedBy: 'captain', checkedAt: serverTimestamp() };
@@ -151,6 +174,7 @@ test('player creation and deletion require the matching roster projection', asyn
   const create = writeBatch(db);
   create.set(doc(db, 'players', 'new-player'), player);
   create.set(doc(db, 'teamRoster', 'new-player'), rosterEntry(player));
+  await addRosterVersion(create, db, 'manager');
   await assertSucceeds(create.commit());
   const partialDelete = writeBatch(db);
   partialDelete.delete(doc(db, 'players', 'new-player'));
