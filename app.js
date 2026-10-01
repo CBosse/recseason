@@ -22,6 +22,7 @@ import { gameReminder, openReminderDraft } from './reminders.mjs';
 import { scheduleRevision, nextScheduleRevision } from './schedule-version.mjs';
 import { validateSeasonChange } from './season-config.mjs';
 import { rosterPresentation } from './roster-scope.mjs';
+import { profileSession } from './profile-session.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -67,6 +68,8 @@ if (localMode) {
   document.title = 'RecSeason - Local Demo';
 }
 const subscriptions = createSubscriptions(firebaseOnSnapshot);
+const profileSubscriptions = createSubscriptions((ref, next, error) =>
+  firebaseOnSnapshot(ref, { includeMetadataChanges: true }, next, error));
 const onSnapshot = (...args) => subscriptions.listen(...args);
 
 // ── Role constants ─────────────────────────────────────────────────────────
@@ -161,6 +164,7 @@ function getRsvpPlayerId() {
 
 onAuthStateChanged(auth, async (user) => {
   const generation = ++authGeneration;
+  profileSubscriptions.clear();
   clearSessionData();
   currentUser = null;
   document.getElementById('app-layout').style.display = 'none';
@@ -169,18 +173,7 @@ onAuthStateChanged(auth, async (user) => {
       const snap = await getDoc(doc(db, 'users', user.uid));
       if (generation !== authGeneration) return;
       if (snap.exists()) {
-        const d = snap.data();
-        currentUser = {
-          uid:             user.uid,
-          email:           user.email,
-          displayName:     d.displayName || user.email,
-          role:            d.role        || 'player',
-          linkedPlayerId:  d.linkedPlayerId  || null,
-          linkedTeamId:    d.linkedTeamId    || null,
-          linkedLeagueId:  d.linkedLeagueId  || null,
-          linkedLeagueIds: d.linkedLeagueIds || [],
-          linkedPlayerIds: d.linkedPlayerIds || [],
-        };
+        currentUser = profileSession(user, snap.data()).user;
       } else {
         const profile = newPlayerProfile(user, _pendingDisplayName);
         _pendingDisplayName = null;
@@ -202,12 +195,36 @@ onAuthStateChanged(auth, async (user) => {
     }
     if (generation !== authGeneration) return;
     showApp();
+    watchProfile(user, generation);
     await showPendingInvitation();
   } else {
     currentUser = null;
     showAuthScreen();
   }
 });
+
+function watchProfile(user, generation) {
+  const fail = () => {
+    if (generation !== authGeneration) return;
+    currentUser = null;
+    showAuthScreen();
+    showAuthError('Your account access could not be verified. Please sign in again.');
+  };
+  profileSubscriptions.listen(doc(db, 'users', user.uid), snapshot => {
+    if (generation !== authGeneration || !currentUser || snapshot.metadata.hasPendingWrites) return;
+    if (!snapshot.exists()) { fail(); return; }
+    const next = profileSession(user, snapshot.data(), currentUser);
+    if (next.accessChanged) {
+      clearSessionData();
+      currentUser = next.user;
+      showApp();
+      showBanner('Your account access has been updated.', 'success');
+    } else {
+      currentUser = next.user;
+      updateSidebarUserCard();
+    }
+  }, fail);
+}
 
 function showApp() {
   document.getElementById('auth-screen').style.display = 'none';
@@ -217,6 +234,7 @@ function showApp() {
 }
 
 function showAuthScreen() {
+  profileSubscriptions.clear();
   clearSessionData();
   document.getElementById('auth-submit-btn').disabled = false;
   document.getElementById('auth-submit-btn').textContent = _authMode === 'signup' ? 'Sign Up' : 'Sign In';

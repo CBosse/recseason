@@ -2,7 +2,8 @@ import '../scripts/seed-local.mjs';
 import assert from 'node:assert/strict';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, applyActionCode, reload } from 'firebase/auth';
-import { getFirestore, connectFirestoreEmulator, collection, query, where, documentId, getDocs, doc, setDoc, getDoc, runTransaction, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { getFirestore, connectFirestoreEmulator, collection, query, where, documentId, getDocs, doc, setDoc, getDoc, runTransaction, serverTimestamp, Timestamp, onSnapshot, updateDoc } from 'firebase/firestore';
+import { profileSession } from '../profile-session.mjs';
 import { newPlayerProfile } from '../accounts.mjs';
 import { invitationDetails, invitationProfilePatch } from '../invitations.mjs';
 import { liveScoreUpdate } from '../live-scoring.mjs';
@@ -113,6 +114,23 @@ try {
   const table = standings(teams, games);
   assert.equal(table.find(row => row.name === 'Riverside').Pts, 3);
   console.log('PASS: authenticated admin, player, parent, manager and scorer workflows in named recseason database.');
+  let stop;
+  let timer;
+  const profileChanged = new Promise((resolve, reject) => {
+    timer = setTimeout(() => reject(new Error('Live profile update timed out.')), 10000);
+    stop = onSnapshot(doc(parent.db, 'users', parent.user.uid), { includeMetadataChanges: true }, snapshot => {
+      if (snapshot.metadata.hasPendingWrites || snapshot.data()?.role !== 'visitor') return;
+      resolve(profileSession(parent.user, snapshot.data(), parent.user));
+    }, reject);
+  });
+  try {
+    await updateDoc(doc(admin.db, 'users', parent.user.uid), { role: 'visitor', linkedPlayerIds: [] });
+    const changed = await profileChanged;
+    assert.equal(changed.accessChanged, true);
+    assert.deepEqual(changed.user.linkedPlayerIds, []);
+    await assert.rejects(getDoc(doc(parent.db, 'players', 'child')), error => error.code === 'permission-denied');
+    console.log('PASS: signed-in profile listener observes role revocation and private access is removed.');
+  } finally { clearTimeout(timer); stop?.(); }
 } finally {
   await Promise.all(apps.map(deleteApp));
 }
