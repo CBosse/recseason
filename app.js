@@ -21,6 +21,7 @@ import { checkInTeams, attendanceUpdate, openCheckIn } from './attendance.mjs';
 import { gameReminder, openReminderDraft } from './reminders.mjs';
 import { scheduleRevision, nextScheduleRevision } from './schedule-version.mjs';
 import { validateSeasonChange } from './season-config.mjs';
+import { rosterPresentation } from './roster-scope.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -792,7 +793,7 @@ function renderNeedsAttentionCard() {
   </div>`;
 
   if (rows.length === 0) {
-    html += `<div style="padding:24px 16px;"><p class="muted" style="margin:0">All good! Everyone has RSVP'd.</p></div>`;
+    html += `<div style="padding:24px 16px;"><p class="muted" style="margin:0">No outstanding items.</p></div>`;
   } else {
     for (const row of rows) {
       html += `<div class="attention-row">
@@ -1159,7 +1160,7 @@ function renderRosterView() {
   }
   showTeamList();
   const sub = document.getElementById('roster-subtitle');
-  if (sub) sub.textContent = `${state.teams.length} TEAM${state.teams.length !== 1 ? 'S' : ''} · ${state.players.length} PLAYERS`;
+  if (sub) sub.textContent = `${state.teams.length} TEAM${state.teams.length !== 1 ? 'S' : ''} · ${rosterPresentation(currentUser, state.players).count.toUpperCase()}`;
 }
 
 function showTeamList() {
@@ -1177,14 +1178,14 @@ function showTeamList() {
   } else {
     msg.style.display = 'none';
     state.teams.forEach(team => {
-      const cnt = state.players.filter(p => p.teamId === team.id && !p.archived).length;
+      const presentation = rosterPresentation(currentUser, state.players, team.id);
       const li  = document.createElement('li');
       li.innerHTML = `
         <span class="info">
           <button class="name-btn">${escHtml(team.name)}</button>
           <span class="sub">${team.color ? escHtml(team.color) + ' &bull; ' : ''}${team.homefield ? escHtml(team.homefield) : ''}</span>
         </span>
-        <span class="badge">${cnt} player${cnt !== 1 ? 's' : ''}</span>
+        <span class="badge">${escHtml(presentation.count)}</span>
         ${canEditTeam(team.id) ? '<button class="btn btn-ghost btn-sm edit-team-btn">Edit</button>' : ''}
         ${canEdit() ? `<button class="remove-btn">Remove</button>` : ''}`;
       li.querySelector('.edit-team-btn')?.addEventListener('click', () => editRosterRecord('team', team));
@@ -1195,6 +1196,9 @@ function showTeamList() {
   }
 
   const allList = document.getElementById('all-players-list'), allMsg = document.getElementById('no-players-msg');
+  const presentation = rosterPresentation(currentUser, state.players);
+  document.getElementById('players-heading').textContent = presentation.heading;
+  allMsg.textContent = presentation.empty;
   allList.innerHTML = '';
   if (state.players.length === 0) {
     allMsg.style.display = '';
@@ -1223,7 +1227,8 @@ function showTeamDetail(team) {
   const sub = document.getElementById('roster-subtitle');
   if (sub) sub.textContent = team.name.toUpperCase();
   document.getElementById('team-detail-name').textContent = team.name;
-  const meta = [team.color, team.homefield].filter(Boolean);
+  const presentation = rosterPresentation(currentUser, state.players, team.id);
+  const meta = [team.color, team.homefield, presentation.note].filter(Boolean);
   document.getElementById('team-detail-meta').textContent = meta.join(' · ');
 
   const playerAddForm = document.getElementById('player-add-form');
@@ -1231,6 +1236,7 @@ function showTeamDetail(team) {
 
   const roster = state.players.filter(p => p.teamId === team.id);
   const list   = document.getElementById('roster-list'), msg = document.getElementById('no-roster-msg');
+  msg.textContent = presentation.empty;
   list.innerHTML = '';
 
   if (roster.length === 0) {
@@ -1265,11 +1271,12 @@ function showTeamDetail(team) {
     for (const game of upcomingGames) {
       const isHome = game.homeTeamId === team.id;
       const opp    = isHome ? game.awayName : game.homeName;
-      const gRsvps = state.rsvps.filter(r => isCurrentRsvp(r, game) && r.teamId === team.id);
+      const activeIds = new Set(roster.filter(p => !p.archived).map(p => p.id));
+      const gRsvps = state.rsvps.filter(r => isCurrentRsvp(r, game) && r.teamId === team.id && activeIds.has(r.playerId));
       const going  = gRsvps.filter(r => r.status === 'going').length;
       const maybe  = gRsvps.filter(r => r.status === 'maybe').length;
       const out    = gRsvps.filter(r => r.status === 'not_going').length;
-      const line   = (going + maybe + out > 0) ? `${going} going · ${maybe} maybe · ${out} out` : '';
+      const line   = (going + maybe + out > 0) ? `${presentation.scope === 'linked' ? 'Linked players: ' : ''}${going} going · ${maybe} maybe · ${out} out` : '';
       html += `<li><span class="info">
         <span class="name">${escHtml(formatDateHeader(game.date))} ${escHtml(formatTime(game.time))} — ${isHome ? 'vs' : '@'} ${escHtml(opp)}</span>
         <span class="sub">${escHtml(game.fieldName)}${line ? ' · ' + line : ''}</span>
