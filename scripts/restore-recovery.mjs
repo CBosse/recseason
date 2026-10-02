@@ -1,10 +1,12 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { isDeepStrictEqual } from 'node:util';
 import { backupCollections, recoveryDatabase, recoveryWrites } from './backup-format.mjs';
+import { readBackup } from './backup-encryption.mjs';
 
 if (process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8180') throw new Error('Recovery is restricted to the local emulator at 127.0.0.1:8180.');
 if (!process.argv[2]) throw new Error('Provide a backup JSON file path.');
-const backup = JSON.parse(await readFile(process.argv[2], 'utf8'));
+if ((await stat(process.argv[2])).size > 48 * 1024 * 1024) throw new Error('Backup file exceeds the recovery size limit.');
+const backup = await readBackup(JSON.parse(await readFile(process.argv[2], 'utf8')), process.env.RECSEASON_BACKUP_PASSPHRASE);
 const writes = recoveryWrites(backup);
 const root = `http://127.0.0.1:8180/v1/${recoveryDatabase}/documents`;
 async function request(url, body) {

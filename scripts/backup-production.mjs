@@ -1,6 +1,9 @@
 import { createRequire } from 'node:module';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { backupCollections, createBackup } from './backup-format.mjs';
+import { encryptBackup, requireBackupPassphrase } from './backup-encryption.mjs';
+
+const passphrase = requireBackupPassphrase(process.env.RECSEASON_BACKUP_PASSPHRASE);
 
 const auth = createRequire(import.meta.url)('firebase-tools/lib/auth');
 const account = auth.getGlobalDefaultAccount();
@@ -27,7 +30,8 @@ for (const collection of backupCollections) {
   } while (pageToken);
 }
 const backup = createBackup(documents, readTime);
+const encrypted = await encryptBackup(backup, passphrase);
 await mkdir('.tools/backups', { recursive: true });
-const path = `.tools/backups/recseason-${readTime.replaceAll(':', '-')}.json`;
-await writeFile(path, JSON.stringify(backup, null, 2), { flag: 'wx', mode: 0o600 });
-console.log(`Saved ${documents.length} documents at ${readTime} to ${path}. Contains private data; do not commit or share.`);
+const path = `.tools/backups/recseason-${readTime.replaceAll(':', '-')}.encrypted.json`;
+await writeFile(path, JSON.stringify(encrypted), { flag: 'wx', mode: 0o600 });
+console.log(`Saved ${documents.length} encrypted documents at ${readTime} to ${path}. Keep the passphrase separately; do not commit or share.`);

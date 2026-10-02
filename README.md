@@ -159,22 +159,35 @@ client identifiers in `firebase-config.js` for that environment.
 
 ### Backup and recovery
 
-Run `npm run backup:production` with the Firebase CLI signed in. The export reads
-the named production database only and writes a checksummed JSON file under
-ignored `.tools/backups`. It includes all eleven app collections, retains raw
+Run `npm run backup:production` with the Firebase CLI signed in and
+`RECSEASON_BACKUP_PASSPHRASE` supplied by your secret manager in the process environment.
+Use a strong, unique passphrase (at least 16 characters); never put it in command-line
+arguments, source files, shell history, or Git. Store it separately from backups.
+Losing it makes encrypted backups unrecoverable. No production backup is attempted
+when the environment variable is missing.
+The export reads the named production database only and writes an authenticated,
+encrypted `.encrypted.json` file under ignored `.tools/backups`. It includes all
+twelve app collections, including score history, and retains raw
 Firestore value types, and uses one `readTime` for every page for a consistent
 snapshot. This follows the [Firestore list API](https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.documents/list).
 The file contains private data. Keep it protected and out of Git, Pages, and shared
-folders. The checksum detects corruption; it is not encryption or authentication.
+folders. New exports use AES-256-GCM with fresh random salt and nonce and a
+scrypt-derived key (N=32768, r=8, p=1). The encrypted content also retains the
+existing document checksum. Legacy plaintext backups remain readable but are not
+automatically encrypted or deleted. File mode restrictions are not a substitute for
+Windows folder ACLs. Keep this folder restricted to the backup operator.
 
 With a fresh local Firestore emulator on port 8180 and
 `FIRESTORE_EMULATOR_HOST=127.0.0.1:8180`, run
-`node scripts/restore-recovery.mjs <backup-file>` to restore into the isolated
+`node scripts/restore-recovery.mjs <backup-file>` with the same passphrase environment
+variable to decrypt in memory and restore into the isolated
 `demo-recseason` project's `recovery` database. The script refuses other endpoints,
 nonempty app collections, overwrites, invalid checksums, and snapshots above 500
 documents. It verifies every restored document after one atomic create-only commit.
-`npm run test:recovery` tests this workflow with synthetic data and an overwrite
-attempt; it runs in CI. A five-document production export was successfully restored
+Encrypted input is authenticated before any database request. Files above 48 MiB
+and encrypted plaintext above 32 MiB are rejected. No decrypted file is written.
+`npm run test:recovery` tests encrypted synthetic data, a wrong passphrase before
+restore, and an overwrite attempt; it runs in CI. A five-document production export was successfully restored
 and verified locally on September 26, 2026. Production was not modified.
 
 This is an app-data recovery tool, not complete disaster recovery. Auth accounts,
