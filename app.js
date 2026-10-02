@@ -9,7 +9,7 @@ import { newPlayerProfile } from './accounts.mjs';
 import { openGameEditor, validateGame } from './game-editor.mjs';
 import { firebaseConfig, databaseId } from './firebase-config.js';
 import { useLocalEmulators } from './local-runtime.mjs';
-import { openRosterEditor, checkedRosterUpdate } from './roster-editor.mjs';
+import { openRosterEditor, checkedRosterUpdate, checkedArchiveUpdate } from './roster-editor.mjs';
 import { fieldUpdate, fieldFitsGame, fieldWindow, openFieldEditor } from './field-editor.mjs';
 import { invitationProfilePatch } from './invitations.mjs';
 import { openInvitationCreator, openInvitationRecipient } from './invitation-ui.mjs';
@@ -1382,8 +1382,9 @@ async function removePlayer(id) {
     const ref = doc(db, 'players', id);
     const snapshot = await transaction.get(ref);
     if (currentUser?.uid !== uid || !snapshot.exists() || !canEditTeam(snapshot.data().teamId)) throw new Error('Player access changed. Refresh the roster.');
-    transaction.update(ref, { archived });
-    transaction.set(doc(db, 'teamRoster', id), rosterEntry({ ...snapshot.data(), archived }));
+    const patch = checkedArchiveUpdate(player, snapshot.data());
+    transaction.update(ref, patch);
+    transaction.set(doc(db, 'teamRoster', id), rosterEntry({ ...snapshot.data(), ...patch }));
   }));
 }
 

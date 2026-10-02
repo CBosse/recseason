@@ -19,6 +19,14 @@ export function checkedRosterUpdate(kind, original, current, values) {
   return patch;
 }
 
+export function checkedArchiveUpdate(original, current) {
+  if (!current) throw new Error('This player was removed. Refresh the roster.');
+  if (current.teamId !== original.teamId || Boolean(current.archived) !== Boolean(original.archived)) {
+    throw new Error('This player changed teams or archive status. Refresh the roster and confirm again.');
+  }
+  return { archived: !Boolean(original.archived) };
+}
+
 export function openRosterEditor(kind, record, save) {
   document.getElementById('roster-editor-dialog')?.remove();
   const dialog = document.createElement('dialog'); dialog.id = 'roster-editor-dialog'; dialog.className = 'game-editor-dialog';

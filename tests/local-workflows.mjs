@@ -4,7 +4,7 @@ import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, applyActionCode, reload } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator, collection, query, where, documentId, getDocs, doc, setDoc, getDoc, runTransaction, serverTimestamp, Timestamp, onSnapshot, updateDoc } from 'firebase/firestore';
 import { profileSession } from '../profile-session.mjs';
-import { checkedRosterUpdate } from '../roster-editor.mjs';
+import { checkedRosterUpdate, checkedArchiveUpdate } from '../roster-editor.mjs';
 import { rosterEntry } from '../team-roster.mjs';
 import { rosterRevision, nextRosterRevision } from '../roster-version.mjs';
 import { scoreHistoryEntry } from '../score-history.mjs';
@@ -229,6 +229,22 @@ try {
   assert.equal(finalInnings.homeScore, 2);
   assert.equal((await getDocs(query(collection(admin.db, 'scoreEvents'), where('gameId', '==', 'innings-test')))).size, 5);
   console.log('PASS: inning-based games finalize and retain organizer corrections in immutable history.');
+  const archiveRef = doc(admin.db, 'players', 'child');
+  const archiveOriginal = (await getDoc(archiveRef)).data();
+  const archivePlayer = () => runTransaction(admin.db, async tx => {
+    const current = await tx.get(archiveRef);
+    const patch = checkedArchiveUpdate(archiveOriginal, current.exists() ? current.data() : null);
+    tx.update(archiveRef, patch);
+    tx.set(doc(admin.db, 'teamRoster', 'child'), rosterEntry({ ...current.data(), ...patch }));
+  });
+  const archiveRace = await Promise.allSettled([archivePlayer(), archivePlayer()]);
+  assert.equal(archiveRace.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal(archiveRace.filter(result => result.status === 'rejected').length, 1);
+  const archivedPlayer = (await getDoc(archiveRef)).data();
+  assert.equal(archivedPlayer.archived, true);
+  assert.deepEqual((await getDoc(doc(admin.db, 'teamRoster', 'child'))).data(), rosterEntry(archivedPlayer));
+  assert.equal(archivedPlayer.teamId, archiveOriginal.teamId);
+  console.log('PASS: concurrent archive confirmations admit one writer and preserve the matching roster projection.');
 } finally {
   await Promise.all(apps.map(deleteApp));
 }
