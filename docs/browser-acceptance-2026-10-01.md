@@ -46,3 +46,18 @@ accounts only; no production accounts or data were changed.
 Screenshot evidence remains local in `.tools/visitor-mobile-acceptance.png`.
 Additional check-in evidence: `.tools/captain-checkin-acceptance.png`.
 Final standings evidence: `.tools/final-standings-acceptance.png`.
+
+## Organizer Follow-Up
+
+The organizer walkthrough exposed a mixed-version module cache: the new entry
+point imported an older cached roster module without its new export and failed
+before sign-in. The build now uses a content-hashed directory for the entire
+local module graph and stylesheet. The versioned preview at port 8081 loaded
+successfully and accepted organizer sign-in.
+
+In that build, the organizer created a synthetic empty team and removed it
+successfully under the coordinated deletion rules, then created Acceptance
+Player on Riverside. The player appeared in the roster and remained on the
+dashboard after reload, increasing the active count from three to four. These
+checks used only the local emulator. The new release still requires production
+deployment and upgrade verification against the published assets.

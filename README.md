@@ -5,8 +5,12 @@ Authentication, and the named Firestore database `recseason`.
 
 ## Development and verification
 
-Serve this folder over HTTP (`python -m http.server 8080`) and open
-http://localhost:8080. Firebase configuration lives in `firebase-config.js`.
+Run `node scripts/build-site.mjs`, then `node scripts/serve-site.mjs` and open
+http://127.0.0.1:8081. Firebase configuration lives in `firebase-config.js`.
+Rebuild after source edits and reload the browser. The build places all modules
+and styles under one content-hashed release directory so cached modules from
+different releases cannot be mixed. The preview server sends `Cache-Control:
+no-store` and serves only `dist`; set `PORT` to change its default 8081 port.
 The application requires an appropriately configured Firebase project; a local
 server alone does not provide an offline database.
 
@@ -38,8 +42,8 @@ these packages are excluded from the published application.
 ## Local sample season
 
 With Java 21 and Node 22 on PATH, run `npm run emulators` in one terminal. In a
-second terminal run `npm run seed:local`, then serve the repository over HTTP and
-open `http://127.0.0.1:8080/?emulator=1`. The query parameter is required; ordinary
+second terminal run `npm run seed:local`, build and serve as above, then
+open `http://127.0.0.1:8081/?emulator=1`. The query parameter is required; ordinary
 URLs still use the configured production project. Emulator mode is restricted to
 localhost and uses a separate Firebase app/auth session and the `demo-recseason`
 project's named `recseason` database.
