@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Score history verification</title>
+<link rel="stylesheet" href="../style.css">
+<button id="open">Score history</button>
+<script type="module">
+import { openScoreHistory } from '../score-history.mjs';
+const game = { homeName: 'Riverside', awayName: 'Northside' };
+const before = { homeScore: 3, awayScore: 1, status: 'completed', half: 'bottom', inning: 7 };
+document.getElementById('open').onclick = () => openScoreHistory(game, [
+  { revision: 2, before: { ...before, status: 'live' }, after: before, reason: '' },
+  { revision: 3, before, after: { ...before, homeScore: 4 }, reason: 'Corrected the final score after checking the scorebook.' },
+]);
+</script>
+</html>

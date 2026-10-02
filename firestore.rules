@@ -132,10 +132,38 @@ service cloud.firestore {
       let path = /databases/$(database)/documents/config/rosterRevision;
       return getAfter(path).data.revision == (exists(path) ? get(path).data.revision + 1 : 1) && getAfter(path).data.updatedBy == request.auth.uid;
     }
+    function scoreState(d) {
+      return {'homeScore': d.get('homeScore', null), 'awayScore': d.get('awayScore', null), 'status': d.status,
+        'inning': d.get('inning', 1), 'half': d.get('half', 'top'), 'balls': d.get('balls', 0), 'strikes': d.get('strikes', 0), 'outs': d.get('outs', 0)};
+    }
+    function validScoreEvent(event, before, after) {
+      return event.keys().hasOnly(['gameId', 'revision', 'before', 'after', 'scoredBy', 'reason', 'recordedAt']) &&
+        event.revision is int && event.revision == before.get('scoreRevision', 0) + 1 && event.revision == after.scoreRevision &&
+        event.before == scoreState(before) && event.after == scoreState(after) &&
+        event.scoredBy == request.auth.uid && after.scoredBy == request.auth.uid && event.recordedAt == request.time &&
+        event.reason is string && event.reason.size() <= 300 && (before.status != 'completed' || event.reason.matches('.*[^\\s].*'));
+    }
+    function hasScoreEvent(id) {
+      let event = getAfter(/databases/$(database)/documents/scoreEvents/$(id + '_' + string(request.resource.data.scoreRevision))).data;
+      return validScore(request.resource.data) && event.gameId == id && validScoreEvent(event, resource.data, request.resource.data);
+    }
+    function scoringChanged() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny(['homeScore', 'awayScore', 'inning', 'half', 'balls', 'strikes', 'outs', 'scoreRevision', 'scoredBy']) ||
+        (request.resource.data.status != resource.data.status && request.resource.data.status in ['live', 'completed']);
+    }
+    match /scoreEvents/{id} {
+      allow read: if organizer() || (signedIn() && profile().role == 'scorekeeper' &&
+        get(/databases/$(database)/documents/games/$(resource.data.gameId)).data.scorekeeperId == request.auth.uid);
+      allow create: if signedIn() && id == request.resource.data.gameId + '_' + string(request.resource.data.revision) &&
+        (organizer() || (profile().role == 'scorekeeper' && get(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data.scorekeeperId == request.auth.uid)) &&
+        validScoreEvent(request.resource.data, get(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data,
+          getAfter(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data);
+      allow update, delete: if false;
+    }
     match /games/{id} {
       allow read: if true;
       allow create, delete: if organizer() && scheduleAdvanced();
-      allow update: if (organizer() && (scheduleAdvanced() || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'scoreRevision', 'scoredBy']))) || (signedIn() && profile().role == 'scorekeeper' && resource.data.scorekeeperId == request.auth.uid &&
+      allow update: if (organizer() && (scheduleAdvanced() || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'scoreRevision', 'scoredBy'])) && (!scoringChanged() || hasScoreEvent(id))) || (signedIn() && profile().role == 'scorekeeper' && resource.data.scorekeeperId == request.auth.uid && hasScoreEvent(id) &&
         resource.data.status in ['scheduled', 'live'] && request.resource.data.status in ['live', 'completed'] &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'scoreRevision', 'scoredBy']) &&
         validScore(request.resource.data) && request.resource.data.scoredBy == request.auth.uid &&

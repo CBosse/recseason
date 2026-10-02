@@ -411,6 +411,10 @@ body {
 }
 
 .game-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.game-actions:has(.correction-reason) { flex-wrap: wrap; max-width: 100%; }
+.correction-reason { width: 220px; max-width: 100%; min-width: 0; padding: 8px; font: inherit; }
+.score-history-list { padding-left: 24px; overflow-wrap: anywhere; }
+.score-history-list li { margin-bottom: 16px; }
 
 /* ── RSVP Bar ─────────────────────────────────────────────────────────────── */
 

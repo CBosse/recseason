@@ -7,6 +7,7 @@ import { profileSession } from '../profile-session.mjs';
 import { checkedRosterUpdate } from '../roster-editor.mjs';
 import { rosterEntry } from '../team-roster.mjs';
 import { rosterRevision, nextRosterRevision } from '../roster-version.mjs';
+import { scoreHistoryEntry } from '../score-history.mjs';
 import { newPlayerProfile } from '../accounts.mjs';
 import { invitationDetails, invitationProfilePatch } from '../invitations.mjs';
 import { liveScoreUpdate } from '../live-scoring.mjs';
@@ -123,12 +124,15 @@ try {
     await runTransaction(scorer.db, async tx => {
       const ref = doc(scorer.db, 'games', 'demo-game');
       const snapshot = await tx.get(ref);
-      tx.update(ref, liveScoreUpdate(snapshot.data(), { ...score, status }, scorer.user, revision));
+      const patch = liveScoreUpdate(snapshot.data(), { ...score, status }, scorer.user, revision);
+      tx.update(ref, patch);
+      tx.set(doc(scorer.db, 'scoreEvents', `demo-game_${patch.scoreRevision}`), { ...scoreHistoryEntry('demo-game', snapshot.data(), patch, scorer.user.uid), recordedAt: serverTimestamp() });
     });
   }
   const games = (await getDocs(collection(admin.db, 'games'))).docs.map(d => ({ id: d.id, ...d.data() }));
   const teams = (await getDocs(collection(admin.db, 'teams'))).docs.map(d => ({ id: d.id, ...d.data() }));
   assert.equal(games.find(game => game.id === 'demo-game').status, 'completed');
+  assert.equal((await getDocs(query(collection(scorer.db, 'scoreEvents'), where('gameId', '==', 'demo-game')))).size, 2);
   const table = standings(teams, games);
   assert.equal(table.find(row => row.name === 'Riverside').Pts, 3);
   console.log('PASS: authenticated admin, player, parent, manager and scorer workflows in named recseason database.');

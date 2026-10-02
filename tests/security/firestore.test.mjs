@@ -7,6 +7,7 @@ import { newPlayerProfile } from '../../accounts.mjs';
 import { liveScoreUpdate } from '../../live-scoring.mjs';
 import { rsvpSchedule } from '../../rsvps.mjs';
 import { rosterEntry } from '../../team-roster.mjs';
+import { scoreHistoryEntry } from '../../score-history.mjs';
 let env;
 const profile = (uid, role, extra = {}) => ({ ...newPlayerProfile({ uid, email: `${uid}@example.test` }, uid), role, ...extra });
 const game = { status: 'scheduled', homeTeamId: 'a', awayTeamId: 'b', scorekeeperId: 'scorer', date: '2026-09-25', time: '18:00', fieldId: 'main' };
@@ -250,10 +251,27 @@ test('scorekeeper can update only assigned game score fields with next revision'
   await assertFails(updateDoc(doc(dbFor('other'), 'games', 'g'), patch));
   await assertFails(updateDoc(doc(dbFor('scorer'), 'games', 'g'), { ...patch, homeTeamId: 'c' }));
   await assertFails(updateDoc(doc(dbFor('scorer'), 'games', 'g'), { ...patch, balls: 4 }));
-  await assertSucceeds(updateDoc(doc(dbFor('scorer'), 'games', 'g'), patch));
   await assertFails(updateDoc(doc(dbFor('scorer'), 'games', 'g'), patch));
-  await assertSucceeds(updateDoc(doc(dbFor('scorer'), 'games', 'g'), { ...patch, scoreRevision: 2, status: 'completed' }));
+  const save = async (uid, next, reason = '', override = {}) => {
+    const db = dbFor(uid);
+    const before = (await getDoc(doc(db, 'games', 'g'))).data();
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'games', 'g'), next);
+    batch.set(doc(db, 'scoreEvents', `g_${next.scoreRevision}`), { ...scoreHistoryEntry('g', before, next, uid, reason), recordedAt: serverTimestamp(), ...override });
+    return batch.commit();
+  };
+  await assertSucceeds(save('scorer', patch));
+  await assertFails(updateDoc(doc(dbFor('scorer'), 'games', 'g'), patch));
+  await assertSucceeds(save('scorer', { ...patch, scoreRevision: 2, status: 'completed' }));
   await assertFails(updateDoc(doc(dbFor('scorer'), 'games', 'g'), { ...patch, scoreRevision: 3 }));
+  await assertFails(updateDoc(doc(dbFor('admin'), 'games', 'g'), { homeScore: 2 }));
+  const correction = { ...patch, homeScore: 2, scoreRevision: 3, scoredBy: 'admin', status: 'completed' };
+  await assertFails(save('admin', correction, 'Correction', { after: { homeScore: 99 } }));
+  await assertFails(save('admin', correction, 'Correction', { reason: '   ' }));
+  await assertSucceeds(save('admin', { ...patch, homeScore: 2, scoreRevision: 3, scoredBy: 'admin', status: 'completed' }, 'Corrected scorebook total'));
+  await assertFails(updateDoc(doc(dbFor('admin'), 'scoreEvents', 'g_1'), { reason: 'Rewritten' }));
+  await assertFails(getDoc(doc(dbFor('other'), 'scoreEvents', 'g_1')));
+  await assertSucceeds(getDocs(query(collection(dbFor('scorer'), 'scoreEvents'), where('gameId', '==', 'g'))));
 });
 
 test('invitation creation is admin-only and cannot grant siteAdmin', async () => {

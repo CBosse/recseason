@@ -25,6 +25,7 @@ import { rosterPresentation } from './roster-scope.mjs';
 import { profileSession } from './profile-session.mjs';
 import { gameRsvpSummary } from './rsvp-summary.mjs';
 import { rosterRevision, nextRosterRevision } from './roster-version.mjs';
+import { scoreHistoryEntry, openScoreHistory } from './score-history.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -122,6 +123,7 @@ let _connectTimeout   = null;
 let authGeneration = 0;
 
 function clearSessionData() {
+  document.getElementById('score-history-dialog')?.remove();
   document.getElementById('invitation-dialog')?.remove();
   document.getElementById('field-editor-dialog')?.remove();
   document.getElementById('roster-editor-dialog')?.remove();
@@ -1120,6 +1122,11 @@ function showInlineScoreEdit(li, game) {
   homeInput.setAttribute('aria-label', 'Home score');
   awayInput.setAttribute('aria-label', 'Away score');
   actionsSpan.innerHTML = `<button class="btn btn-primary btn-sm save-score-btn">Save</button><button class="btn btn-ghost btn-sm cancel-score-btn">Cancel</button>`;
+  const correctionReason = document.createElement('input');
+  correctionReason.className = 'correction-reason';
+  correctionReason.placeholder = 'Correction reason'; correctionReason.maxLength = 300;
+  correctionReason.setAttribute('aria-label', 'Correction reason');
+  if (game.status === 'completed') actionsSpan.prepend(correctionReason);
   actionsSpan.querySelector('.cancel-score-btn').addEventListener('click', renderScheduleView);
   actionsSpan.querySelector('.save-score-btn').addEventListener('click', async event => {
     if (!canEdit()) return;
@@ -1134,7 +1141,10 @@ function showInlineScoreEdit(li, game) {
       const snapshot = await transaction.get(ref);
       if (!canEdit() || currentUser.uid !== uid) throw new Error('Your session changed.');
       if (!snapshot.exists() || snapshot.data().status === 'cancelled') throw new Error('This game was removed or cancelled. Refresh the schedule.');
-      transaction.update(ref, { ...updates, scoreRevision: (snapshot.data().scoreRevision ?? 0) + 1 });
+      if ((snapshot.data().scoreRevision ?? 0) !== (game.scoreRevision ?? 0)) throw new Error('The score changed in another session. Reopen the editor.');
+      const patch = { ...updates, scoreRevision: (snapshot.data().scoreRevision ?? 0) + 1, scoredBy: uid };
+      transaction.update(ref, patch);
+      transaction.set(doc(db, 'scoreEvents', `${game.id}_${patch.scoreRevision}`), { ...scoreHistoryEntry(game.id, snapshot.data(), patch, uid, correctionReason.value), recordedAt: serverTimestamp() });
     }));
     if (saved) showBanner('Result saved.', 'success');
     button.disabled = false;
@@ -1391,14 +1401,14 @@ document.getElementById('team-back-btn').addEventListener('click', () => { _view
 function renderScorekeeperView() {
   const container = document.getElementById('scorekeeper-games');
   container.replaceChildren();
-  const games = state.games.filter(game => canScore(currentUser, game) && ['scheduled', 'live'].includes(game.status));
-  if (!games.length) { container.textContent = 'No open games assigned.'; return; }
+  const games = state.games.filter(game => canScore(currentUser, game) && ['scheduled', 'live', 'completed'].includes(game.status));
+  if (!games.length) { container.textContent = 'No games assigned.'; return; }
   for (const game of games) {
     const row = document.createElement('div'); row.className = 'schedule-game-row';
     const title = document.createElement('span');
     title.textContent = `${game.date} ${formatTime(game.time)} | ${game.fieldName} | ${game.homeName} ${game.homeScore ?? 0} - ${game.awayScore ?? 0} ${game.awayName}`;
     const status = document.createElement('span');
-    status.textContent = game.status === 'live' ? `Live: ${game.half || 'top'} ${game.inning || 1}, ${game.balls || 0} balls, ${game.strikes || 0} strikes, ${game.outs || 0} outs` : 'Scheduled';
+    status.textContent = game.status === 'live' ? `Live: ${game.half || 'top'} ${game.inning || 1}, ${game.balls || 0} balls, ${game.strikes || 0} strikes, ${game.outs || 0} outs` : game.status === 'completed' ? 'Final' : 'Scheduled';
     const button = document.createElement('button'); button.className = 'btn btn-primary btn-sm'; button.textContent = 'Record score';
     button.onclick = () => {
       const uid = currentUser?.uid;
@@ -1408,9 +1418,22 @@ function renderScorekeeperView() {
         if (currentUser?.uid !== uid) throw new Error('Your session changed.');
         const patch = liveScoreUpdate(snapshot.exists() ? snapshot.data() : null, values, currentUser, game.scoreRevision ?? 0);
         transaction.update(ref, patch);
+        transaction.set(doc(db, 'scoreEvents', `${game.id}_${patch.scoreRevision}`), { ...scoreHistoryEntry(game.id, snapshot.data(), patch, uid), recordedAt: serverTimestamp() });
       }));
     };
-    row.append(title, status, button); container.append(row);
+    const history = document.createElement('button'); history.className = 'btn btn-ghost btn-sm'; history.textContent = 'Score history';
+    history.onclick = async () => {
+      const uid = currentUser?.uid;
+      history.disabled = true;
+      try {
+        const entries = await getDocs(query(collection(db, 'scoreEvents'), where('gameId', '==', game.id)));
+        if (currentUser?.uid === uid && canScore(currentUser, game)) openScoreHistory(game, entries.docs.map(d => d.data()));
+      } catch (error) { showDbError(error); }
+      finally { history.disabled = false; }
+    };
+    row.append(title, status);
+    if (game.status !== 'completed') row.append(button);
+    row.append(history); container.append(row);
   }
 }
 
