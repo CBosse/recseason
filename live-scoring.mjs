@@ -12,6 +12,7 @@ export function liveScoreUpdate(game, values, user, expectedRevision) {
   if ((game.scoreRevision ?? 0) !== expectedRevision) throw new Error('The score changed in another session. Close and reopen the editor.');
   if (!['live', 'completed'].includes(values.status)) throw new Error('Choose a valid game status.');
   const updates = { homeScore: parseScore(values.homeScore), awayScore: parseScore(values.awayScore), status: values.status };
+  if (game.lineScore && (updates.homeScore !== game.homeScore || updates.awayScore !== game.awayScore)) throw new Error('Use Record inning to change this game\'s totals.');
   for (const [name, min, max] of [['inning', 1, 99], ['balls', 0, 3], ['strikes', 0, 2], ['outs', 0, 2]]) {
     const number = Number(values[name]);
     if (values[name] === '' || values[name] == null || !Number.isInteger(number) || number < min || number > max) throw new Error(`Invalid ${name}.`);
@@ -39,6 +40,7 @@ export function openScoreEditor(game, save) {
     const label = document.createElement('label'); label.textContent = labelText;
     const input = document.createElement('input');
     input.name = name; input.type = 'number'; input.min = name === 'inning' ? '1' : '0'; input.max = String(max); input.step = '1'; input.required = true; input.value = value;
+    if (game.lineScore && ['homeScore', 'awayScore'].includes(name)) input.readOnly = true;
     label.append(input); grid.append(label); controls[name] = input;
   }
   for (const [name, labelText, options, value] of [

@@ -8,6 +8,7 @@ import { checkedRosterUpdate } from '../roster-editor.mjs';
 import { rosterEntry } from '../team-roster.mjs';
 import { rosterRevision, nextRosterRevision } from '../roster-version.mjs';
 import { scoreHistoryEntry } from '../score-history.mjs';
+import { inningScoreUpdate } from '../inning-scores.mjs';
 import { newPlayerProfile } from '../accounts.mjs';
 import { invitationDetails, invitationProfilePatch } from '../invitations.mjs';
 import { liveScoreUpdate } from '../live-scoring.mjs';
@@ -185,6 +186,49 @@ try {
   const remainingPlayer = await getDoc(doc(admin.db, 'players', 'race-player'));
   assert.equal(remainingTeam.exists(), remainingPlayer.exists());
   console.log('PASS: team deletion racing player creation cannot leave a dangling player.');
+  const inningGameRef = doc(admin.db, 'games', 'innings-test');
+  await runTransaction(admin.db, async tx => {
+    const revision = await tx.get(revisionRef);
+    tx.set(inningGameRef, { ...baseGame, homeScore: null, awayScore: null, status: 'scheduled' });
+    tx.set(revisionRef, nextScheduleRevision(revision.data(), scheduleRevision(revision.data()), admin.user.uid));
+  });
+  for (const [revision, inning, home, away] of [[0, 1, 2, 0], [1, 2, 1, 3], [2, 1, 0, 1]]) {
+    await runTransaction(scorer.db, async tx => {
+      const ref = doc(scorer.db, 'games', 'innings-test');
+      const current = await tx.get(ref);
+      const patch = { ...inningScoreUpdate(current.data(), { inning, home, away }, revision), scoredBy: scorer.user.uid, half: 'top', balls: 0, strikes: 0, outs: 0 };
+      tx.update(ref, patch);
+      tx.set(doc(scorer.db, 'scoreEvents', `innings-test_${patch.scoreRevision}`), { ...scoreHistoryEntry('innings-test', current.data(), patch, scorer.user.uid), recordedAt: serverTimestamp() });
+    });
+  }
+  const inningGame = (await getDoc(inningGameRef)).data();
+  assert.equal(inningGame.homeScore, 1); assert.equal(inningGame.awayScore, 4);
+  assert.deepEqual(inningGame.lineScore['2'], { home: 1, away: 3 });
+  await assert.rejects(runTransaction(admin.db, async tx => {
+    const current = await tx.get(inningGameRef);
+    const patch = { homeScore: 99, scoreRevision: 4, scoredBy: admin.user.uid };
+    tx.update(inningGameRef, patch);
+    tx.set(doc(admin.db, 'scoreEvents', 'innings-test_4'), { ...scoreHistoryEntry('innings-test', current.data(), patch, admin.user.uid), recordedAt: serverTimestamp() });
+  }), error => error.code === 'permission-denied');
+  console.log('PASS: inning scores persist, earlier innings can be corrected, and independent total tampering is denied.');
+  await runTransaction(scorer.db, async tx => {
+    const ref = doc(scorer.db, 'games', 'innings-test');
+    const current = await tx.get(ref);
+    const patch = liveScoreUpdate(current.data(), { ...current.data(), status: 'completed' }, { uid: scorer.user.uid, role: 'scorekeeper' }, 3);
+    tx.update(ref, patch);
+    tx.set(doc(scorer.db, 'scoreEvents', 'innings-test_4'), { ...scoreHistoryEntry('innings-test', current.data(), patch, scorer.user.uid), recordedAt: serverTimestamp() });
+  });
+  await runTransaction(admin.db, async tx => {
+    const current = await tx.get(inningGameRef);
+    const patch = { ...inningScoreUpdate(current.data(), { inning: 2, home: 2, away: 3 }, 4), scoredBy: admin.user.uid };
+    tx.update(inningGameRef, patch);
+    tx.set(doc(admin.db, 'scoreEvents', 'innings-test_5'), { ...scoreHistoryEntry('innings-test', current.data(), patch, admin.user.uid, 'Corrected official inning record'), recordedAt: serverTimestamp() });
+  });
+  const finalInnings = (await getDoc(inningGameRef)).data();
+  assert.equal(finalInnings.status, 'completed');
+  assert.equal(finalInnings.homeScore, 2);
+  assert.equal((await getDocs(query(collection(admin.db, 'scoreEvents'), where('gameId', '==', 'innings-test')))).size, 5);
+  console.log('PASS: inning-based games finalize and retain organizer corrections in immutable history.');
 } finally {
   await Promise.all(apps.map(deleteApp));
 }

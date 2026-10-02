@@ -55,7 +55,7 @@
       <div><h3>Game-day participation</h3><ul>
         <li>Player and parent RSVPs, linked-child selection, scoped dashboards, and reconfirmation after date/time/field changes.</li>
         <li>Captain and team-manager check-in: present, absent, or unmarked; private contact details remain separate.</li>
-        <li>Assigned live scoring: totals, inning/half, balls, strikes, outs, and final results with stale-edit protection.</li>
+        <li>Assigned live scoring: per-inning totals, inning/half, balls, strikes, outs, manual base occupancy, and final results with stale-edit protection and immutable correction history.</li>
         <li>Standings with points and deterministic tiebreaks; read-only visitor schedule and league views.</li>
       </ul></div>
     </div>
@@ -76,7 +76,7 @@
       <li><strong>Communication:</strong> drafts and shareable invitations exist, but automatic delivery, reminders, preferences, delivery logs, and cancellation/change alerts are unfinished. A sending service is needed.</li>
       <li><strong>Recovery:</strong> local exports cover app collections only, up to 500 documents. Auth accounts, storage, indexes, rules, unknown collections, scheduled off-device backups, and an approved production restore procedure are not covered by that export.</li>
       <li><strong>Capacity and usability:</strong> schedule writes cap at 499 records plus a revision; check-in caps at ten changed players per save. Offline/reconnect behavior, loading errors, accessibility, and full mobile journeys need acceptance coverage.</li>
-      <li><strong>Scoring depth:</strong> per-inning linescores, runners, play-by-play, and derived player statistics remain unfinished.</li>
+      <li><strong>Scoring depth:</strong> replayable play-by-play, automatic runner advancement, and derived player statistics remain unfinished. Legacy totals remain unallocated rather than being assigned to invented innings.</li>
     </ul>
   </section>
   <section id="plan">
@@ -93,7 +93,7 @@
       <li>Remove misleading partial-roster counts and outdated promotional labels; test keyboard focus, narrow layouts, and long names.</li>
     </ul><p class="gate"><strong>Exit gate:</strong> an independent user completes the season workflow without console intervention, with persistent results and clear failure states.</p></div></article>
     <article class="phase"><div><h3>3. Finish scoring and notices</h3><span class="muted">Game-day functionality</span></div><div><ul>
-      <li>Add per-inning scoring, runner state, and a correction-aware play log; derive totals consistently and test replay/correction scenarios.</li>
+      <li>Extend the implemented per-inning scoring, manual runner state, and correction history into a replayable play log; test replay/correction scenarios and legacy run allocation.</li>
       <li>Connect a sending service; keep credentials server-side. Add opt-out preferences, bounded recipients, idempotent jobs, retries, and delivery status.</li>
       <li>Deliver invitation, RSVP reminder, reschedule, and cancellation notices; verify links and timezone handling.</li>
     </ul><p class="gate"><strong>Exit gate:</strong> scoring remains consistent after corrections; test messages reach controlled inboxes without duplicates or recipient-address disclosure.</p></div></article>

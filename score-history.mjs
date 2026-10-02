@@ -2,7 +2,7 @@ import { baseOccupancy, baseLabel } from './base-occupancy.mjs';
 
 export function scoreState(game) {
   return { homeScore: game.homeScore ?? null, awayScore: game.awayScore ?? null, status: game.status,
-    inning: game.inning ?? 1, half: game.half ?? 'top', balls: game.balls ?? 0, strikes: game.strikes ?? 0, outs: game.outs ?? 0, bases: baseOccupancy(game.bases) };
+    inning: game.inning ?? 1, half: game.half ?? 'top', balls: game.balls ?? 0, strikes: game.strikes ?? 0, outs: game.outs ?? 0, bases: baseOccupancy(game.bases), lineScore: game.lineScore ?? {}, scoreCarry: game.scoreCarry ?? null, lineScoreInning: game.lineScoreInning ?? null };
 }
 
 export function correctionReason(status, reason = '') {
@@ -29,6 +29,7 @@ export function openScoreHistory(game, entries) {
     const time = entry.recordedAt?.toDate?.().toLocaleString() || '';
     item.textContent = `#${entry.revision} ${time}: ${entry.before.homeScore ?? 0}-${entry.before.awayScore ?? 0} to ${entry.after.homeScore ?? 0}-${entry.after.awayScore ?? 0} (${entry.after.status}, ${entry.after.half} ${entry.after.inning})${entry.reason ? '. ' + entry.reason : ''}`;
     if (entry.after.bases) item.append(document.createTextNode(`. Runners: ${baseLabel(entry.after.bases)}`));
+    if (entry.after.lineScoreInning) item.append(document.createTextNode(`. Inning entry: ${entry.after.lineScoreInning}`));
     list.append(item);
   }
   const empty = document.createElement('p'); empty.textContent = 'No recorded score history. Older results may predate score tracking.';

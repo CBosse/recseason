@@ -197,8 +197,13 @@ expire after six days (the rules cap is seven). Invitations are not automaticall
 emailed; admins share the displayed link. Test invitations in the local emulators
 before sending real invitations.
 
-Production admin and captain acceptance testing; per-inning linescores, runner tracking
-and play logs; reminders;
+Per-inning scoring now derives totals from saved inning entries. Earlier innings can
+be corrected without rewinding the current inning; finalized-game corrections require
+an organizer and a reason. Legacy totals stay visible as unallocated runs and cannot
+yet be reassigned to innings. Manual base occupancy and immutable score history are
+implemented; automatic runner advancement and a replayable play-by-play log are not.
+
+Production admin and captain acceptance testing; replayable play logs; automatic reminders;
 backup and restoration; larger schedule publication; browser acceptance tests;
 and production configuration/verification remain outstanding. The test suite
 covers domain logic, subscription handling, emulator authorization, and authenticated

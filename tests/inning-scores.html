@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inning score verification</title>
+<link rel="stylesheet" href="../style.css?innings-1">
+<button id="open">Record inning</button>
+<output id="result"></output>
+<script type="module">
+import { openInningEditor, inningScoreUpdate } from '../inning-scores.mjs';
+let game = { status: 'live', homeName: 'Riverside', awayName: 'Northside', homeScore: 2, awayScore: 1 };
+document.getElementById('open').onclick = () => openInningEditor(game, async values => {
+  game = { ...game, ...inningScoreUpdate(game, values, game.scoreRevision ?? 0) };
+  document.getElementById('result').textContent = `Total ${game.homeScore}-${game.awayScore}; revision ${game.scoreRevision}`;
+});
+</script>
+</html>

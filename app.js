@@ -27,6 +27,7 @@ import { gameRsvpSummary } from './rsvp-summary.mjs';
 import { rosterRevision, nextRosterRevision } from './roster-version.mjs';
 import { scoreHistoryEntry, openScoreHistory, correctionReason as validateCorrectionReason } from './score-history.mjs';
 import { baseLabel } from './base-occupancy.mjs';
+import { inningScoreUpdate, openInningEditor } from './inning-scores.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -124,6 +125,7 @@ let _connectTimeout   = null;
 let authGeneration = 0;
 
 function clearSessionData() {
+  document.getElementById('inning-editor-dialog')?.remove();
   document.getElementById('score-history-dialog')?.remove();
   document.getElementById('invitation-dialog')?.remove();
   document.getElementById('field-editor-dialog')?.remove();
@@ -1111,6 +1113,7 @@ async function cancelGame(game) {
 
 function showInlineScoreEdit(li, game) {
   if (!canEdit()) return;
+  if (game.lineScore) { editInning(game); return; }
   const matchupSpan = li.querySelector('.game-matchup');
   const scoreNode   = matchupSpan.querySelector('.score-display, .score-vs');
   const actionsSpan = li.querySelector('.game-actions');
@@ -1438,8 +1441,26 @@ function renderScorekeeperView() {
     };
     row.append(title, status);
     if (game.status !== 'completed') row.append(button);
+    const inning = document.createElement('button'); inning.className = 'btn btn-ghost btn-sm'; inning.textContent = 'Record inning';
+    inning.onclick = () => editInning(game);
+    if (game.status !== 'completed' || canEdit()) row.append(inning);
     row.append(history); container.append(row);
   }
+}
+
+function editInning(game) {
+  if (!canScore(currentUser, game) || (game.status === 'completed' && !canEdit())) return;
+  const uid = currentUser.uid;
+  openInningEditor(game, values => runTransaction(db, async transaction => {
+    const ref = doc(db, 'games', game.id);
+    const current = await transaction.get(ref);
+    if (currentUser?.uid !== uid || !current.exists() || !canScore(currentUser, current.data()) || (current.data().status === 'completed' && !canEdit())) throw new Error('Your scoring access changed.');
+    const patch = { ...inningScoreUpdate(current.data(), values, game.scoreRevision ?? 0), scoredBy: uid };
+    // Populate counters for a scorekeeper's first inning-only score update.
+    for (const [key, value] of Object.entries({ half: 'top', balls: 0, strikes: 0, outs: 0 })) patch[key] = current.data()[key] ?? value;
+    transaction.update(ref, patch);
+    transaction.set(doc(db, 'scoreEvents', `${game.id}_${patch.scoreRevision}`), { ...scoreHistoryEntry(game.id, current.data(), patch, uid, values.reason), recordedAt: serverTimestamp() });
+  }));
 }
 
 function renderLeagueView() {

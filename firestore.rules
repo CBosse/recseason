@@ -136,7 +136,23 @@ service cloud.firestore {
     function scoreState(d) {
       return {'homeScore': d.get('homeScore', null), 'awayScore': d.get('awayScore', null), 'status': d.status,
         'inning': d.get('inning', 1), 'half': d.get('half', 'top'), 'balls': d.get('balls', 0), 'strikes': d.get('strikes', 0), 'outs': d.get('outs', 0),
-        'bases': d.get('bases', {'first': false, 'second': false, 'third': false})};
+        'bases': d.get('bases', {'first': false, 'second': false, 'third': false}), 'lineScore': d.get('lineScore', {}), 'scoreCarry': d.get('scoreCarry', null), 'lineScoreInning': d.get('lineScoreInning', null)};
+    }
+    function scoreNumber(d, key) { return d.get(key, null) == null ? 0 : d[key]; }
+    function validInningChange(before, after) {
+      let old = before.get('lineScore', {});
+      let key = string(after.get('lineScoreInning', 1));
+      let previous = old.get(key, {'home': 0, 'away': 0});
+      let cell = after.lineScore.get(key, {'home': 0, 'away': 0});
+      return after.lineScore is map && after.scoreCarry == before.get('scoreCarry', {'home': scoreNumber(before, 'homeScore'), 'away': scoreNumber(before, 'awayScore')}) &&
+        after.lineScore.diff(old).affectedKeys().hasOnly([key]) && cell.keys().hasOnly(['home', 'away']) &&
+        cell.home is int && cell.home >= 0 && cell.away is int && cell.away >= 0 &&
+        after.lineScoreInning is int && after.lineScoreInning >= 1 && after.lineScoreInning <= 99 &&
+        after.homeScore == scoreNumber(before, 'homeScore') + cell.home - previous.home &&
+        after.awayScore == scoreNumber(before, 'awayScore') + cell.away - previous.away;
+    }
+    function validLineScore(before, after) {
+      return (!before.keys().hasAny(['lineScore', 'scoreCarry', 'lineScoreInning']) && !after.keys().hasAny(['lineScore', 'scoreCarry', 'lineScoreInning'])) || validInningChange(before, after);
     }
     function validScoreEvent(event, before, after) {
       return event.keys().hasOnly(['gameId', 'revision', 'before', 'after', 'scoredBy', 'reason', 'recordedAt']) &&
@@ -147,10 +163,10 @@ service cloud.firestore {
     }
     function hasScoreEvent(id) {
       let event = getAfter(/databases/$(database)/documents/scoreEvents/$(id + '_' + string(request.resource.data.scoreRevision))).data;
-      return validScore(request.resource.data) && event.gameId == id && validScoreEvent(event, resource.data, request.resource.data);
+      return validScore(request.resource.data) && validLineScore(resource.data, request.resource.data) && event.gameId == id && validScoreEvent(event, resource.data, request.resource.data);
     }
     function scoringChanged() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasAny(['homeScore', 'awayScore', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'scoreRevision', 'scoredBy']) ||
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny(['homeScore', 'awayScore', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'lineScore', 'scoreCarry', 'lineScoreInning', 'scoreRevision', 'scoredBy']) ||
         (request.resource.data.status != resource.data.status && request.resource.data.status in ['live', 'completed']);
     }
     match /scoreEvents/{id} {
@@ -165,9 +181,9 @@ service cloud.firestore {
     match /games/{id} {
       allow read: if true;
       allow create, delete: if organizer() && scheduleAdvanced();
-      allow update: if (organizer() && (scheduleAdvanced() || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'scoreRevision', 'scoredBy'])) && (!scoringChanged() || hasScoreEvent(id))) || (signedIn() && profile().role == 'scorekeeper' && resource.data.scorekeeperId == request.auth.uid && hasScoreEvent(id) &&
+      allow update: if (organizer() && (scheduleAdvanced() || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'lineScore', 'scoreCarry', 'lineScoreInning', 'scoreRevision', 'scoredBy'])) && (!scoringChanged() || hasScoreEvent(id))) || (signedIn() && profile().role == 'scorekeeper' && resource.data.scorekeeperId == request.auth.uid && hasScoreEvent(id) &&
         resource.data.status in ['scheduled', 'live'] && request.resource.data.status in ['live', 'completed'] &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'scoreRevision', 'scoredBy']) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'lineScore', 'scoreCarry', 'lineScoreInning', 'scoreRevision', 'scoredBy']) &&
         validScore(request.resource.data) && request.resource.data.scoredBy == request.auth.uid &&
         request.resource.data.scoreRevision == resource.data.get('scoreRevision', 0) + 1 &&
         request.resource.data.inning is int && request.resource.data.inning >= 1 && request.resource.data.inning <= 99 &&
