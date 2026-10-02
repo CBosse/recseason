@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { scoreHistoryEntry } from '../score-history.mjs';
+import { scoreHistoryEntry, correctionReason } from '../score-history.mjs';
 import { createBackup, validateBackup } from '../scripts/backup-format.mjs';
 test('score history preserves before and after state and requires the next revision', () => {
   const before = { status: 'scheduled', homeScore: null, awayScore: null };
@@ -12,6 +12,8 @@ test('score history preserves before and after state and requires the next revis
   assert.throws(() => scoreHistoryEntry('game', before, { ...patch, scoreRevision: 2 }, 'scorer'), /changed/);
 });
 test('final-result corrections require a bounded nonblank reason', () => {
+  assert.throws(() => correctionReason('completed', ' '), /reason/);
+  assert.equal(correctionReason('scheduled', ''), '');
   const before = { status: 'completed', scoreRevision: 2 };
   const patch = { scoreRevision: 3, homeScore: 2, awayScore: 1 };
   for (const reason of ['', '  ', 'x'.repeat(301)]) assert.throws(() => scoreHistoryEntry('g', before, patch, 'admin', reason), /reason/);

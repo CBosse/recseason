@@ -25,7 +25,7 @@ import { rosterPresentation } from './roster-scope.mjs';
 import { profileSession } from './profile-session.mjs';
 import { gameRsvpSummary } from './rsvp-summary.mjs';
 import { rosterRevision, nextRosterRevision } from './roster-version.mjs';
-import { scoreHistoryEntry, openScoreHistory } from './score-history.mjs';
+import { scoreHistoryEntry, openScoreHistory, correctionReason as validateCorrectionReason } from './score-history.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -1131,7 +1131,10 @@ function showInlineScoreEdit(li, game) {
   actionsSpan.querySelector('.save-score-btn').addEventListener('click', async event => {
     if (!canEdit()) return;
     let updates;
-    try { updates = scoreUpdate(homeInput.value, awayInput.value); }
+    try {
+      updates = scoreUpdate(homeInput.value, awayInput.value);
+      validateCorrectionReason(game.status, correctionReason.value);
+    }
     catch (err) { showBanner(err.message, 'error'); return; }
     const button = event.currentTarget;
     button.disabled = true;

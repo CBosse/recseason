@@ -3,11 +3,16 @@ export function scoreState(game) {
     inning: game.inning ?? 1, half: game.half ?? 'top', balls: game.balls ?? 0, strikes: game.strikes ?? 0, outs: game.outs ?? 0 };
 }
 
+export function correctionReason(status, reason = '') {
+  const text = String(reason).trim();
+  if (text.length > 300 || (status === 'completed' && !text)) throw new Error('Enter a correction reason (up to 300 characters).');
+  return text;
+}
+
 export function scoreHistoryEntry(gameId, before, patch, uid, reason = '') {
   if (!uid || !before || !gameId) throw new Error('Score history requires a game and scorer.');
   if (!Number.isSafeInteger(patch.scoreRevision) || patch.scoreRevision !== (before.scoreRevision ?? 0) + 1) throw new Error('The score changed. Reopen the editor.');
-  reason = String(reason).trim();
-  if (reason.length > 300 || (before.status === 'completed' && !reason)) throw new Error('Enter a correction reason (up to 300 characters).');
+  reason = correctionReason(before.status, reason);
   return { gameId, revision: patch.scoreRevision, before: scoreState(before), after: scoreState({ ...before, ...patch }), scoredBy: uid, reason };
 }
 

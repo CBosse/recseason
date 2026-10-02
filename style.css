@@ -175,34 +175,40 @@ body {
 
 .topbar {
   display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
   align-items: flex-end;
   justify-content: space-between;
   padding: 20px 28px 18px;
   flex-shrink: 0;
 }
+.topbar-title { min-width: 0; flex: 1 1 180px; }
 
 .topbar-subtitle {
   font-family: "Geist Mono", monospace;
   font-size: 11px;
   color: #6e6f6a;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   margin-bottom: 2px;
 }
 
 .topbar-heading {
   font-size: 28px;
   font-weight: 700;
-  letter-spacing: -0.025em;
+  letter-spacing: 0;
   color: #161816;
   margin: 0;
 }
 
 .topbar-actions {
   display: flex;
+  flex-wrap: wrap;
+  max-width: 100%;
   align-items: center;
   gap: 8px;
 }
+.topbar-actions button { max-width: 100%; white-space: normal; }
 
 /* ── Cards ────────────────────────────────────────────────────────────────── */
 
