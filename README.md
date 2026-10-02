@@ -202,6 +202,10 @@ be corrected without rewinding the current inning; finalized-game corrections re
 an organizer and a reason. Legacy totals stay visible as unallocated runs and cannot
 yet be reassigned to innings. Manual base occupancy and immutable score history are
 implemented; automatic runner advancement and a replayable play-by-play log are not.
+Score history now supports chronological recorded-state replay with previous/next
+controls and a revision slider. Corrections remain separate events. Missing revisions,
+state discontinuities, and disagreement with the displayed game produce visible warnings.
+This replays saved score snapshots, not individual pitches or plays that were never entered.
 
 Production admin and captain acceptance testing; replayable play logs; automatic reminders;
 backup and restoration; larger schedule publication; browser acceptance tests;

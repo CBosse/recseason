@@ -1,9 +1,7 @@
-import { baseOccupancy, baseLabel } from './base-occupancy.mjs';
-
-export function scoreState(game) {
-  return { homeScore: game.homeScore ?? null, awayScore: game.awayScore ?? null, status: game.status,
-    inning: game.inning ?? 1, half: game.half ?? 'top', balls: game.balls ?? 0, strikes: game.strikes ?? 0, outs: game.outs ?? 0, bases: baseOccupancy(game.bases), lineScore: game.lineScore ?? {}, scoreCarry: game.scoreCarry ?? null, lineScoreInning: game.lineScoreInning ?? null };
-}
+import { baseLabel } from './base-occupancy.mjs';
+import { scoreReplay } from './score-replay.mjs';
+import { scoreState } from './score-state.mjs';
+export { scoreState } from './score-state.mjs';
 
 export function correctionReason(status, reason = '') {
   const text = String(reason).trim();
@@ -23,6 +21,28 @@ export function openScoreHistory(game, entries) {
   const dialog = document.createElement('dialog'); dialog.id = 'score-history-dialog'; dialog.className = 'game-editor-dialog';
   dialog.setAttribute('aria-labelledby', 'score-history-title');
   const title = document.createElement('h2'); title.id = 'score-history-title'; title.textContent = `${game.homeName} vs ${game.awayName}: score history`;
+  const replay = scoreReplay(game, entries);
+  const playback = document.createElement('section'); playback.className = 'score-replay';
+  if (replay.frames.length) {
+    const label = document.createElement('label'); label.textContent = 'Recorded state';
+    const slider = document.createElement('input'); slider.type = 'range'; slider.min = '0'; slider.max = String(replay.frames.length - 1); slider.step = '1'; slider.value = slider.max;
+    label.append(slider);
+    const state = document.createElement('p'); state.setAttribute('role', 'status'); state.className = 'score-replay-state';
+    const reason = document.createElement('p');
+    const previous = document.createElement('button'); previous.type = 'button'; previous.textContent = 'Previous'; previous.className = 'btn btn-ghost';
+    const next = document.createElement('button'); next.type = 'button'; next.textContent = 'Next'; next.className = 'btn btn-ghost';
+    const controls = document.createElement('div'); controls.className = 'game-editor-actions'; controls.append(previous, next);
+    const render = () => {
+      const frame = replay.frames[Number(slider.value)]; const s = frame.state;
+      state.textContent = `${frame.baseline ? 'Starting snapshot' : '#' + frame.revision}: ${s.homeScore ?? 0}-${s.awayScore ?? 0}, ${s.status}, ${s.half} ${s.inning}. Balls ${s.balls}, strikes ${s.strikes}, outs ${s.outs}. Runners: ${baseLabel(s.bases)}.`;
+      reason.textContent = frame.reason;
+      previous.disabled = slider.value === '0'; next.disabled = slider.value === slider.max;
+    };
+    previous.onclick = () => { slider.value = String(Number(slider.value) - 1); render(); };
+    next.onclick = () => { slider.value = String(Number(slider.value) + 1); render(); };
+    slider.oninput = render; render(); playback.append(label, state, reason, controls);
+  }
+  for (const warning of replay.warnings) { const note = document.createElement('p'); note.setAttribute('role', 'alert'); note.textContent = warning; playback.append(note); }
   const list = document.createElement('ol'); list.className = 'score-history-list';
   for (const entry of [...entries].sort((a, b) => b.revision - a.revision)) {
     const item = document.createElement('li');
@@ -34,6 +54,6 @@ export function openScoreHistory(game, entries) {
   }
   const empty = document.createElement('p'); empty.textContent = 'No recorded score history. Older results may predate score tracking.';
   const close = document.createElement('button'); close.className = 'btn btn-primary'; close.textContent = 'Close'; close.onclick = () => dialog.close();
-  dialog.append(title, entries.length ? list : empty, close);
+  dialog.append(title, playback, entries.length ? list : empty, close);
   dialog.addEventListener('close', () => dialog.remove(), { once: true }); document.body.append(dialog); dialog.showModal();
 }
