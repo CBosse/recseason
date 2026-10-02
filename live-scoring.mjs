@@ -1,4 +1,5 @@
 import { parseScore } from './results.mjs';
+import { baseOccupancy } from './base-occupancy.mjs';
 
 export function canScore(user, game) {
   return Boolean(user?.uid && game && (['siteAdmin', 'commissioner', 'leagueManager'].includes(user.role) ||
@@ -17,7 +18,7 @@ export function liveScoreUpdate(game, values, user, expectedRevision) {
     updates[name] = number;
   }
   if (!['top', 'bottom'].includes(values.half)) throw new Error('Choose top or bottom of the inning.');
-  return { ...updates, half: values.half, scoreRevision: expectedRevision + 1, scoredBy: user.uid };
+  return { ...updates, half: values.half, bases: baseOccupancy(values.bases === undefined ? game.bases : values.bases), scoreRevision: expectedRevision + 1, scoredBy: user.uid };
 }
 
 export function openScoreEditor(game, save) {
@@ -49,14 +50,24 @@ export function openScoreEditor(game, save) {
     options.forEach(([id, title]) => input.add(new Option(title, id)));
     input.value = value; label.append(input); grid.append(label); controls[name] = input;
   }
+  const runners = document.createElement('fieldset'); runners.className = 'base-occupancy';
+  const legend = document.createElement('legend'); legend.textContent = 'Runners on base'; runners.append(legend);
+  const bases = baseOccupancy(game.bases);
+  const baseControls = {};
+  for (const [key, title] of [['first', 'First base'], ['second', 'Second base'], ['third', 'Third base']]) {
+    const label = document.createElement('label');
+    const input = document.createElement('input'); input.type = 'checkbox'; input.checked = bases[key];
+    baseControls[key] = input; label.append(input, document.createTextNode(title)); runners.append(label);
+  }
   const error = document.createElement('p'); error.setAttribute('role', 'alert');
   const actions = document.createElement('div'); actions.className = 'game-editor-actions';
   const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'btn btn-ghost'; cancel.textContent = 'Cancel'; cancel.onclick = () => dialog.close();
   const submit = document.createElement('button'); submit.className = 'btn btn-primary'; submit.textContent = 'Save score';
-  actions.append(cancel, submit); form.append(heading, grid, error, actions);
+  actions.append(cancel, submit); form.append(heading, grid, runners, error, actions);
   form.onsubmit = async event => {
     event.preventDefault(); error.textContent = '';
     const values = Object.fromEntries(Object.entries(controls).map(([name, input]) => [name, input.value]));
+    values.bases = Object.fromEntries(Object.entries(baseControls).map(([key, input]) => [key, input.checked]));
     if (values.status === 'completed' && !confirm('Finalize this result? It will count in the standings.')) return;
     submit.disabled = true;
     try { await save(values); dialog.close(); }

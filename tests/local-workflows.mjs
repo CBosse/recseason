@@ -119,7 +119,7 @@ try {
   assert.equal((await getDoc(attendanceRef)).data().status, 'present');
   console.log('PASS: captain reads contact-free team roster and persists attendance.');
   await assert.rejects(setDoc(doc(scorer.db, 'games', 'unassigned'), { status: 'scheduled' }), error => error.code === 'permission-denied');
-  const score = { homeScore: 3, awayScore: 1, inning: 7, half: 'bottom', balls: 0, strikes: 0, outs: 2 };
+  const score = { homeScore: 3, awayScore: 1, inning: 7, half: 'bottom', balls: 0, strikes: 0, outs: 2, bases: { first: true, second: false, third: true } };
   for (const [revision, status] of [[0, 'live'], [1, 'completed']]) {
     await runTransaction(scorer.db, async tx => {
       const ref = doc(scorer.db, 'games', 'demo-game');
@@ -132,6 +132,7 @@ try {
   const games = (await getDocs(collection(admin.db, 'games'))).docs.map(d => ({ id: d.id, ...d.data() }));
   const teams = (await getDocs(collection(admin.db, 'teams'))).docs.map(d => ({ id: d.id, ...d.data() }));
   assert.equal(games.find(game => game.id === 'demo-game').status, 'completed');
+  assert.deepEqual(games.find(game => game.id === 'demo-game').bases, score.bases);
   assert.equal((await getDocs(query(collection(scorer.db, 'scoreEvents'), where('gameId', '==', 'demo-game')))).size, 2);
   const table = standings(teams, games);
   assert.equal(table.find(row => row.name === 'Riverside').Pts, 3);

@@ -421,6 +421,10 @@ body {
 .correction-reason { width: 220px; max-width: 100%; min-width: 0; padding: 8px; font: inherit; }
 .score-history-list { padding-left: 24px; overflow-wrap: anywhere; }
 .score-history-list li { margin-bottom: 16px; }
+.base-occupancy { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-top: 20px; padding: 12px; border: 1px solid #bbb; }
+.base-occupancy legend { font-weight: 600; padding: 0 4px; }
+.base-occupancy label { display: flex; align-items: center; gap: 8px; }
+.base-occupancy input { width: 18px; height: 18px; margin: 0; }
 
 /* ── RSVP Bar ─────────────────────────────────────────────────────────────── */
 

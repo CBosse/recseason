@@ -26,6 +26,7 @@ import { profileSession } from './profile-session.mjs';
 import { gameRsvpSummary } from './rsvp-summary.mjs';
 import { rosterRevision, nextRosterRevision } from './roster-version.mjs';
 import { scoreHistoryEntry, openScoreHistory, correctionReason as validateCorrectionReason } from './score-history.mjs';
+import { baseLabel } from './base-occupancy.mjs';
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import {
@@ -1412,6 +1413,7 @@ function renderScorekeeperView() {
     title.textContent = `${game.date} ${formatTime(game.time)} | ${game.fieldName} | ${game.homeName} ${game.homeScore ?? 0} - ${game.awayScore ?? 0} ${game.awayName}`;
     const status = document.createElement('span');
     status.textContent = game.status === 'live' ? `Live: ${game.half || 'top'} ${game.inning || 1}, ${game.balls || 0} balls, ${game.strikes || 0} strikes, ${game.outs || 0} outs` : game.status === 'completed' ? 'Final' : 'Scheduled';
+    if (game.status === 'live') status.textContent += ` · Runners: ${baseLabel(game.bases)}`;
     const button = document.createElement('button'); button.className = 'btn btn-primary btn-sm'; button.textContent = 'Record score';
     button.onclick = () => {
       const uid = currentUser?.uid;

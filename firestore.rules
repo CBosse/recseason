@@ -122,8 +122,9 @@ service cloud.firestore {
     }
     function validScore(d) {
       return d.homeScore is int && d.homeScore >= 0 && d.homeScore <= 9007199254740991 &&
-        d.awayScore is int && d.awayScore >= 0 && d.awayScore <= 9007199254740991;
+        d.awayScore is int && d.awayScore >= 0 && d.awayScore <= 9007199254740991 && validBases(d.get('bases', {'first': false, 'second': false, 'third': false}));
     }
+    function validBases(b) { return b is map && b.keys().hasOnly(['first', 'second', 'third']) && b.first is bool && b.second is bool && b.third is bool; }
     function scheduleAdvanced() {
       let path = /databases/$(database)/documents/config/scheduleRevision;
       return getAfter(path).data.revision == (exists(path) ? get(path).data.revision + 1 : 1) && getAfter(path).data.updatedBy == request.auth.uid;
@@ -134,7 +135,8 @@ service cloud.firestore {
     }
     function scoreState(d) {
       return {'homeScore': d.get('homeScore', null), 'awayScore': d.get('awayScore', null), 'status': d.status,
-        'inning': d.get('inning', 1), 'half': d.get('half', 'top'), 'balls': d.get('balls', 0), 'strikes': d.get('strikes', 0), 'outs': d.get('outs', 0)};
+        'inning': d.get('inning', 1), 'half': d.get('half', 'top'), 'balls': d.get('balls', 0), 'strikes': d.get('strikes', 0), 'outs': d.get('outs', 0),
+        'bases': d.get('bases', {'first': false, 'second': false, 'third': false})};
     }
     function validScoreEvent(event, before, after) {
       return event.keys().hasOnly(['gameId', 'revision', 'before', 'after', 'scoredBy', 'reason', 'recordedAt']) &&
@@ -148,7 +150,7 @@ service cloud.firestore {
       return validScore(request.resource.data) && event.gameId == id && validScoreEvent(event, resource.data, request.resource.data);
     }
     function scoringChanged() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasAny(['homeScore', 'awayScore', 'inning', 'half', 'balls', 'strikes', 'outs', 'scoreRevision', 'scoredBy']) ||
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny(['homeScore', 'awayScore', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'scoreRevision', 'scoredBy']) ||
         (request.resource.data.status != resource.data.status && request.resource.data.status in ['live', 'completed']);
     }
     match /scoreEvents/{id} {
@@ -163,9 +165,9 @@ service cloud.firestore {
     match /games/{id} {
       allow read: if true;
       allow create, delete: if organizer() && scheduleAdvanced();
-      allow update: if (organizer() && (scheduleAdvanced() || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'scoreRevision', 'scoredBy'])) && (!scoringChanged() || hasScoreEvent(id))) || (signedIn() && profile().role == 'scorekeeper' && resource.data.scorekeeperId == request.auth.uid && hasScoreEvent(id) &&
+      allow update: if (organizer() && (scheduleAdvanced() || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'scoreRevision', 'scoredBy'])) && (!scoringChanged() || hasScoreEvent(id))) || (signedIn() && profile().role == 'scorekeeper' && resource.data.scorekeeperId == request.auth.uid && hasScoreEvent(id) &&
         resource.data.status in ['scheduled', 'live'] && request.resource.data.status in ['live', 'completed'] &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'scoreRevision', 'scoredBy']) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'scoreRevision', 'scoredBy']) &&
         validScore(request.resource.data) && request.resource.data.scoredBy == request.auth.uid &&
         request.resource.data.scoreRevision == resource.data.get('scoreRevision', 0) + 1 &&
         request.resource.data.inning is int && request.resource.data.inning >= 1 && request.resource.data.inning <= 99 &&

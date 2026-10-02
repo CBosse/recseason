@@ -261,6 +261,13 @@ test('scorekeeper can update only assigned game score fields with next revision'
     return batch.commit();
   };
   await assertSucceeds(save('scorer', patch));
+  const malformed = { first: 'occupied', second: false, third: false };
+  const scorerDb = dbFor('scorer');
+  const bad = writeBatch(scorerDb);
+  bad.update(doc(scorerDb, 'games', 'g'), { ...patch, bases: malformed, scoreRevision: 2 });
+  const validEntry = scoreHistoryEntry('g', { ...game, ...patch }, { ...patch, scoreRevision: 2 }, 'scorer');
+  bad.set(doc(scorerDb, 'scoreEvents', 'g_2'), { ...validEntry, after: { ...validEntry.after, bases: malformed }, recordedAt: serverTimestamp() });
+  await assertFails(bad.commit());
   await assertFails(updateDoc(doc(dbFor('scorer'), 'games', 'g'), patch));
   await assertSucceeds(save('scorer', { ...patch, scoreRevision: 2, status: 'completed' }));
   await assertFails(updateDoc(doc(dbFor('scorer'), 'games', 'g'), { ...patch, scoreRevision: 3 }));

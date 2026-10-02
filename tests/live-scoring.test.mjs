@@ -11,7 +11,7 @@ test('only assigned scorers and league organizers can score', () => {
 });
 test('live scores preserve scheduling metadata and increment revision', () => {
   const patch = liveScoreUpdate(game, values, user, 0);
-  assert.deepEqual(patch, { homeScore: 3, awayScore: 0, status: 'live', inning: 2, balls: 0, strikes: 1, outs: 2, half: 'bottom', scoreRevision: 1, scoredBy: 'scorer' });
+  assert.deepEqual(patch, { homeScore: 3, awayScore: 0, status: 'live', inning: 2, balls: 0, strikes: 1, outs: 2, half: 'bottom', bases: { first: false, second: false, third: false }, scoreRevision: 1, scoredBy: 'scorer' });
   assert.equal(liveScoreUpdate({ ...game, status: 'live' }, { ...values, status: 'completed' }, user, 0).status, 'completed');
 });
 test('closed games, assignment changes and stale revisions reject writes', () => {
