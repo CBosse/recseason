@@ -16,6 +16,7 @@ import { standings } from '../results.mjs';
 import { rsvpSchedule } from '../rsvps.mjs';
 import { attendanceUpdate } from '../attendance.mjs';
 import { scheduleRevision, nextScheduleRevision } from '../schedule-version.mjs';
+import { gamesConflict } from '../scheduling.mjs';
 
 const apps = [];
 async function session(role) {
@@ -245,6 +246,41 @@ try {
   assert.deepEqual((await getDoc(doc(admin.db, 'teamRoster', 'child'))).data(), rosterEntry(archivedPlayer));
   assert.equal(archivedPlayer.teamId, archiveOriginal.teamId);
   console.log('PASS: concurrent archive confirmations admit one writer and preserve the matching roster projection.');
+  const seasonTeams = Array.from({ length: 12 }, (_, i) => ({ id: `capacity-team-${i}`, name: `Capacity team ${i + 1}` }));
+  for (const team of seasonTeams) await setDoc(doc(admin.db, 'teams', team.id), { name: team.name });
+  const seasonGames = [];
+  for (let home = 0; home < seasonTeams.length; home++) {
+    for (let away = home + 1; away < seasonTeams.length; away++) {
+      const date = new Date(`${baseGame.date}T12:00:00Z`);
+      date.setUTCDate(date.getUTCDate() + Math.floor(seasonGames.length / 3));
+      seasonGames.push({ ...baseGame, date: date.toISOString().slice(0, 10), time: ['09:00', '12:00', '15:00'][seasonGames.length % 3],
+        homeTeamId: seasonTeams[home].id, homeName: seasonTeams[home].name,
+        awayTeamId: seasonTeams[away].id, awayName: seasonTeams[away].name });
+    }
+  }
+  assert.equal(seasonGames.length, 66);
+  for (let i = 0; i < seasonGames.length; i++) {
+    for (let j = i + 1; j < seasonGames.length; j++) assert.equal(gamesConflict(seasonGames[i], seasonGames[j], 90, 20), false);
+  }
+  const capacityRevision = scheduleRevision((await getDoc(revisionRef)).data());
+  const publishSeason = (prefix, games) => runTransaction(admin.db, async tx => {
+    const current = await tx.get(revisionRef);
+    const next = nextScheduleRevision(current.data(), capacityRevision, admin.user.uid);
+    for (const team of seasonTeams) await tx.get(doc(admin.db, 'teams', team.id));
+    await tx.get(doc(admin.db, 'fields', baseGame.fieldId));
+    await tx.get(doc(admin.db, 'config', 'schedule'));
+    tx.set(revisionRef, next);
+    games.forEach((game, i) => tx.set(doc(admin.db, 'games', `${prefix}-${i}`), game));
+  });
+  await assert.rejects(publishSeason('capacity-rejected', seasonGames.map((game, i) => i === 65 ? { ...game, fieldId: 'missing-field' } : game)), error => error.code === 'permission-denied');
+  assert.equal(scheduleRevision((await getDoc(revisionRef)).data()), capacityRevision);
+  assert.equal((await getDocs(collection(admin.db, 'games'))).docs.filter(d => d.id.startsWith('capacity-rejected-')).length, 0);
+  await publishSeason('capacity-published', seasonGames);
+  const publishedSeason = (await getDocs(collection(admin.db, 'games'))).docs.filter(d => d.id.startsWith('capacity-published-'));
+  assert.equal(publishedSeason.length, 66);
+  assert.equal(scheduleRevision((await getDoc(revisionRef)).data()), capacityRevision + 1);
+  for (const game of publishedSeason) assert.deepEqual(game.data(), seasonGames[Number(game.id.split('-').at(-1))]);
+  console.log('PASS: a 12-team, 66-game publication commits atomically; an invalid reference rolls back every game and the revision.');
 } finally {
   await Promise.all(apps.map(deleteApp));
 }
