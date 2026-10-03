@@ -228,7 +228,7 @@ test('fields and season settings require the shared schedule revision', async ()
   await assertFails(setDoc(doc(db, 'fields', 'main'), { name: 'Main' }));
   await assertFails(setDoc(doc(db, 'config', 'schedule'), { gameDuration: 90 }));
   const fields = writeBatch(db);
-  fields.set(doc(db, 'fields', 'main'), { name: 'Main' });
+  fields.set(doc(db, 'fields', 'main'), { name: 'Main', availableDays: [0, 6], openTime: '08:00', closeTime: '22:00', hasLights: true, zipCode: '' });
   fields.set(doc(db, 'config', 'scheduleRevision'), { revision: 3, updatedBy: 'admin' });
   await assertSucceeds(fields.commit());
   const stale = writeBatch(db);
@@ -239,6 +239,22 @@ test('fields and season settings require the shared schedule revision', async ()
   fresh.set(doc(db, 'config', 'schedule'), { gameDuration: 90 });
   fresh.set(doc(db, 'config', 'scheduleRevision'), { revision: 4, updatedBy: 'admin' });
   await assertSucceeds(fresh.commit());
+});
+
+test('organizer field writes reject malformed scheduling data even with a valid revision', async () => {
+  const db = dbFor('admin');
+  const valid = { name: 'Validated', availableDays: [0, 6], openTime: '08:00', closeTime: '22:00', hasLights: false, zipCode: '02108' };
+  const revision = (await getDoc(doc(db, 'config', 'scheduleRevision'))).data().revision;
+  for (const patch of [{ name: ' ' }, { extra: true }, { openTime: '24:00' }, { closeTime: '07:00' }, { availableDays: [] }, { availableDays: [7] }, { availableDays: ['0'] }, { availableDays: [0, 0] }, { hasLights: 'yes' }, { zipCode: '' }, { zipCode: '1234' }]) {
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'fields', 'validated'), { ...valid, ...patch });
+    batch.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
+    await assertFails(batch.commit());
+  }
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'fields', 'validated'), valid);
+  batch.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
+  await assertSucceeds(batch.commit());
 });
 
 test('admin can assign links while other roles cannot; unknown collections deny access', async () => {

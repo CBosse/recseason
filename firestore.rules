@@ -84,7 +84,17 @@ service cloud.firestore {
     }
     match /fields/{id} {
       allow read: if true;
-      allow write: if organizer() && scheduleAdvanced();
+      allow create, update: if organizer() && scheduleAdvanced() && validField(request.resource.data);
+      allow delete: if organizer() && scheduleAdvanced();
+    }
+    function validField(d) {
+      return d.keys().hasOnly(['name', 'availableDays', 'openTime', 'closeTime', 'hasLights', 'zipCode']) &&
+        validName(d.name) && d.openTime is string && d.closeTime is string &&
+        d.openTime.matches('([01][0-9]|2[0-3]):[0-5][0-9]') && d.closeTime.matches('([01][0-9]|2[0-3]):[0-5][0-9]') && d.openTime < d.closeTime &&
+        d.availableDays is list && d.availableDays.size() > 0 && d.availableDays.size() <= 7 &&
+        d.availableDays.hasOnly([0, 1, 2, 3, 4, 5, 6]) && d.availableDays.toSet().size() == d.availableDays.size() &&
+        d.hasLights is bool && d.zipCode is string &&
+        ((d.hasLights && d.zipCode == '') || d.zipCode.matches('[0-9]{5}'));
     }
     match /config/{id} {
       allow read: if true;

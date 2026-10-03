@@ -86,6 +86,13 @@ const invalidPlayers = players.filter(({ keys, data: d }) =>
   keys.some(k => !['name', 'number', 'phone', 'teamId', 'archived'].includes(k)) || !validName(d.name) ||
   !boundedText(d.number === undefined ? '' : d.number, 10) || !boundedText(d.phone === undefined ? '' : d.phone, 40) ||
   (d.archived !== undefined && typeof d.archived !== 'boolean') || !teamIds.has(d.teamId)).length;
+const validTime = value => typeof value === 'string' && /^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(value);
+const invalidFields = fields.filter(({ keys, data: d }) =>
+  keys.some(k => !['name', 'availableDays', 'openTime', 'closeTime', 'hasLights', 'zipCode'].includes(k)) || !validName(d.name) ||
+  !validTime(d.openTime) || !validTime(d.closeTime) || d.openTime >= d.closeTime ||
+  !Array.isArray(d.availableDays) || !d.availableDays.length || d.availableDays.length > 7 ||
+  new Set(d.availableDays).size !== d.availableDays.length || d.availableDays.some(day => !Number.isInteger(day) || day < 0 || day > 6) ||
+  typeof d.hasLights !== 'boolean' || typeof d.zipCode !== 'string' || !(d.hasLights && d.zipCode === '' || /^[0-9]{5}$/.test(d.zipCode))).length;
 const hash = text => createHash('sha256').update(text.replaceAll('\r\n', '\n').trim()).digest('hex');
 const report = {
   auditedAt: new Date().toISOString(), project, database, ruleset: release.rulesetName,
@@ -98,6 +105,7 @@ const report = {
     profilesIncompatibleWithCandidateRules: invalidProfiles,
     teamsIncompatibleWithCandidateRules: invalidTeams,
     playersIncompatibleWithCandidateRules: invalidPlayers,
+    fieldsIncompatibleWithCandidateRules: invalidFields,
     missingAdmin: users.some(d => d.data.role === 'siteAdmin') ? 0 : 1,
     profilesWithBrokenLinks: users.filter(({ data: d }) =>
       (d.linkedTeamId && !teamIds.has(d.linkedTeamId)) || (d.linkedPlayerId && !playerIds.has(d.linkedPlayerId)) ||

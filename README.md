@@ -197,6 +197,12 @@ operator-approved production restore procedure remain outstanding.
 
 ### Feature gaps
 
+Field creation and updates now enforce the editor's schema at the database boundary:
+bounded nonblank names, valid same-day opening hours, unique valid weekdays, boolean
+lighting, and ZIP codes for unlit fields. Unknown properties are rejected. The production
+preflight checks existing field compatibility. This does not yet prove that privileged
+direct field deletions or hours changes preserve all game references and bookings.
+
 Invitation domain validation and database rules are implemented and
 emulator-tested. Only site admins may issue invitations, never for the site-admin
 role. Acceptance requires a verified matching email and an atomic profile/invite
