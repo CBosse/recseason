@@ -206,7 +206,8 @@ service cloud.firestore {
     }
     match /games/{id} {
       allow read: if true;
-      allow create, delete: if organizer() && scheduleAdvanced();
+      allow create: if organizer() && scheduleAdvanced() && validNewGame(request.resource.data);
+      allow delete: if organizer() && scheduleAdvanced();
       allow update: if (organizer() && (scheduleAdvanced() || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'lineScore', 'scoreCarry', 'lineScoreInning', 'scoreRevision', 'scoredBy'])) && (!scoringChanged() || hasScoreEvent(id))) || (signedIn() && profile().role == 'scorekeeper' && resource.data.scorekeeperId == request.auth.uid && hasScoreEvent(id) &&
         resource.data.status in ['scheduled', 'live'] && request.resource.data.status in ['live', 'completed'] &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'lineScore', 'scoreCarry', 'lineScoreInning', 'scoreRevision', 'scoredBy']) &&
@@ -217,6 +218,19 @@ service cloud.firestore {
         request.resource.data.balls is int && request.resource.data.balls >= 0 && request.resource.data.balls <= 3 &&
         request.resource.data.strikes is int && request.resource.data.strikes >= 0 && request.resource.data.strikes <= 2 &&
         request.resource.data.outs is int && request.resource.data.outs >= 0 && request.resource.data.outs <= 2);
+    }
+    function validNewGame(d) {
+      return d.keys().hasOnly(['date', 'time', 'durationMinutes', 'homeTeamId', 'awayTeamId', 'homeName', 'awayName', 'fieldId', 'fieldName', 'status', 'homeScore', 'awayScore', 'locked', 'umpireId', 'scorekeeperId']) &&
+        d.status == 'scheduled' && d.get('homeScore', null) == null && d.get('awayScore', null) == null &&
+        validSeasonDate(d.date) && d.time is string && d.time.matches('([01][0-9]|2[0-3]):[0-5][0-9]') &&
+        d.durationMinutes is int && d.durationMinutes >= 1 && d.durationMinutes <= 1440 &&
+        d.homeTeamId is string && d.awayTeamId is string && d.homeTeamId != d.awayTeamId && d.fieldId is string &&
+        existsAfter(/databases/$(database)/documents/teams/$(d.homeTeamId)) &&
+        existsAfter(/databases/$(database)/documents/teams/$(d.awayTeamId)) &&
+        existsAfter(/databases/$(database)/documents/fields/$(d.fieldId)) &&
+        validName(d.homeName) && validName(d.awayName) && validName(d.fieldName) && d.get('locked', false) is bool &&
+        (d.get('umpireId', null) == null || boundedText(d.umpireId, 128)) &&
+        (d.get('scorekeeperId', null) == null || boundedText(d.scorekeeperId, 128));
     }
     match /attendance/{id} {
       allow get: if signedIn() && !exists(/databases/$(database)/documents/attendance/$(id));

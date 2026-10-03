@@ -10,7 +10,7 @@ import { rosterEntry } from '../../team-roster.mjs';
 import { scoreHistoryEntry } from '../../score-history.mjs';
 let env;
 const profile = (uid, role, extra = {}) => ({ ...newPlayerProfile({ uid, email: `${uid}@example.test` }, uid), role, ...extra });
-const game = { status: 'scheduled', homeTeamId: 'a', awayTeamId: 'b', scorekeeperId: 'scorer', date: '2026-09-25', time: '18:00', fieldId: 'main' };
+const game = { status: 'scheduled', homeTeamId: 'a', awayTeamId: 'b', homeName: 'Home', awayName: 'Away', fieldName: 'Main', durationMinutes: 90, scorekeeperId: 'scorer', date: '2026-09-25', time: '18:00', fieldId: 'main' };
 before(async () => {
   env = await initializeTestEnvironment({ projectId: 'demo-recseason', firestore: { host: '127.0.0.1', port: 8180, rules: readFileSync('firestore.rules', 'utf8') } });
   await env.clearFirestore();
@@ -18,6 +18,7 @@ before(async () => {
     const db = context.firestore();
     await setDoc(doc(db, 'teams', 'a'), { name: 'Home' });
     await setDoc(doc(db, 'teams', 'b'), { name: 'Away' });
+    await setDoc(doc(db, 'fields', 'main'), { name: 'Main', availableDays: [0, 1, 2, 3, 4, 5, 6], openTime: '08:00', closeTime: '22:00', hasLights: true, zipCode: '' });
     for (const [uid, role, extra] of [['admin', 'siteAdmin'], ['organizer', 'leagueManager'], ['scorer', 'scorekeeper'], ['other', 'scorekeeper'], ['player', 'player', { linkedPlayerId: 'p' }], ['parent', 'parent', { linkedPlayerIds: ['p'] }], ['manager', 'teamManager', { linkedTeamId: 'a' }]]) await setDoc(doc(db, 'users', uid), profile(uid, role, extra));
     await setDoc(doc(db, 'games', 'g'), game);
     await setDoc(doc(db, 'games', 'cancelled'), { ...game, status: 'cancelled' });
@@ -262,6 +263,21 @@ test('organizer season writes enforce date and numeric bounds at the database bo
   }
   const batch = writeBatch(db);
   batch.set(doc(db, 'config', 'schedule'), valid);
+  batch.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
+  await assertSucceeds(batch.commit());
+});
+
+test('new games cannot inject scores or reference missing teams and fields', async () => {
+  const db = dbFor('admin');
+  const revision = (await getDoc(doc(db, 'config', 'scheduleRevision'))).data().revision;
+  for (const patch of [{ status: 'completed', homeScore: 5, awayScore: 1 }, { homeScore: 0 }, { scoreRevision: 1 }, { bases: { first: true } }, { homeTeamId: 'missing' }, { awayTeamId: 'a' }, { fieldId: 'missing' }, { date: '2026-02-30' }, { time: '25:00' }, { durationMinutes: 0 }, { durationMinutes: '90' }, { locked: 'yes' }, { extra: true }, { homeName: '' }]) {
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'games', 'validated-new'), { ...game, ...patch });
+    batch.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
+    await assertFails(batch.commit());
+  }
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'games', 'validated-new'), { ...game, homeScore: null, awayScore: null });
   batch.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
   await assertSucceeds(batch.commit());
 });

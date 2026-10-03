@@ -213,6 +213,12 @@ Season-setting writes also require valid calendar dates spanning at most 366 day
 integer durations of 1-1440 minutes, buffers of 0-1440 minutes, and 1-20 rounds.
 These database checks complement, but do not replace, application checks that
 existing games remain inside the season and do not conflict after settings change.
+New game documents must start scheduled and unscored, reference two distinct
+existing teams and an existing field, and contain valid dates, times, durations,
+names, and allowed metadata only. Initial scoring state cannot bypass score history.
+Game updates/deletions and staff-assignment references still need further hardening.
+Large schedule publications also need capacity testing against rule document-access
+limits, not only the write-count limit.
 
 Invitation domain validation and database rules are implemented and
 emulator-tested. Only site admins may issue invitations, never for the site-admin
