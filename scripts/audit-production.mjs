@@ -74,7 +74,7 @@ const playerIds = new Set(players.map(d => d.id));
 const fieldIds = new Set(fields.map(d => d.id));
 const gameIds = new Set(games.map(d => d.id));
 const roles = ['siteAdmin', 'commissioner', 'leagueManager', 'teamManager', 'captain', 'player', 'parent', 'umpire', 'scorekeeper', 'visitor'];
-const profileKeys = ['email', 'displayName', 'role', 'linkedTeamId', 'linkedPlayerId', 'linkedPlayerIds', 'createdAt', 'acceptedInvitationId'];
+const profileKeys = ['email', 'displayName', 'role', 'linkedTeamId', 'linkedPlayerId', 'linkedPlayerIds', 'createdAt', 'acceptedInvitationId', 'emailReminders'];
 const profileSchemaDetails = users.map(({ keys, data: d }) => ({
   unknownKeys: keys.filter(k => !profileKeys.includes(k)),
   missingKeys: ['email', 'displayName', 'role', 'linkedTeamId', 'linkedPlayerId', 'linkedPlayerIds'].filter(k => !keys.includes(k)),
@@ -82,6 +82,7 @@ const profileSchemaDetails = users.map(({ keys, data: d }) => ({
   childLinksAreArray: Array.isArray(d.linkedPlayerIds),
 }));
 const invalidProfiles = users.filter(({ keys, data: d }) =>
+  (d.emailReminders !== undefined && typeof d.emailReminders !== 'boolean') ||
   keys.some(k => !profileKeys.includes(k)) || typeof d.email !== 'string' ||
   typeof d.displayName !== 'string' || d.displayName.length > 100 || !roles.includes(d.role) ||
   !(d.linkedTeamId === null || typeof d.linkedTeamId === 'string') ||

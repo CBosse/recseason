@@ -9,6 +9,7 @@ export function profileSession(user, data, previous = null) {
     linkedLeagueId: data.linkedLeagueId || null,
     linkedLeagueIds: data.linkedLeagueIds || [],
     linkedPlayerIds: data.linkedPlayerIds || [],
+    emailReminders: data.emailReminders !== false,
   };
   const keys = ['uid', 'role', 'linkedPlayerId', 'linkedTeamId', 'linkedLeagueId', 'linkedLeagueIds', 'linkedPlayerIds'];
   const accessChanged = !previous || keys.some(key => JSON.stringify(previous[key]) !== JSON.stringify(next[key]));

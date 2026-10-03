@@ -5,6 +5,14 @@ import { profileSession } from '../profile-session.mjs';
 const auth = { uid: 'user', email: 'user@example.test' };
 const profile = { role: 'parent', linkedPlayerIds: ['child'] };
 
+test('email preference defaults on for legacy accounts and changes without resetting access', () => {
+  const previous = profileSession(auth, profile).user;
+  assert.equal(previous.emailReminders, true);
+  const next = profileSession(auth, { ...profile, emailReminders: false }, previous);
+  assert.equal(next.user.emailReminders, false);
+  assert.equal(next.accessChanged, false);
+});
+
 test('role and link changes discard selections and impersonation from the prior access scope', () => {
   const previous = { ...profileSession(auth, profile).user, _selectedChildId: 'child', _impersonatingPlayerId: 'other' };
   for (const patch of [{ role: 'player' }, { linkedPlayerIds: ['new-child'] }, { linkedTeamId: 'team' }, { linkedPlayerId: 'self' }]) {

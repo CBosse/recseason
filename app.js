@@ -393,7 +393,19 @@ function updateSidebarUserCard() {
       <span class="chip ${chipCls}" style="font-size:10px">${escHtml(roleLabel)}</span>
       ${ctx}
     </div>
+    ${currentUser.uid ? `<label class="reminder-preference"><input id="email-reminders" type="checkbox" ${currentUser.emailReminders !== false ? 'checked' : ''}> Email game reminders</label>` : ''}
     ${actionBtn}`;
+
+  document.getElementById('email-reminders')?.addEventListener('change', async event => {
+    const input = event.currentTarget;
+    const uid = currentUser?.uid;
+    if (!uid) return;
+    const value = input.checked;
+    input.disabled = true;
+    const saved = await firestoreWrite(updateDoc(doc(db, 'users', uid), { emailReminders: value }));
+    if (!saved) input.checked = !value;
+    input.disabled = false;
+  });
 
   document.getElementById('signout-btn')?.addEventListener('click', () => {
     if (currentUser?.uid) fbSignOut(auth);

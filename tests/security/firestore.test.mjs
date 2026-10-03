@@ -35,6 +35,15 @@ before(async () => {
   });
 });
 after(async () => { await env?.cleanup(); });
+
+test('users can change only their own boolean email preference without changing privileges', async () => {
+  const db = dbFor('player');
+  await assertSucceeds(updateDoc(doc(db, 'users', 'player'), { emailReminders: false }));
+  await assertFails(updateDoc(doc(db, 'users', 'player'), { emailReminders: 'false' }));
+  await assertFails(updateDoc(doc(db, 'users', 'parent'), { emailReminders: false }));
+  await assertFails(updateDoc(doc(db, 'users', 'player'), { emailReminders: true, role: 'siteAdmin' }));
+  await assertSucceeds(updateDoc(doc(db, 'users', 'player'), { emailReminders: true }));
+});
 const dbFor = uid => env.authenticatedContext(uid, { email: `${uid}@example.test` }).firestore();
 async function addRosterVersion(batch, db, uid) {
   const ref = doc(db, 'config', 'rosterRevision');

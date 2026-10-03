@@ -11,7 +11,8 @@ service cloud.firestore {
         (profile().role == 'parent' && playerId in profile().linkedPlayerIds));
     }
     function validProfile(d) {
-      return d.keys().hasOnly(['email', 'displayName', 'role', 'linkedTeamId', 'linkedPlayerId', 'linkedPlayerIds', 'createdAt', 'acceptedInvitationId']) &&
+      return d.keys().hasOnly(['email', 'displayName', 'role', 'linkedTeamId', 'linkedPlayerId', 'linkedPlayerIds', 'createdAt', 'acceptedInvitationId', 'emailReminders']) &&
+        d.get('emailReminders', true) is bool &&
         d.email is string && d.displayName is string && d.displayName.size() <= 100 &&
         d.role in ['siteAdmin', 'commissioner', 'leagueManager', 'teamManager', 'captain', 'player', 'parent', 'umpire', 'scorekeeper', 'visitor'] &&
         (d.linkedTeamId == null || d.linkedTeamId is string) &&
@@ -61,7 +62,7 @@ service cloud.firestore {
         request.resource.data.email == request.auth.token.email && request.resource.data.role == 'player' &&
         request.resource.data.linkedTeamId == null && request.resource.data.linkedPlayerId == null && request.resource.data.linkedPlayerIds == [];
       allow update: if validProfile(request.resource.data) && (admin() || (signedIn() && request.auth.uid == uid &&
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName']) || acceptsInvitation(uid))));
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'emailReminders']) || acceptsInvitation(uid))));
       allow delete: if false;
     }
     match /teams/{id} {

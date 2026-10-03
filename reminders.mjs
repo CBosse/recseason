@@ -7,13 +7,14 @@ export function gameReminder(game, players, users, appUrl) {
   const ids = new Set(active.map(p => p.id));
   const covered = new Set();
   const emails = new Set();
+  const optedOut = new Set(users.filter(user => user.emailReminders === false).map(user => String(user.email || '').trim().toLowerCase()));
   for (const user of users) {
     const linked = user.role === 'parent' ? (user.linkedPlayerIds || []).filter(id => ids.has(id)) :
       ['player', 'captain'].includes(user.role) && ids.has(user.linkedPlayerId) ? [user.linkedPlayerId] : [];
     const staff = (user.role === 'teamManager' && [game.homeTeamId, game.awayTeamId].includes(user.linkedTeamId)) ||
       (user.role === 'umpire' && user.id === game.umpireId) || (user.role === 'scorekeeper' && user.id === game.scorekeeperId);
     const email = String(user.email || '').trim().toLowerCase();
-    if ((!linked.length && !staff) || !emailPattern.test(email)) continue;
+    if ((!linked.length && !staff) || !emailPattern.test(email) || optedOut.has(email)) continue;
     linked.forEach(id => covered.add(id)); emails.add(email);
   }
   const url = new URL(appUrl);
@@ -32,7 +33,7 @@ export function openReminderDraft(draft) {
   document.getElementById('reminder-dialog')?.remove();
   const dialog = document.createElement('dialog'); dialog.id = 'reminder-dialog'; dialog.className = 'game-editor-dialog'; dialog.setAttribute('aria-labelledby', 'reminder-title');
   const heading = document.createElement('h2'); heading.id = 'reminder-title'; heading.textContent = 'Game reminder draft';
-  const status = document.createElement('p'); status.style.marginBottom = '16px'; status.textContent = `${draft.recipients.length} Bcc ${draft.recipients.length === 1 ? 'recipient' : 'recipients'}. Not sent. Players without a linked email: ${draft.playersWithoutRecipient}.`;
+  const status = document.createElement('p'); status.style.marginBottom = '16px'; status.textContent = `${draft.recipients.length} Bcc ${draft.recipients.length === 1 ? 'recipient' : 'recipients'}. Not sent. Players without an eligible email recipient: ${draft.playersWithoutRecipient}.`;
   const subject = document.createElement('input'); subject.value = draft.subject; subject.setAttribute('aria-label', 'Subject');
   const recipients = document.createElement('textarea'); recipients.readOnly = true; recipients.value = draft.recipients.join('\n'); recipients.setAttribute('aria-label', 'Bcc recipients'); recipients.rows = 3;
   const body = document.createElement('textarea'); body.value = draft.body; body.setAttribute('aria-label', 'Message'); body.rows = 10;

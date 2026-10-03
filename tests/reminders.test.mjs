@@ -24,3 +24,15 @@ test('drafts reject closed games, invalid recipients and header injection', () =
   assert.equal(eml.includes('\r\nCc:'), false);
   assert.match(eml, /Hello\r\nWorld/);
 });
+
+test('reminder opt-outs suppress shared addresses and staff without suppressing other recipients', () => {
+  const users = [
+    { role: 'player', linkedPlayerId: 'p', email: 'shared@example.test' },
+    { role: 'parent', linkedPlayerIds: ['child'], email: ' SHARED@example.test ', emailReminders: false },
+    { id: 'u', role: 'umpire', email: 'umpire@example.test', emailReminders: false },
+    { role: 'parent', linkedPlayerIds: ['child'], email: 'other@example.test', emailReminders: true },
+  ];
+  const draft = gameReminder(game, players, users, 'https://example.test/');
+  assert.deepEqual(draft.recipients, ['other@example.test']);
+  assert.equal(draft.playersWithoutRecipient, 2);
+});

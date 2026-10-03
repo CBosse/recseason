@@ -197,6 +197,13 @@ operator-approved production restore procedure remain outstanding.
 
 ### Feature gaps
 
+Signed-in accounts can opt out of email game reminders in the account panel.
+The setting persists in the profile and is honored by reminder draft recipient
+selection, including assigned staff and duplicate/shared email addresses. Legacy
+accounts default to enabled. This does not send mail or revoke already downloaded
+drafts; administrators must regenerate a draft after preferences change. Invitation
+and schedule-change delivery preferences are not implemented yet.
+
 Field creation and updates now enforce the editor's schema at the database boundary:
 bounded nonblank names, valid same-day opening hours, unique valid weekdays, boolean
 lighting, and ZIP codes for unlit fields. Unknown properties are rejected. The production
