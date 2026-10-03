@@ -202,6 +202,10 @@ bounded nonblank names, valid same-day opening hours, unique valid weekdays, boo
 lighting, and ZIP codes for unlit fields. Unknown properties are rejected. The production
 preflight checks existing field compatibility. This does not yet prove that privileged
 direct field deletions or hours changes preserve all game references and bookings.
+Season-setting writes also require valid calendar dates spanning at most 366 days,
+integer durations of 1-1440 minutes, buffers of 0-1440 minutes, and 1-20 rounds.
+These database checks complement, but do not replace, application checks that
+existing games remain inside the season and do not conflict after settings change.
 
 Invitation domain validation and database rules are implemented and
 emulator-tested. Only site admins may issue invitations, never for the site-admin

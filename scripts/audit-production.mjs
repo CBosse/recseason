@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { validateScheduleConfig } from '../scheduling.mjs';
 
 // Deliberately fixed to the app's named database. This script never writes remotely.
 const project = 'bosse-testing';
@@ -58,6 +59,16 @@ const teams = await documents('teams');
 const fields = await documents('fields');
 const games = await documents('games');
 const rsvps = await documents('rsvps');
+const settings = await documents('config');
+const invalidSeasons = settings.filter(({ id, keys, data }) => {
+  if (id !== 'schedule') return false;
+  try {
+    if (keys.some(key => !['startDate', 'endDate', 'gameDuration', 'bufferMinutes', 'rounds'].includes(key)) ||
+        !['gameDuration', 'bufferMinutes', 'rounds'].every(key => Number.isInteger(data[key]))) return true;
+    validateScheduleConfig(data);
+    return false;
+  } catch { return true; }
+}).length;
 const teamIds = new Set(teams.map(d => d.id));
 const playerIds = new Set(players.map(d => d.id));
 const fieldIds = new Set(fields.map(d => d.id));
@@ -106,6 +117,7 @@ const report = {
     teamsIncompatibleWithCandidateRules: invalidTeams,
     playersIncompatibleWithCandidateRules: invalidPlayers,
     fieldsIncompatibleWithCandidateRules: invalidFields,
+    seasonsIncompatibleWithCandidateRules: invalidSeasons,
     missingAdmin: users.some(d => d.data.role === 'siteAdmin') ? 0 : 1,
     profilesWithBrokenLinks: users.filter(({ data: d }) =>
       (d.linkedTeamId && !teamIds.has(d.linkedTeamId)) || (d.linkedPlayerId && !playerIds.has(d.linkedPlayerId)) ||

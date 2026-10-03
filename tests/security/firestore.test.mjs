@@ -236,9 +236,25 @@ test('fields and season settings require the shared schedule revision', async ()
   stale.set(doc(db, 'config', 'scheduleRevision'), { revision: 3, updatedBy: 'admin' });
   await assertFails(stale.commit());
   const fresh = writeBatch(db);
-  fresh.set(doc(db, 'config', 'schedule'), { gameDuration: 90 });
+  fresh.set(doc(db, 'config', 'schedule'), { gameDuration: 90, bufferMinutes: 15, rounds: 1, startDate: '2026-01-01', endDate: '2026-12-31' });
   fresh.set(doc(db, 'config', 'scheduleRevision'), { revision: 4, updatedBy: 'admin' });
   await assertSucceeds(fresh.commit());
+});
+
+test('organizer season writes enforce date and numeric bounds at the database boundary', async () => {
+  const db = dbFor('admin');
+  const valid = { gameDuration: 90, bufferMinutes: 15, rounds: 1, startDate: '2024-02-29', endDate: '2025-03-01' };
+  const revision = (await getDoc(doc(db, 'config', 'scheduleRevision'))).data().revision;
+  for (const patch of [{ extra: true }, { gameDuration: 0 }, { gameDuration: '90' }, { gameDuration: 1441 }, { bufferMinutes: -1 }, { bufferMinutes: 1441 }, { rounds: 0 }, { rounds: 21 }, { rounds: 1.5 }, { startDate: '2023-02-29' }, { startDate: '2024-02-30' }, { startDate: '2024-13-01' }, { endDate: '2024-01-01' }, { endDate: '2025-03-02' }]) {
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'config', 'schedule'), { ...valid, ...patch });
+    batch.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
+    await assertFails(batch.commit());
+  }
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'config', 'schedule'), valid);
+  batch.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
+  await assertSucceeds(batch.commit());
 });
 
 test('organizer field writes reject malformed scheduling data even with a valid revision', async () => {

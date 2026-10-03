@@ -101,9 +101,24 @@ service cloud.firestore {
       allow write: if (id == 'rosterRevision' && signedIn() && (organizer() || profile().role == 'teamManager') &&
         request.resource.data.keys().hasOnly(['revision', 'updatedBy']) && request.resource.data.updatedBy == request.auth.uid &&
         request.resource.data.revision is int && request.resource.data.revision == (resource == null ? 1 : resource.data.revision + 1)) ||
-        (organizer() && ((id == 'schedule' && scheduleAdvanced()) || (id != 'schedule' && id != 'scheduleRevision' && id != 'rosterRevision') ||
+        (organizer() && ((id == 'schedule' && scheduleAdvanced() && validSeason(request.resource.data)) || (id != 'schedule' && id != 'scheduleRevision' && id != 'rosterRevision') ||
         (id == 'scheduleRevision' && request.resource.data.keys().hasOnly(['revision', 'updatedBy']) && request.resource.data.updatedBy == request.auth.uid &&
          request.resource.data.revision is int && request.resource.data.revision == (resource == null ? 1 : resource.data.revision + 1))));
+    }
+    function seasonDate(value) {
+      return timestamp.date(int(value[0:4]), int(value[5:7]), int(value[8:10]));
+    }
+    function validSeasonDate(value) {
+      return value is string && value.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}') &&
+        seasonDate(value).year() == int(value[0:4]) && seasonDate(value).month() == int(value[5:7]) && seasonDate(value).day() == int(value[8:10]);
+    }
+    function validSeason(d) {
+      return d.keys().hasOnly(['startDate', 'endDate', 'gameDuration', 'bufferMinutes', 'rounds']) &&
+        d.gameDuration is int && d.gameDuration >= 1 && d.gameDuration <= 1440 &&
+        d.bufferMinutes is int && d.bufferMinutes >= 0 && d.bufferMinutes <= 1440 &&
+        d.rounds is int && d.rounds >= 1 && d.rounds <= 20 &&
+        validSeasonDate(d.startDate) && validSeasonDate(d.endDate) && d.startDate <= d.endDate &&
+        seasonDate(d.endDate) - seasonDate(d.startDate) <= duration.value(366, 'd');
     }
     function rosterMatches(id) {
       let player = getAfter(/databases/$(database)/documents/players/$(id)).data;
