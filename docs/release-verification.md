@@ -5,6 +5,12 @@ file to the SHA-256 checksums generated during that same build. Verification run
 after deployment. A missing, stale or altered file fails the workflow; up to five
 attempts allow brief propagation delays. This is a read-only check.
 
+The workflow uses Ubuntu 24.04 explicitly and pins its top-level GitHub actions to
+reviewed release commit hashes. Action execution uses Node 24; application tests
+remain on Node 22 and the Firestore emulator uses Java 21. Update the hashes and
+version comments together when maintaining CI, and require a complete successful
+deployment plus live checksum verification before accepting a tooling upgrade.
+
 `dist/release.json` records the expected release version and file checksums.
 `node scripts/verify-release.mjs` checks the production Pages URL against that
 local manifest. Do not download an untrusted manifest from the live site and treat
