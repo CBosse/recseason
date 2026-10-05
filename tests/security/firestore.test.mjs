@@ -338,6 +338,26 @@ test('scorekeeper can update only assigned game score fields with next revision'
   await assertSucceeds(getDocs(query(collection(dbFor('scorer'), 'scoreEvents'), where('gameId', '==', 'g'))));
 });
 
+test('organizers cannot replace teams or delete games after scoring starts', async () => {
+  const db = dbFor('admin');
+  const revision = (await getDoc(doc(db, 'config', 'scheduleRevision'))).data().revision;
+  for (const [index, state] of [{ status: 'live' }, { status: 'completed' }, { status: 'cancelled', scoreRevision: 1 }, { status: 'scheduled', homeScore: 0 }].entries()) {
+    const id = `identity-${index}`;
+    await env.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'games', id), { ...game, ...state }));
+    for (const remove of [false, true]) {
+      const batch = writeBatch(db);
+      if (remove) batch.delete(doc(db, 'games', id));
+      else batch.update(doc(db, 'games', id), { homeTeamId: 'b', awayTeamId: 'a' });
+      batch.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
+      await assertFails(batch.commit());
+    }
+  }
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'games', 'validated-new'), { homeTeamId: 'b', awayTeamId: 'a' });
+  batch.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
+  await assertSucceeds(batch.commit());
+});
+
 test('invitation creation is admin-only and cannot grant siteAdmin', async () => {
   const invite = { email: 'recipient@example.test', role: 'parent', linkedTeamId: null, linkedPlayerId: null, linkedPlayerIds: ['p'], status: 'pending', createdBy: 'admin', createdAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 3600000) };
   await assertFails(setDoc(doc(dbFor('player'), 'invitations', 'unauthorized'), invite));

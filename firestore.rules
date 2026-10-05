@@ -207,8 +207,8 @@ service cloud.firestore {
     match /games/{id} {
       allow read: if true;
       allow create: if organizer() && scheduleAdvanced() && validNewGame(request.resource.data);
-      allow delete: if organizer() && scheduleAdvanced();
-      allow update: if (organizer() && (scheduleAdvanced() || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'lineScore', 'scoreCarry', 'lineScoreInning', 'scoreRevision', 'scoredBy'])) && (!scoringChanged() || hasScoreEvent(id))) || (signedIn() && profile().role == 'scorekeeper' && resource.data.scorekeeperId == request.auth.uid && hasScoreEvent(id) &&
+      allow delete: if organizer() && scheduleAdvanced() && !hasRecordedScore(resource.data);
+      allow update: if (organizer() && (!hasRecordedScore(resource.data) || (request.resource.data.homeTeamId == resource.data.homeTeamId && request.resource.data.awayTeamId == resource.data.awayTeamId)) && (scheduleAdvanced() || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'lineScore', 'scoreCarry', 'lineScoreInning', 'scoreRevision', 'scoredBy'])) && (!scoringChanged() || hasScoreEvent(id))) || (signedIn() && profile().role == 'scorekeeper' && resource.data.scorekeeperId == request.auth.uid && hasScoreEvent(id) &&
         resource.data.status in ['scheduled', 'live'] && request.resource.data.status in ['live', 'completed'] &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'lineScore', 'scoreCarry', 'lineScoreInning', 'scoreRevision', 'scoredBy']) &&
         validScore(request.resource.data) && request.resource.data.scoredBy == request.auth.uid &&
@@ -218,6 +218,9 @@ service cloud.firestore {
         request.resource.data.balls is int && request.resource.data.balls >= 0 && request.resource.data.balls <= 3 &&
         request.resource.data.strikes is int && request.resource.data.strikes >= 0 && request.resource.data.strikes <= 2 &&
         request.resource.data.outs is int && request.resource.data.outs >= 0 && request.resource.data.outs <= 2);
+    }
+    function hasRecordedScore(d) {
+      return d.status in ['live', 'completed'] || d.get('scoreRevision', 0) > 0 || d.get('homeScore', null) != null || d.get('awayScore', null) != null;
     }
     function validNewGame(d) {
       return d.keys().hasOnly(['date', 'time', 'durationMinutes', 'homeTeamId', 'awayTeamId', 'homeName', 'awayName', 'fieldId', 'fieldName', 'status', 'homeScore', 'awayScore', 'locked', 'umpireId', 'scorekeeperId']) &&

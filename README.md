@@ -216,7 +216,10 @@ existing games remain inside the season and do not conflict after settings chang
 New game documents must start scheduled and unscored, reference two distinct
 existing teams and an existing field, and contain valid dates, times, durations,
 names, and allowed metadata only. Initial scoring state cannot bypass score history.
-Game updates/deletions and staff-assignment references still need further hardening.
+Once scoring starts, team IDs cannot be changed and the game cannot be deleted,
+including cancelled games with score revisions or legacy numeric scores. Clear and
+regeneration preserve scored games. Other game updates and staff-assignment
+references still need further hardening.
 The authenticated emulator workflow verifies an atomic 12-team, 66-game, one-field
 round-robin publication, exact persisted records, and complete rollback when the last
 game references a missing field. It also checks that fixture games do not conflict.

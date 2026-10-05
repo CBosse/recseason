@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateGame } from '../game-editor.mjs';
+import { validateGame, hasRecordedScore } from '../game-editor.mjs';
 
 const teams = ['a', 'b', 'c', 'd'].map(id => ({ id, name: id.toUpperCase() }));
 const field = { id: 'f', name: 'Main', availableDays: [4], openTime: '09:00', closeTime: '21:00' };
@@ -8,12 +8,27 @@ const config = { startDate: '2026-09-01', endDate: '2026-09-30', gameDuration: 9
 const game = { id: 'g', date: '2026-09-24', time: '10:00', durationMinutes: 90, fieldId: 'f', homeTeamId: 'a', awayTeamId: 'b', umpireId: 'u' };
 const context = { teams, fields: [field], games: [], config };
 
+test('history preservation includes zero scores and cancelled scored games, but not unscored fixtures', () => {
+  for (const g of [{ status: 'live' }, { status: 'completed' }, { status: 'cancelled', scoreRevision: 1 }, { status: 'scheduled', homeScore: 0 }, { status: 'scheduled', awayScore: 0 }]) assert.equal(hasRecordedScore(g), true);
+  for (const g of [{ status: 'scheduled' }, { status: 'cancelled', homeScore: null, awayScore: null, scoreRevision: 0 }]) assert.equal(hasRecordedScore(g), false);
+});
+
 test('manual game resolves current names and numeric duration', () => {
   const result = validateGame({ ...game, durationMinutes: '90' }, context);
   assert.equal(result.durationMinutes, 90);
   assert.equal(result.homeName, 'A');
   assert.equal(result.awayName, 'B');
   assert.equal(result.fieldName, 'Main');
+});
+
+test('scored matchup identity is preserved through live, final and cancelled states', () => {
+  for (const patch of [{ status: 'live' }, { status: 'completed' }, { status: 'cancelled', scoreRevision: 1 }, { status: 'scheduled', homeScore: 0 }]) {
+    const current = { ...game, ...patch };
+    const scoped = { ...context, games: [current] };
+    assert.throws(() => validateGame({ ...game, awayTeamId: 'c' }, scoped), /after scoring starts/);
+    assert.doesNotThrow(() => validateGame({ ...game, time: '11:00' }, scoped));
+  }
+  assert.doesNotThrow(() => validateGame({ ...game, awayTeamId: 'c' }, { ...context, games: [{ ...game, status: 'scheduled', homeScore: null, awayScore: null }] }));
 });
 
 test('rejects invalid dates, times, duration, season, and references', () => {

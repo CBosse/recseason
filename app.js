@@ -6,7 +6,7 @@ import { canScore, liveScoreUpdate, openScoreEditor } from './live-scoring.mjs';
 import { createSubscriptions, writeResult } from './data-lifecycle.mjs';
 import { scoreUpdate, standings } from './results.mjs';
 import { newPlayerProfile } from './accounts.mjs';
-import { openGameEditor, validateGame } from './game-editor.mjs';
+import { openGameEditor, validateGame, hasRecordedScore } from './game-editor.mjs';
 import { firebaseConfig, databaseId } from './firebase-config.js';
 import { useLocalEmulators } from './local-runtime.mjs';
 import { openRosterEditor, checkedRosterUpdate, checkedArchiveUpdate } from './roster-editor.mjs';
@@ -1172,12 +1172,14 @@ function showInlineScoreEdit(li, game) {
 
 async function handleClearSchedule() {
   if (!canEdit()) return;
-  if (!confirm('Delete ALL games? This cannot be undone.')) return;
+  if (!confirm('Delete all unscored games? Games with scoring history will be kept. This cannot be undone.')) return;
   try {
     const uid = currentUser.uid;
     const snapshot = await scheduleSnapshot();
-    await publishSchedule(snapshot, snapshot.games.docs.map(d => d.ref), [], uid);
-    showBanner('Schedule cleared.', 'success');
+    const removable = snapshot.games.docs.filter(d => !hasRecordedScore(d.data()));
+    if (!removable.length) { showBanner('No unscored games to clear.', 'success'); return; }
+    await publishSchedule(snapshot, removable.map(d => d.ref), [], uid);
+    showBanner('Unscored games cleared. Scoring history retained.', 'success');
   } catch (err) { showDbError(err); }
 }
 
@@ -1190,7 +1192,7 @@ async function handleGenerateSchedule() {
   if (cfg.startDate > cfg.endDate)     { showBanner('Start date must be before end date.', 'error'); return; }
   try { validateScheduleConfig(cfg); } catch (err) { showBanner(err.message, 'error'); return; }
 
-  const scheduled = state.games.filter(g => g.status === 'scheduled' && !g.locked);
+  const scheduled = state.games.filter(g => g.status === 'scheduled' && !g.locked && !hasRecordedScore(g));
   if (scheduled.length > 0 && !confirm(`Delete ${scheduled.length} existing scheduled game(s) and regenerate?`)) return;
 
   showBanner('Generating schedule…', 'success');
@@ -1203,7 +1205,7 @@ async function handleGenerateSchedule() {
     const { games: newGames, skipped, daylightConstrainedCount } = await generateSchedule(teams, fields, snapshot.config, existingGames);
     if (skipped > 0 && !confirm(`${skipped} matchups do not fit. Publish ${newGames.length} games anyway?`)) return;
     if (newGames.length === 0) { showBanner('No games fit. The existing schedule has not been changed.', 'error'); return; }
-    await publishSchedule(snapshot, snapshot.games.docs.filter(d => d.data().status === 'scheduled' && !d.data().locked).map(d => d.ref), newGames.map(g => ({
+    await publishSchedule(snapshot, snapshot.games.docs.filter(d => d.data().status === 'scheduled' && !d.data().locked && !hasRecordedScore(d.data())).map(d => d.ref), newGames.map(g => ({
       ref: doc(collection(db, 'games')),
       data: { ...g, homeScore: null, awayScore: null, status: 'scheduled' },
     })), uid);
@@ -1950,7 +1952,7 @@ async function generateSchedule(teams, fields, config, existingGames = state.gam
 
   slots.sort((a, b) => a.date !== b.date ? a.date.localeCompare(b.date) : a.time !== b.time ? a.time.localeCompare(b.time) : a.fieldId.localeCompare(b.fieldId));
 
-  const preserved = existingGames.filter(g => g.status !== 'scheduled' || g.locked);
+  const preserved = existingGames.filter(g => g.status !== 'scheduled' || g.locked || hasRecordedScore(g));
   return { ...allocateMatchups(remainingMatchups(matchups, preserved), slots, gameDur, bufferMins, preserved), daylightConstrainedCount };
 }
 

@@ -1,6 +1,13 @@
 import { gamesConflict } from './scheduling.mjs';
 
+export function hasRecordedScore(game) {
+  return ['live', 'completed'].includes(game.status) || (game.scoreRevision ?? 0) > 0 || game.homeScore != null || game.awayScore != null;
+}
+
 export function validateGame(game, { teams, fields, games, config }) {
+  const original = game.id ? games.find(existing => existing.id === game.id) : null;
+  if (original && hasRecordedScore(original) &&
+      (game.homeTeamId !== original.homeTeamId || game.awayTeamId !== original.awayTeamId)) throw new Error('Teams cannot be changed after scoring starts.');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(game.date) || !Number.isFinite(Date.parse(game.date)) || new Date(game.date).toISOString().slice(0, 10) !== game.date) throw new Error('Choose a valid game date.');
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(game.time)) throw new Error('Choose a valid game time.');
   if (game.homeTeamId === game.awayTeamId) throw new Error('Choose two different teams.');
