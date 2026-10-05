@@ -1,5 +1,11 @@
 import { parseScore } from './results.mjs';
 import { baseOccupancy } from './base-occupancy.mjs';
+import { scoreHistoryEntry } from './score-history.mjs';
+
+export function liveScoreEntry(gameId, game, values, user, expectedRevision) {
+  const patch = liveScoreUpdate(game, values, user, expectedRevision);
+  return { patch, entry: scoreHistoryEntry(gameId, game, patch, user.uid, values.note || '') };
+}
 
 export function canScore(user, game) {
   return Boolean(user?.uid && game && (['siteAdmin', 'commissioner', 'leagueManager'].includes(user.role) ||
@@ -62,14 +68,17 @@ export function openScoreEditor(game, save) {
     baseControls[key] = input; label.append(input, document.createTextNode(title)); runners.append(label);
   }
   const error = document.createElement('p'); error.setAttribute('role', 'alert');
+  const noteLabel = document.createElement('label'); noteLabel.className = 'inning-note'; noteLabel.textContent = 'Play note (optional)';
+  const note = document.createElement('textarea'); note.maxLength = 300; note.rows = 3; noteLabel.append(note);
   const actions = document.createElement('div'); actions.className = 'game-editor-actions';
   const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'btn btn-ghost'; cancel.textContent = 'Cancel'; cancel.onclick = () => dialog.close();
   const submit = document.createElement('button'); submit.className = 'btn btn-primary'; submit.textContent = 'Save score';
-  actions.append(cancel, submit); form.append(heading, grid, runners, error, actions);
+  actions.append(cancel, submit); form.append(heading, grid, runners, noteLabel, error, actions);
   form.onsubmit = async event => {
     event.preventDefault(); error.textContent = '';
     const values = Object.fromEntries(Object.entries(controls).map(([name, input]) => [name, input.value]));
     values.bases = Object.fromEntries(Object.entries(baseControls).map(([key, input]) => [key, input.checked]));
+    values.note = note.value;
     if (values.status === 'completed' && !confirm('Finalize this result? It will count in the standings.')) return;
     submit.disabled = true;
     try { await save(values); dialog.close(); }

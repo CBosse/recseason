@@ -17,8 +17,14 @@ Runner state is stored in the game and history snapshots with the same revision
 and atomic-write protections. Existing games default to empty bases; older
 history entries remain readable without invented runner history.
 
-This is score-change history, not the complete scoring milestone. Per-inning
-totals, play-by-play entry/replay, automatic runner advancement, and
-correction-aware replay remain unfinished. Privileged game creation/deletion and raw organizer status
-changes also require further database-boundary hardening; historical records
-do not by themselves close those integrity gaps.
+Scorers can add an optional play note of up to 300 characters with any live-score
+save, including a scoreless play. The note is stored in the event's `reason` field
+with its before/after state, not as mutable game metadata. History and recorded-state
+replay show it alongside the corresponding revision. Database workflow tests verify
+that the description persists with the scoring transaction.
+
+Per-inning totals and recorded-state replay are implemented. Structured play types,
+batter/runner identities, automatic runner advancement, correction of an individual
+play with recomputation of later plays, and derived player statistics remain unfinished.
+Notes do not supply those missing semantics. Scored games cannot be deleted or have
+their team IDs changed; raw organizer status changes still need further hardening.

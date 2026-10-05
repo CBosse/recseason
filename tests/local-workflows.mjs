@@ -11,7 +11,7 @@ import { scoreHistoryEntry } from '../score-history.mjs';
 import { inningScoreUpdate } from '../inning-scores.mjs';
 import { newPlayerProfile } from '../accounts.mjs';
 import { invitationDetails, invitationProfilePatch } from '../invitations.mjs';
-import { liveScoreUpdate } from '../live-scoring.mjs';
+import { liveScoreUpdate, liveScoreEntry } from '../live-scoring.mjs';
 import { standings } from '../results.mjs';
 import { rsvpSchedule } from '../rsvps.mjs';
 import { attendanceUpdate } from '../attendance.mjs';
@@ -126,15 +126,16 @@ try {
     await runTransaction(scorer.db, async tx => {
       const ref = doc(scorer.db, 'games', 'demo-game');
       const snapshot = await tx.get(ref);
-      const patch = liveScoreUpdate(snapshot.data(), { ...score, status }, scorer.user, revision);
+      const { patch, entry } = liveScoreEntry('demo-game', snapshot.data(), { ...score, status, note: status === 'live' ? 'Single to left; runners on first and third.' : 'Final confirmed.' }, scorer.user, revision);
       tx.update(ref, patch);
-      tx.set(doc(scorer.db, 'scoreEvents', `demo-game_${patch.scoreRevision}`), { ...scoreHistoryEntry('demo-game', snapshot.data(), patch, scorer.user.uid), recordedAt: serverTimestamp() });
+      tx.set(doc(scorer.db, 'scoreEvents', `demo-game_${patch.scoreRevision}`), { ...entry, recordedAt: serverTimestamp() });
     });
   }
   const games = (await getDocs(collection(admin.db, 'games'))).docs.map(d => ({ id: d.id, ...d.data() }));
   const teams = (await getDocs(collection(admin.db, 'teams'))).docs.map(d => ({ id: d.id, ...d.data() }));
   assert.equal(games.find(game => game.id === 'demo-game').status, 'completed');
   assert.deepEqual(games.find(game => game.id === 'demo-game').bases, score.bases);
+  assert.equal((await getDoc(doc(scorer.db, 'scoreEvents', 'demo-game_1'))).data().reason, 'Single to left; runners on first and third.');
   assert.equal((await getDocs(query(collection(scorer.db, 'scoreEvents'), where('gameId', '==', 'demo-game')))).size, 2);
   const table = standings(teams, games);
   assert.equal(table.find(row => row.name === 'Riverside').Pts, 3);

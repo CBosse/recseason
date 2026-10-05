@@ -434,6 +434,7 @@ body {
 .inning-summary { overflow-x: auto; margin: 16px 0; }
 .inning-note { display: grid; gap: 8px; font-size: 13px; }
 .inning-note input { box-sizing: border-box; width: 100%; min-width: 0; padding: 10px; border: 1px solid #ddd; border-radius: 4px; }
+.inning-note textarea { box-sizing: border-box; width: 100%; min-width: 0; padding: 10px; border: 1px solid #ddd; border-radius: 4px; resize: vertical; font: inherit; }
 .inning-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .inning-table td { padding: 8px; border-bottom: 1px solid #ddd; overflow-wrap: anywhere; }
 .inning-table tr:first-child, .inning-table tr:last-child { font-weight: 700; }

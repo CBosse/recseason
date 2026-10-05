@@ -2,7 +2,7 @@
 
 import { allocateMatchups, validateScheduleConfig, remainingMatchups } from './scheduling.mjs';
 import { cancellationUpdate } from './game-status.mjs';
-import { canScore, liveScoreUpdate, openScoreEditor } from './live-scoring.mjs';
+import { canScore, liveScoreEntry, openScoreEditor } from './live-scoring.mjs';
 import { createSubscriptions, writeResult } from './data-lifecycle.mjs';
 import { scoreUpdate, standings } from './results.mjs';
 import { newPlayerProfile } from './accounts.mjs';
@@ -1439,9 +1439,9 @@ function renderScorekeeperView() {
         const ref = doc(db, 'games', game.id);
         const snapshot = await transaction.get(ref);
         if (currentUser?.uid !== uid) throw new Error('Your session changed.');
-        const patch = liveScoreUpdate(snapshot.exists() ? snapshot.data() : null, values, currentUser, game.scoreRevision ?? 0);
+        const { patch, entry } = liveScoreEntry(game.id, snapshot.exists() ? snapshot.data() : null, values, currentUser, game.scoreRevision ?? 0);
         transaction.update(ref, patch);
-        transaction.set(doc(db, 'scoreEvents', `${game.id}_${patch.scoreRevision}`), { ...scoreHistoryEntry(game.id, snapshot.data(), patch, uid), recordedAt: serverTimestamp() });
+        transaction.set(doc(db, 'scoreEvents', `${game.id}_${patch.scoreRevision}`), { ...entry, recordedAt: serverTimestamp() });
       }));
     };
     const history = document.createElement('button'); history.className = 'btn btn-ghost btn-sm'; history.textContent = 'Score history';
