@@ -317,6 +317,14 @@ test('scorekeeper can update only assigned game score fields with next revision'
     batch.set(doc(db, 'scoreEvents', `g_${next.scoreRevision}`), { ...scoreHistoryEntry('g', before, next, uid, reason), recordedAt: serverTimestamp(), ...override });
     return batch.commit();
   };
+  const identityDb = dbFor('admin');
+  const identityRevision = (await getDoc(doc(identityDb, 'config', 'scheduleRevision'))).data().revision;
+  const firstScore = { ...patch, homeTeamId: 'b', awayTeamId: 'a', scoredBy: 'admin' };
+  const replaceAndScore = writeBatch(identityDb);
+  replaceAndScore.update(doc(identityDb, 'games', 'g'), firstScore);
+  replaceAndScore.set(doc(identityDb, 'scoreEvents', 'g_1'), { ...scoreHistoryEntry('g', game, firstScore, 'admin'), recordedAt: serverTimestamp() });
+  replaceAndScore.set(doc(identityDb, 'config', 'scheduleRevision'), { revision: identityRevision + 1, updatedBy: 'admin' });
+  await assertFails(replaceAndScore.commit());
   await assertSucceeds(save('scorer', patch));
   const malformed = { first: 'occupied', second: false, third: false };
   const scorerDb = dbFor('scorer');

@@ -28,3 +28,7 @@ batter/runner identities, automatic runner advancement, correction of an individ
 play with recomputation of later plays, and derived player statistics remain unfinished.
 Notes do not supply those missing semantics. Scored games cannot be deleted or have
 their team IDs changed; raw organizer status changes still need further hardening.
+The identity check covers both the previous and proposed game state, so replacing
+teams in the same transaction as the first score is rejected even with an otherwise
+valid score event and schedule revision. Correct an unscored matchup separately
+before recording its first play.
