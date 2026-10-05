@@ -1,7 +1,7 @@
 import { before, after, test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
-import { doc, documentId, setDoc, getDoc, updateDoc, collection, getDocs, query, where, writeBatch, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { doc, documentId, setDoc, getDoc, updateDoc, deleteField, collection, getDocs, query, where, writeBatch, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { invitationProfilePatch } from '../../invitations.mjs';
 import { newPlayerProfile } from '../../accounts.mjs';
 import { liveScoreUpdate } from '../../live-scoring.mjs';
@@ -280,6 +280,36 @@ test('new games cannot inject scores or reference missing teams and fields', asy
   batch.set(doc(db, 'games', 'validated-new'), { ...game, homeScore: null, awayScore: null });
   batch.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
   await assertSucceeds(batch.commit());
+});
+
+test('existing game edits validate changed schedule fields and reject unknown data', async () => {
+  const db = dbFor('admin');
+  const revision = (await getDoc(doc(db, 'config', 'scheduleRevision'))).data().revision;
+  for (const patch of [{ homeTeamId: 'missing' }, { awayTeamId: 'a' }, { fieldId: 'missing' }, { fieldId: deleteField() }, { date: '2026-02-30' }, { date: null }, { date: deleteField() }, { time: '25:00' }, { durationMinutes: 0 }, { durationMinutes: '90' }, { locked: 'yes' }, { extra: true }, { homeName: '' }, { awayName: ' ' }, { fieldName: 42 }, { status: 'invented' }]) {
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'games', 'validated-new'), patch);
+    batch.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
+    await assertFails(batch.commit());
+  }
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'games', 'validated-new'), { date: '2026-09-26', time: '19:30', durationMinutes: 120, locked: true, homeName: 'Home updated', status: 'cancelled' });
+  batch.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
+  await assertSucceeds(batch.commit());
+});
+
+test('valid reference edits and legacy schedule repairs remain possible', async () => {
+  const db = dbFor('admin');
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'games', 'legacy-edit'), { ...game, fieldId: 'old-field', time: 'legacy-time', durationMinutes: '90', oldMetadata: 'preserved' });
+    await setDoc(doc(context.firestore(), 'teams', 'replacement'), { name: 'Replacement' });
+  });
+  let revision = (await getDoc(doc(db, 'config', 'scheduleRevision'))).data().revision;
+  for (const patch of [{ time: '20:00' }, { durationMinutes: 90 }, { fieldId: 'main' }, { homeTeamId: 'replacement', homeName: 'Replacement' }]) {
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'games', 'legacy-edit'), patch);
+    batch.set(doc(db, 'config', 'scheduleRevision'), { revision: ++revision, updatedBy: 'admin' });
+    await assertSucceeds(batch.commit());
+  }
 });
 
 test('new and changed staff assignments require valid records while unassignment remains available', async () => {
