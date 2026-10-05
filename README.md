@@ -159,6 +159,10 @@ client identifiers in `firebase-config.js` for that environment.
 
 ### Backup and recovery
 
+Pages deployment now verifies live release files against its own build checksums.
+See [release verification and rollback](docs/release-verification.md) for the
+read-only verification command, manifest trust requirements, and rollback procedure.
+
 Run `npm run backup:production` with the Firebase CLI signed in and
 `RECSEASON_BACKUP_PASSPHRASE` supplied by your secret manager in the process environment.
 Use a strong, unique passphrase (at least 16 characters); never put it in command-line

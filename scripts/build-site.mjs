@@ -14,6 +14,7 @@ export async function buildSite(root) {
   }
   const version = hash.digest('hex').slice(0, 20);
   const assetPath = `assets/${version}`;
+  const manifest = { format: 'recseason-release-v1', version, files: {} };
   await mkdir(join(root, 'dist', assetPath), { recursive: true });
   for (const [file, bytes] of contents) {
     if (file.endsWith('.html')) {
@@ -24,11 +25,14 @@ export async function buildSite(root) {
           .replace(/href="style\.css(?:\?[^"]*)?"/, `href="${assetPath}/style.css"`);
       }
       await writeFile(join(root, 'dist', file), html);
+      manifest.files[file] = createHash('sha256').update(html).digest('hex');
     } else {
       // Relative module imports stay together under one immutable release path.
       await writeFile(join(root, 'dist', assetPath, file), bytes);
+      manifest.files[`${assetPath}/${file}`] = createHash('sha256').update(bytes).digest('hex');
     }
   }
+  await writeFile(join(root, 'dist', 'release.json'), JSON.stringify(manifest, null, 2));
   return { version, assetPath };
 }
 
