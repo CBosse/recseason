@@ -58,6 +58,7 @@ const players = await documents('players');
 const teams = await documents('teams');
 const fields = await documents('fields');
 const games = await documents('games');
+const umpires = await documents('umpires');
 const rsvps = await documents('rsvps');
 const settings = await documents('config');
 const invalidSeasons = settings.filter(({ id, keys, data }) => {
@@ -125,6 +126,9 @@ const report = {
       (Array.isArray(d.linkedPlayerIds) && d.linkedPlayerIds.some(id => !playerIds.has(id)))).length,
     playersWithoutTeam: players.filter(d => !teamIds.has(d.data.teamId)).length,
     gamesWithMissingTeamOrField: games.filter(({ data: d }) => !teamIds.has(d.homeTeamId) || !teamIds.has(d.awayTeamId) || !fieldIds.has(d.fieldId)).length,
+    gamesWithInvalidStaffAssignments: games.filter(({ data: d }) =>
+      (d.umpireId != null && !umpires.some(u => u.id === d.umpireId)) ||
+      (d.scorekeeperId != null && !users.some(u => u.id === d.scorekeeperId && u.data.role === 'scorekeeper'))).length,
     rsvpsWithMissingGameOrPlayer: rsvps.filter(({ data: d }) => !gameIds.has(d.gameId) || !playerIds.has(d.playerId)).length,
     rsvpsRequiringScheduleReconfirmation: rsvps.filter(({ data: d }) => {
       const game = games.find(g => g.id === d.gameId)?.data;

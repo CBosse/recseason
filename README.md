@@ -222,8 +222,11 @@ existing teams and an existing field, and contain valid dates, times, durations,
 names, and allowed metadata only. Initial scoring state cannot bypass score history.
 Once scoring starts, team IDs cannot be changed and the game cannot be deleted,
 including cancelled games with score revisions or legacy numeric scores. Clear and
-regeneration preserve scored games. Other game updates and staff-assignment
-references still need further hardening.
+regeneration preserve scored games. New and changed umpire assignments require an
+existing umpire record; scorekeeper assignments require a current scorekeeper
+profile. Both can be cleared. Unchanged historical assignments remain editable even
+after a role change; the production audit reports stale staff references.
+Other game updates still need further hardening.
 The authenticated emulator workflow verifies an atomic 12-team, 66-game, one-field
 round-robin publication, exact persisted records, and complete rollback when the last
 game references a missing field. It also checks that fixture games do not conflict.

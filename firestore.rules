@@ -208,7 +208,7 @@ service cloud.firestore {
       allow read: if true;
       allow create: if organizer() && scheduleAdvanced() && validNewGame(request.resource.data);
       allow delete: if organizer() && scheduleAdvanced() && !hasRecordedScore(resource.data);
-      allow update: if (organizer() && ((!hasRecordedScore(resource.data) && !hasRecordedScore(request.resource.data)) || (request.resource.data.homeTeamId == resource.data.homeTeamId && request.resource.data.awayTeamId == resource.data.awayTeamId)) && (scheduleAdvanced() || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'lineScore', 'scoreCarry', 'lineScoreInning', 'scoreRevision', 'scoredBy'])) && (!scoringChanged() || hasScoreEvent(id))) || (signedIn() && profile().role == 'scorekeeper' && resource.data.scorekeeperId == request.auth.uid && hasScoreEvent(id) &&
+      allow update: if (organizer() && validAssignmentChanges() && ((!hasRecordedScore(resource.data) && !hasRecordedScore(request.resource.data)) || (request.resource.data.homeTeamId == resource.data.homeTeamId && request.resource.data.awayTeamId == resource.data.awayTeamId)) && (scheduleAdvanced() || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'lineScore', 'scoreCarry', 'lineScoreInning', 'scoreRevision', 'scoredBy'])) && (!scoringChanged() || hasScoreEvent(id))) || (signedIn() && profile().role == 'scorekeeper' && resource.data.scorekeeperId == request.auth.uid && hasScoreEvent(id) &&
         resource.data.status in ['scheduled', 'live'] && request.resource.data.status in ['live', 'completed'] &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'lineScore', 'scoreCarry', 'lineScoreInning', 'scoreRevision', 'scoredBy']) &&
         validScore(request.resource.data) && request.resource.data.scoredBy == request.auth.uid &&
@@ -232,8 +232,17 @@ service cloud.firestore {
         existsAfter(/databases/$(database)/documents/teams/$(d.awayTeamId)) &&
         existsAfter(/databases/$(database)/documents/fields/$(d.fieldId)) &&
         validName(d.homeName) && validName(d.awayName) && validName(d.fieldName) && d.get('locked', false) is bool &&
-        (d.get('umpireId', null) == null || boundedText(d.umpireId, 128)) &&
-        (d.get('scorekeeperId', null) == null || boundedText(d.scorekeeperId, 128));
+        validUmpire(d.get('umpireId', null)) && validScorekeeper(d.get('scorekeeperId', null));
+    }
+    function validUmpire(id) {
+      return id == null || (boundedText(id, 128) && id.size() > 0 && existsAfter(/databases/$(database)/documents/umpires/$(id)));
+    }
+    function validScorekeeper(id) {
+      return id == null || (boundedText(id, 128) && id.size() > 0 && getAfter(/databases/$(database)/documents/users/$(id)).data.role == 'scorekeeper');
+    }
+    function validAssignmentChanges() {
+      return (request.resource.data.get('umpireId', null) == resource.data.get('umpireId', null) || validUmpire(request.resource.data.get('umpireId', null))) &&
+        (request.resource.data.get('scorekeeperId', null) == resource.data.get('scorekeeperId', null) || validScorekeeper(request.resource.data.get('scorekeeperId', null)));
     }
     match /attendance/{id} {
       allow get: if signedIn() && !exists(/databases/$(database)/documents/attendance/$(id));

@@ -282,6 +282,32 @@ test('new games cannot inject scores or reference missing teams and fields', asy
   await assertSucceeds(batch.commit());
 });
 
+test('new and changed staff assignments require valid records while unassignment remains available', async () => {
+  const db = dbFor('admin');
+  let revision = (await getDoc(doc(db, 'config', 'scheduleRevision'))).data().revision;
+  for (const patch of [{ umpireId: 'missing' }, { scorekeeperId: 'missing' }, { scorekeeperId: 'player' }, { scorekeeperId: '' }, { umpireId: 42 }]) {
+    for (const create of [false, true]) {
+      const batch = writeBatch(db);
+      if (create) batch.set(doc(db, 'games', 'bad-assignment'), { ...game, ...patch });
+      else batch.update(doc(db, 'games', 'validated-new'), patch);
+      batch.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
+      await assertFails(batch.commit());
+    }
+  }
+  await env.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'umpires', 'valid-umpire'), { name: 'Official' }));
+  for (const patch of [{ umpireId: 'valid-umpire', scorekeeperId: 'other' }, { umpireId: null, scorekeeperId: null }]) {
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'games', 'validated-new'), patch);
+    batch.set(doc(db, 'config', 'scheduleRevision'), { revision: ++revision, updatedBy: 'admin' });
+    await assertSucceeds(batch.commit());
+  }
+  await env.withSecurityRulesDisabled(context => updateDoc(doc(context.firestore(), 'games', 'validated-new'), { scorekeeperId: 'former-scorekeeper' }));
+  const unchanged = writeBatch(db);
+  unchanged.update(doc(db, 'games', 'validated-new'), { time: '19:00' });
+  unchanged.set(doc(db, 'config', 'scheduleRevision'), { revision: ++revision, updatedBy: 'admin' });
+  await assertSucceeds(unchanged.commit());
+});
+
 test('organizer field writes reject malformed scheduling data even with a valid revision', async () => {
   const db = dbFor('admin');
   const valid = { name: 'Validated', availableDays: [0, 6], openTime: '08:00', closeTime: '22:00', hasLights: false, zipCode: '02108' };
