@@ -5,15 +5,25 @@ export function inningScoreUpdate(game, values, expectedRevision) {
   if ((game.scoreRevision ?? 0) !== expectedRevision) throw new Error('The score changed. Reopen the inning editor.');
   const inning = Number(values.inning);
   if (!Number.isInteger(inning) || inning < 1 || inning > 99) throw new Error('Choose an inning from 1 to 99.');
-  const scoreCarry = game.scoreCarry ?? { home: parseScore(game.homeScore ?? 0), away: parseScore(game.awayScore ?? 0) };
-  const lineScore = { ...game.lineScore, [inning]: { home: parseScore(values.home), away: parseScore(values.away) } };
+  const scoreCarry = { ...(game.scoreCarry ?? { home: parseScore(game.homeScore ?? 0), away: parseScore(game.awayScore ?? 0) }) };
+  const cell = { home: parseScore(values.home), away: parseScore(values.away) };
+  if (values.allocate === true) {
+    if (cell.home + cell.away === 0) throw new Error('Allocate at least one unallocated run.');
+    for (const side of ['home', 'away']) {
+      if (cell[side] > parseScore(scoreCarry[side])) throw new Error('Allocation exceeds the remaining unallocated runs.');
+      scoreCarry[side] -= cell[side];
+      cell[side] += parseScore(game.lineScore?.[inning]?.[side] ?? 0);
+    }
+  }
+  const lineScore = { ...game.lineScore, [inning]: cell };
   let homeScore = parseScore(scoreCarry.home), awayScore = parseScore(scoreCarry.away);
   for (const [key, entry] of Object.entries(lineScore)) {
     if (!/^[1-9][0-9]?$/.test(key)) throw new Error('Invalid stored inning.');
     homeScore += parseScore(entry.home); awayScore += parseScore(entry.away);
   }
   parseScore(homeScore); parseScore(awayScore);
-  return { inning: Math.max(game.inning ?? 1, inning), lineScoreInning: inning, lineScore, scoreCarry, homeScore, awayScore, status: game.status === 'completed' ? 'completed' : 'live', scoreRevision: expectedRevision + 1 };
+  if (values.allocate === true && (homeScore !== (game.homeScore ?? 0) || awayScore !== (game.awayScore ?? 0))) throw new Error('Stored inning totals are inconsistent. Correct the score before allocating runs.');
+  return { inning: values.allocate === true ? (game.inning ?? 1) : Math.max(game.inning ?? 1, inning), lineScoreInning: inning, lineScore, scoreCarry, homeScore, awayScore, status: game.status === 'completed' ? 'completed' : 'live', scoreRevision: expectedRevision + 1 };
 }
 
 export function openInningEditor(game, save) {
@@ -28,11 +38,22 @@ export function openInningEditor(game, save) {
     const input = document.createElement('input'); input.type = 'number'; input.min = min; input.max = max; input.step = 1; input.required = true;
     controls[name] = input; label.append(input); grid.append(label);
   }
+  const allocation = document.createElement('input'); allocation.type = 'checkbox';
+  const allocationLabel = document.createElement('label'); allocationLabel.className = 'inning-allocation';
+  allocationLabel.append(allocation, document.createTextNode('Allocate unallocated runs'));
+  const carry = game.scoreCarry ?? { home: game.homeScore ?? 0, away: game.awayScore ?? 0 };
+  allocationLabel.hidden = !carry.home && !carry.away;
   let selected = game.inning ?? 1;
-  const load = () => { controls.inning.value = selected; controls.home.value = game.lineScore?.[selected]?.home ?? 0; controls.away.value = game.lineScore?.[selected]?.away ?? 0; };
+  const load = () => {
+    controls.inning.value = selected;
+    for (const side of ['home', 'away']) {
+      controls[side].value = allocation.checked ? 0 : (game.lineScore?.[selected]?.[side] ?? 0);
+      controls[side].max = allocation.checked ? carry[side] : 99999;
+    }
+  };
   load();
   controls.inning.onchange = () => {
-    const old = game.lineScore?.[selected] ?? { home: 0, away: 0 };
+    const old = allocation.checked ? { home: 0, away: 0 } : (game.lineScore?.[selected] ?? { home: 0, away: 0 });
     if ((Number(controls.home.value) !== old.home || Number(controls.away.value) !== old.away) && !confirm('Discard unsaved runs for this inning?')) { controls.inning.value = selected; return; }
     selected = Number(controls.inning.value); load(); render();
   };
@@ -43,7 +64,9 @@ export function openInningEditor(game, save) {
   function render() {
     summary.replaceChildren();
     try {
-      const patch = inningScoreUpdate(game, { inning: controls.inning.value, home: controls.home.value, away: controls.away.value }, game.scoreRevision ?? 0);
+      const patch = allocation.checked && Number(controls.home.value) === 0 && Number(controls.away.value) === 0
+        ? { scoreCarry: carry, lineScore: game.lineScore ?? {}, homeScore: game.homeScore ?? 0, awayScore: game.awayScore ?? 0 }
+        : inningScoreUpdate(game, { inning: controls.inning.value, home: controls.home.value, away: controls.away.value, allocate: allocation.checked }, game.scoreRevision ?? 0);
       const table = document.createElement('table'); table.className = 'inning-table';
       const row = values => { const tr = document.createElement('tr'); for (const value of values) { const cell = document.createElement('td'); cell.textContent = value; tr.append(cell); } table.append(tr); };
       row(['Inning', game.homeName, game.awayName]);
@@ -53,10 +76,15 @@ export function openInningEditor(game, save) {
     } catch (e) { error.textContent = e.message; }
   }
   controls.home.oninput = render; controls.away.oninput = render;
+  allocation.onchange = () => {
+    const previous = allocation.checked ? (game.lineScore?.[selected] ?? { home: 0, away: 0 }) : { home: 0, away: 0 };
+    if ((Number(controls.home.value) !== previous.home || Number(controls.away.value) !== previous.away) && !confirm('Discard unsaved inning entries?')) { allocation.checked = !allocation.checked; return; }
+    load(); render();
+  };
   const actions = document.createElement('div'); actions.className = 'game-editor-actions';
   const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'btn btn-ghost'; cancel.textContent = 'Cancel'; cancel.onclick = () => dialog.close();
   const submit = document.createElement('button'); submit.className = 'btn btn-primary'; submit.textContent = 'Save inning'; actions.append(cancel, submit);
-  form.append(title, grid, summary, reasonLabel, error, actions); render();
-  form.onsubmit = async e => { e.preventDefault(); submit.disabled = true; try { await save({ inning: controls.inning.value, home: controls.home.value, away: controls.away.value, reason: reason.value }); dialog.close(); } catch (err) { error.textContent = err.message; } finally { submit.disabled = false; } };
+  form.append(title, allocationLabel, grid, summary, reasonLabel, error, actions); render();
+  form.onsubmit = async e => { e.preventDefault(); submit.disabled = true; try { await save({ inning: controls.inning.value, home: controls.home.value, away: controls.away.value, reason: reason.value, allocate: allocation.checked }); dialog.close(); } catch (err) { error.textContent = err.message; } finally { submit.disabled = false; } };
   dialog.append(form); document.body.append(dialog); dialog.addEventListener('close', () => dialog.remove(), { once: true }); dialog.showModal();
 }

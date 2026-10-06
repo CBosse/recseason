@@ -28,3 +28,19 @@ test('invalid innings, scores, stale revisions and total overflow are rejected',
 test('live counter editor cannot overwrite inning-derived totals', () => {
   assert.throws(() => liveScoreUpdate({ status: 'live', lineScore: { '1': { home: 1, away: 0 } }, homeScore: 1, awayScore: 0 }, { status: 'live', homeScore: 2, awayScore: 0 }, { uid: 'admin', role: 'siteAdmin' }, 0), /Record inning/);
 });
+
+test('legacy allocation moves runs into innings without changing totals or current inning', () => {
+  const original = { status: 'completed', homeScore: 5, awayScore: 4, inning: 7 };
+  const first = inningScoreUpdate(original, { inning: 2, home: 2, away: 1, allocate: true }, 0);
+  assert.deepEqual(first.scoreCarry, { home: 3, away: 3 });
+  assert.deepEqual(first.lineScore['2'], { home: 2, away: 1 });
+  assert.equal(first.homeScore, 5); assert.equal(first.awayScore, 4);
+  assert.equal(first.status, 'completed'); assert.equal(first.inning, 7);
+  const game = { ...original, ...first };
+  const second = inningScoreUpdate(game, { inning: 2, home: 3, away: 3, allocate: true }, 1);
+  assert.deepEqual(second.scoreCarry, { home: 0, away: 0 });
+  assert.deepEqual(second.lineScore['2'], { home: 5, away: 4 });
+  assert.deepEqual(game.scoreCarry, { home: 3, away: 3 });
+  for (const values of [{ home: 4, away: 0 }, { home: 0, away: 4 }, { home: 0, away: 0 }]) assert.throws(() => inningScoreUpdate(game, { inning: 1, allocate: true, ...values }, 1));
+  assert.throws(() => inningScoreUpdate({ ...game, homeScore: 6 }, { inning: 1, home: 1, away: 0, allocate: true }, 1), /inconsistent/);
+});

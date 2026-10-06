@@ -433,6 +433,9 @@ body {
 .base-occupancy input { width: 18px; height: 18px; margin: 0; }
 .inning-summary { overflow-x: auto; margin: 16px 0; }
 .inning-note { display: grid; gap: 8px; font-size: 13px; }
+.inning-allocation { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 13px; }
+.inning-allocation[hidden] { display: none; }
+.inning-allocation input { width: 18px; height: 18px; margin: 0; }
 .inning-note input { box-sizing: border-box; width: 100%; min-width: 0; padding: 10px; border: 1px solid #ddd; border-radius: 4px; }
 .inning-note textarea { box-sizing: border-box; width: 100%; min-width: 0; padding: 10px; border: 1px solid #ddd; border-radius: 4px; resize: vertical; font: inherit; }
 .inning-table { width: 100%; border-collapse: collapse; font-size: 13px; }

@@ -6,6 +6,7 @@ import { doc, documentId, setDoc, getDoc, updateDoc, deleteDoc, deleteField, col
 import { invitationProfilePatch } from '../../invitations.mjs';
 import { newPlayerProfile } from '../../accounts.mjs';
 import { liveScoreUpdate } from '../../live-scoring.mjs';
+import { inningScoreUpdate } from '../../inning-scores.mjs';
 import { rsvpSchedule } from '../../rsvps.mjs';
 import { rosterEntry } from '../../team-roster.mjs';
 import { scoreHistoryEntry } from '../../score-history.mjs';
@@ -403,6 +404,33 @@ test('scorekeeper can update only assigned game score fields with next revision'
   await assertSucceeds(getDocs(query(collection(dbFor('scorer'), 'scoreEvents'), where('gameId', '==', 'g'))));
 });
 
+test('unallocated runs move into one inning with unchanged totals and immutable audit history', async () => {
+  for (const [uid, status] of [['admin', 'completed'], ['scorer', 'live']]) {
+    const id = `allocation-${uid}`, db = dbFor(uid);
+    const before = { ...game, status, homeScore: 5, awayScore: 4, inning: 7 };
+    await env.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'games', id), before));
+    const patch = { ...inningScoreUpdate(before, { inning: 2, home: 2, away: 1, allocate: true }, 0), scoredBy: uid };
+    const save = (changes, reason = 'Allocated from original scorebook') => {
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'games', id), changes);
+      batch.set(doc(db, 'scoreEvents', `${id}_1`), { ...scoreHistoryEntry(id, before, changes, uid, reason), recordedAt: serverTimestamp() });
+      return batch.commit();
+    };
+    for (const invalid of [
+      { ...patch, homeScore: 6 },
+      { ...patch, scoreCarry: { home: 6, away: 3 } },
+      { ...patch, scoreCarry: { home: -1, away: 3 } },
+      { ...patch, lineScore: { '2': { home: 3, away: 1 } } },
+      { ...patch, lineScore: { ...patch.lineScore, '3': { home: 1, away: 0 } } },
+    ]) await assertFails(save(invalid));
+    await assertSucceeds(save(patch));
+    const saved = (await getDoc(doc(db, 'games', id))).data();
+    assert.equal(saved.homeScore, 5); assert.equal(saved.awayScore, 4);
+    assert.deepEqual(saved.scoreCarry, { home: 3, away: 3 });
+    assert.deepEqual((await getDoc(doc(db, 'scoreEvents', `${id}_1`))).data().after.lineScore['2'], { home: 2, away: 1 });
+  }
+});
+
 test('organizer scoring enforces counter bounds even with matching history', async () => {
   const db = dbFor('admin');
   const before = { ...game, status: 'live', homeScore: 0, awayScore: 0 };
@@ -450,6 +478,7 @@ test('game lifecycle prevents backward score transitions and preserves unscored 
   }
   await env.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'games', 'reschedulable'), game));
   for (const status of ['cancelled', 'scheduled']) {
+    await assertFails(updateDoc(doc(db, 'games', 'reschedulable'), { status }));
     const batch = writeBatch(db);
     batch.update(doc(db, 'games', 'reschedulable'), { status });
     batch.set(doc(db, 'config', 'scheduleRevision'), { revision: ++revision, updatedBy: 'admin' });

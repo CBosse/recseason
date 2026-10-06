@@ -186,12 +186,15 @@ service cloud.firestore {
       let key = string(after.get('lineScoreInning', 1));
       let previous = old.get(key, {'home': 0, 'away': 0});
       let cell = after.lineScore.get(key, {'home': 0, 'away': 0});
-      return after.lineScore is map && after.scoreCarry == before.get('scoreCarry', {'home': scoreNumber(before, 'homeScore'), 'away': scoreNumber(before, 'awayScore')}) &&
+      let carry = before.get('scoreCarry', {'home': scoreNumber(before, 'homeScore'), 'away': scoreNumber(before, 'awayScore')});
+      return after.lineScore is map && (after.scoreCarry == carry ||
+        (after.scoreCarry.keys().hasOnly(['home', 'away']) && validCounter(after.scoreCarry.home, 0, carry.home) && validCounter(after.scoreCarry.away, 0, carry.away) &&
+          after.homeScore == before.homeScore && after.awayScore == before.awayScore)) &&
         after.lineScore.diff(old).affectedKeys().hasOnly([key]) && cell.keys().hasOnly(['home', 'away']) &&
         cell.home is int && cell.home >= 0 && cell.away is int && cell.away >= 0 &&
         after.lineScoreInning is int && after.lineScoreInning >= 1 && after.lineScoreInning <= 99 &&
-        after.homeScore == scoreNumber(before, 'homeScore') + cell.home - previous.home &&
-        after.awayScore == scoreNumber(before, 'awayScore') + cell.away - previous.away;
+        after.homeScore == scoreNumber(before, 'homeScore') + cell.home - previous.home + after.scoreCarry.home - carry.home &&
+        after.awayScore == scoreNumber(before, 'awayScore') + cell.away - previous.away + after.scoreCarry.away - carry.away;
     }
     function validLineScore(before, after) {
       return (!before.keys().hasAny(['lineScore', 'scoreCarry', 'lineScoreInning']) && !after.keys().hasAny(['lineScore', 'scoreCarry', 'lineScoreInning'])) || validInningChange(before, after);
@@ -224,9 +227,17 @@ service cloud.firestore {
       allow read: if true;
       allow create: if organizer() && scheduleAdvanced() && validNewGame(request.resource.data);
       allow delete: if organizer() && scheduleAdvanced() && !hasRecordedScore(resource.data);
-      allow update: if (organizer() && validAssignmentChanges() && ((!hasRecordedScore(resource.data) && !hasRecordedScore(request.resource.data)) || (request.resource.data.homeTeamId == resource.data.homeTeamId && request.resource.data.awayTeamId == resource.data.awayTeamId)) && (scheduleAdvanced() || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'lineScore', 'scoreCarry', 'lineScoreInning', 'scoreRevision', 'scoredBy'])) && (!scoringChanged() || hasScoreEvent(id))) || (signedIn() && profile().role == 'scorekeeper' && resource.data.scorekeeperId == request.auth.uid && hasScoreEvent(id) &&
+      allow update: if organizerGameUpdate(id) || (signedIn() && profile().role == 'scorekeeper' && resource.data.scorekeeperId == request.auth.uid && hasScoreEvent(id) &&
         resource.data.status in ['scheduled', 'live'] && request.resource.data.status in ['live', 'completed'] &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'lineScore', 'scoreCarry', 'lineScoreInning', 'scoreRevision', 'scoredBy']));
+    }
+    function organizerGameUpdate(id) {
+      let before = resource.data;
+      let after = request.resource.data;
+      let scoreOnly = after.diff(before).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'lineScore', 'scoreCarry', 'lineScoreInning', 'scoreRevision', 'scoredBy']);
+      return organizer() && ((scoreOnly && (before.status == after.status || after.status in ['live', 'completed'])) || (validAssignmentChanges() && scheduleAdvanced() &&
+        ((!hasRecordedScore(before) && !hasRecordedScore(after)) || (after.homeTeamId == before.homeTeamId && after.awayTeamId == before.awayTeamId)))) &&
+        (before.status == after.status || validStatusTransition(before, after)) && (!scoringChanged() || hasScoreEvent(id));
     }
     function hasRecordedScore(d) {
       return d.status in ['live', 'completed'] || d.get('scoreRevision', 0) > 0 || d.get('homeScore', null) != null || d.get('awayScore', null) != null;

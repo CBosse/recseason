@@ -64,7 +64,7 @@
   </section>
   <section id="evidence">
     <h2>Verification, Not Just Feature Claims</h2>
-    <div class="evidence"><div><strong>107</strong>Unit tests passing</div><div><strong>30</strong>Security tests passing</div><div><strong>Passed</strong>Authenticated emulator workflows</div><div><strong>Passed</strong>Encrypted local recovery rehearsal</div></div>
+    <div class="evidence"><div><strong>108</strong>Unit tests passing</div><div><strong>31</strong>Security tests passing</div><div><strong>Passed</strong>Authenticated emulator workflows</div><div><strong>Passed</strong>Encrypted local recovery rehearsal</div></div>
     <p>Tests cover role access, RSVP ownership, invitation acceptance, live scoring, captain attendance, and concurrent schedule publication. Selected dialogs have browser checks, including mobile reminder layout. Anonymous production reads allow public league data and deny private records.</p>
     <p class="muted">These results do not prove every production role journey or every browser layout. Recovery was verified locally, not by overwriting production. Test counts are a dated snapshot, not a permanent release guarantee.</p>
   </section>
@@ -76,7 +76,7 @@
       <li><strong>Communication:</strong> drafts, shareable invitations, and persistent game-reminder opt-outs exist. Automatic delivery, other notice preferences, delivery logs, and cancellation/change alerts are unfinished. A sending service is needed.</li>
       <li><strong>Recovery:</strong> encrypted local exports cover app collections only, up to 500 documents. Restore authenticates encrypted input before database access. Auth accounts, storage, indexes, rules, unknown collections, scheduled off-device backups, and an approved production restore procedure are not covered by that export.</li>
       <li><strong>Capacity and usability:</strong> a 12-team, 66-game, one-field publication and failed-batch rollback are emulator-tested. Schedule writes cap at 499 records plus a revision, but larger rule-access workloads remain unverified; check-in caps at ten changed players per save. Offline/reconnect behavior, loading errors, accessibility, and full mobile journeys need acceptance coverage.</li>
-      <li><strong>Scoring depth:</strong> replayable play-by-play, automatic runner advancement, and derived player statistics remain unfinished. Legacy totals remain unallocated rather than being assigned to invented innings.</li>
+      <li><strong>Scoring depth:</strong> replayable play-by-play, automatic runner advancement, and derived player statistics remain unfinished. Legacy totals remain visibly unallocated until a scorer assigns them to known innings; this audited allocation preserves the total.</li>
     </ul>
   </section>
   <section id="plan">

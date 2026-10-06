@@ -260,8 +260,11 @@ before sending real invitations.
 
 Per-inning scoring now derives totals from saved inning entries. Earlier innings can
 be corrected without rewinding the current inning; finalized-game corrections require
-an organizer and a reason. Legacy totals stay visible as unallocated runs and cannot
-yet be reassigned to innings. Manual base occupancy and immutable score history are
+an organizer and a reason. Legacy totals stay visible as unallocated runs until a
+scorer uses the inning editor's allocation option. Allocation transfers existing
+runs to one inning without changing totals or the current inning, rejects excess
+allocation and stale revisions, and records the before/after states in score history.
+Finalized games require an organizer and a correction reason. Manual base occupancy and immutable score history are
 implemented; automatic runner advancement and a replayable play-by-play log are not.
 Score history now supports chronological recorded-state replay with previous/next
 controls and a revision slider. Corrections remain separate events. Missing revisions,
