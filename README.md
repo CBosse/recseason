@@ -204,7 +204,8 @@ operator-approved production restore procedure remain outstanding.
 Signed-in accounts can opt out of email game reminders in the account panel.
 The server-only notification worker protocol now has tests for one-recipient jobs,
 deduplication, concurrent claims, bounded retries, and uncertain delivery outcomes.
-It is not connected to persistent storage or a provider and does not send mail.
+Its private Firestore store is now emulator-tested for durable claims and persisted
+results, but no provider or production sender is configured and it does not send mail.
 See [notification delivery](docs/notification-delivery.md) for the integration contract
 and remaining deployment requirements.
 The setting persists in the profile and is honored by reminder draft recipient

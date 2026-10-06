@@ -4,8 +4,10 @@
 
 The browser still downloads email drafts only. No background sender is configured,
 and no mail is sent by the new module. `server/notification-jobs.mjs` contains a
-provider-independent worker protocol with synthetic transport/storage tests. It is
-not copied into the public Pages build.
+provider-independent worker protocol. `server/notification-store.mjs` supplies a
+durable transactional Firestore store fixed to the named `recseason` database.
+Its emulator test uses independent clients to verify concurrent claims and persisted
+results. Neither server module is copied into the public Pages build.
 
 ## Implemented Contract
 
@@ -15,9 +17,10 @@ not copied into the public Pages build.
 - Enqueue accepts at most 200 input recipients and a lifetime of at most 24 hours.
   Larger recipient sets require explicit upstream partitioning and capacity review.
 - Storage must implement durable atomic `create(job)`, `get(id)`, and
-  `compareAndSet(id, expectedVersion, nextJob)`. The test adapter is in memory and is
-  not suitable for deployment. Private job bodies and addresses must not be readable
-  or writable by ordinary app clients.
+  `compareAndSet(id, expectedVersion, nextJob)`. The Firestore adapter implements these
+  operations and prevents event/recipient mutation. Browser reads, queries, creates,
+  and deletes are denied by the existing catch-all rules, including for site admins.
+  The worker therefore needs a trusted server identity, not a browser account.
 - A two-minute lease and version comparison admit one worker. Expired leases become
   `needs-review`; they do not automatically resend. Late workers cannot overwrite a
   newer decision.
@@ -39,8 +42,8 @@ not copied into the public Pages build.
 ## Remaining Integration
 
 1. Select the sending provider and verified domain; configure server-side credentials.
-2. Implement and emulator-test a private, transactional durable store and trusted enqueue
-   entry point. Authenticate organizers and derive recipients on the server.
+2. Deploy the tested durable store with a least-privilege server identity and a trusted
+   enqueue entry point. Authenticate organizers and derive recipients on the server.
 3. Derive invitation, RSVP reminder, reschedule, and cancellation events from committed
    app changes. Implement eligibility checks and notice-specific preference policy.
 4. Add an authenticated provider adapter, bounded scheduled worker, delivery webhooks,
@@ -49,3 +52,17 @@ not copied into the public Pages build.
    restarts, preference changes, expired invitations, cancellations, and timezones.
 
 No provider account, recurring job, or production queue has been created by this work.
+
+## Storage Verification
+
+Run `npm run test:notifications` with Java 21 available. The test refuses non-local
+emulator targets and production project IDs, and never calls an email provider.
+CI runs it before deployment. Runtime construction accepts only `bosse-testing` when
+no emulator is configured, or `demo-recseason` on `127.0.0.1:8180` for tests. All queue
+documents are in `notificationJobs` within `recseason`; no default database is used.
+Production authentication uses the Google server client's application-default
+credentials, which must be configured by the eventual server runtime, not embedded
+in the app. See the [server client setup](https://firebase.google.com/docs/firestore/quickstart-server).
+The current app backup format does not yet include this collection; add and rehearse
+queue recovery before enabling production sends. Accepted/uncertain states must not
+be reset to pending during restoration.

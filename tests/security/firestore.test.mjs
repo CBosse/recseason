@@ -39,6 +39,17 @@ before(async () => {
 });
 after(async () => { await env?.cleanup(); });
 
+test('private notification jobs are inaccessible to all browser roles', async () => {
+  await env.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'notificationJobs', 'private-job'), { recipient: 'private@example.test', body: 'Private notice' }));
+  for (const uid of ['admin', 'organizer', 'scorer', 'player', 'parent', 'manager']) {
+    const db = dbFor(uid);
+    await assertFails(getDoc(doc(db, 'notificationJobs', 'private-job')));
+    await assertFails(getDocs(collection(db, 'notificationJobs')));
+    await assertFails(setDoc(doc(db, 'notificationJobs', 'injected'), { status: 'pending' }));
+    await assertFails(deleteDoc(doc(db, 'notificationJobs', 'private-job')));
+  }
+});
+
 test('users can change only their own boolean email preference without changing privileges', async () => {
   const db = dbFor('player');
   await assertSucceeds(updateDoc(doc(db, 'users', 'player'), { emailReminders: false }));
