@@ -228,8 +228,12 @@ profile. Both can be cleared. Unchanged historical assignments remain editable e
 after a role change; the production audit reports stale staff references.
 Existing game edits validate changed dates, times, durations, team and field
 references, names, lock flags, and status values; unknown changed fields are rejected.
-Unchanged legacy fields do not block unrelated edits. Lifecycle transitions and
-cross-game scheduling constraints still need further database hardening.
+Unchanged legacy fields do not block unrelated edits. Cancellation and rescheduling
+are restricted to unscored games; live games can become final, and final results
+remain final when corrected with an audit reason. Organizer scoring uses the same
+inning, half, ball, strike, and out bounds as assigned scorekeepers. Reopening scored
+games is not supported. Cross-game scheduling constraints still need further
+database hardening.
 The authenticated emulator workflow verifies an atomic 12-team, 66-game, one-field
 round-robin publication, exact persisted records, and complete rollback when the last
 game references a missing field. It also checks that fixture games do not conflict.

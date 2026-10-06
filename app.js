@@ -1,7 +1,7 @@
 'use strict';
 
 import { allocateMatchups, validateScheduleConfig, remainingMatchups } from './scheduling.mjs';
-import { cancellationUpdate } from './game-status.mjs';
+import { cancellationUpdate, reschedulingUpdate } from './game-status.mjs';
 import { canScore, liveScoreEntry, openScoreEditor } from './live-scoring.mjs';
 import { createSubscriptions, writeResult } from './data-lifecycle.mjs';
 import { scoreUpdate, standings } from './results.mjs';
@@ -1100,7 +1100,7 @@ async function editGame(game = {}) {
       if (!canEdit() || currentUser.uid !== uid) throw new Error('Your session changed. Reopen this game.');
       const { id, ...updates } = validated;
       await publishSchedule(snapshot, [], [{ ref: id ? doc(db, 'games', id) : doc(collection(db, 'games')),
-        data: id ? { ...updates, ...(existing.status === 'cancelled' ? { status: 'scheduled' } : {}) } : { ...updates, status: 'scheduled', homeScore: null, awayScore: null } }], uid);
+        data: id ? { ...updates, ...reschedulingUpdate(existing) } : { ...updates, status: 'scheduled', homeScore: null, awayScore: null } }], uid);
       showBanner('Game saved.', 'success');
     },
   });

@@ -402,6 +402,60 @@ test('scorekeeper can update only assigned game score fields with next revision'
   await assertSucceeds(getDocs(query(collection(dbFor('scorer'), 'scoreEvents'), where('gameId', '==', 'g'))));
 });
 
+test('organizer scoring enforces counter bounds even with matching history', async () => {
+  const db = dbFor('admin');
+  const before = { ...game, status: 'live', homeScore: 0, awayScore: 0 };
+  await env.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'games', 'counter-check'), before));
+  for (const invalid of [{ inning: 0 }, { inning: 100 }, { inning: 1.5 }, { half: 'middle' }, { balls: 4 }, { strikes: 3 }, { outs: 3 }, { balls: '1' }]) {
+    const patch = { homeScore: 1, awayScore: 0, scoreRevision: 1, scoredBy: 'admin', ...invalid };
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'games', 'counter-check'), patch);
+    batch.set(doc(db, 'scoreEvents', 'counter-check_1'), { ...scoreHistoryEntry('counter-check', before, patch, 'admin'), recordedAt: serverTimestamp() });
+    await assertFails(batch.commit());
+  }
+  const patch = { homeScore: 1, awayScore: 0, scoreRevision: 1, scoredBy: 'admin', inning: 2, half: 'bottom', balls: 3, strikes: 2, outs: 2 };
+  const batch = writeBatch(db);
+  batch.update(doc(db, 'games', 'counter-check'), patch);
+  batch.set(doc(db, 'scoreEvents', 'counter-check_1'), { ...scoreHistoryEntry('counter-check', before, patch, 'admin'), recordedAt: serverTimestamp() });
+  await assertSucceeds(batch.commit());
+});
+
+test('game lifecycle prevents backward score transitions and preserves unscored rescheduling', async () => {
+  const db = dbFor('admin');
+  let revision = (await getDoc(doc(db, 'config', 'scheduleRevision'))).data().revision;
+  const cases = [
+    [{ status: 'live', homeScore: 0, awayScore: 0 }, 'scheduled'],
+    [{ status: 'live', homeScore: 0, awayScore: 0 }, 'cancelled'],
+    [{ status: 'completed', homeScore: 1, awayScore: 0 }, 'scheduled'],
+    [{ status: 'completed', homeScore: 1, awayScore: 0 }, 'cancelled'],
+    [{ status: 'completed', homeScore: 1, awayScore: 0 }, 'live'],
+    [{ status: 'cancelled', scoreRevision: 1 }, 'scheduled'],
+    [{ status: 'scheduled', homeScore: 0 }, 'cancelled'],
+  ];
+  for (const [index, [state, status]] of cases.entries()) {
+    const id = `lifecycle-${index}`;
+    const before = { ...game, ...state };
+    await env.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'games', id), before));
+    const patch = { status, homeScore: before.homeScore ?? 0, awayScore: before.awayScore ?? 0, scoreRevision: (before.scoreRevision ?? 0) + 1, scoredBy: 'admin' };
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'games', id), patch);
+    batch.set(doc(db, 'scoreEvents', `${id}_${patch.scoreRevision}`), { ...scoreHistoryEntry(id, before, patch, 'admin', 'Reopening attempt'), recordedAt: serverTimestamp() });
+    batch.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
+    await assertFails(batch.commit());
+    const statusOnly = writeBatch(db);
+    statusOnly.update(doc(db, 'games', id), { status });
+    statusOnly.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
+    await assertFails(statusOnly.commit());
+  }
+  await env.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'games', 'reschedulable'), game));
+  for (const status of ['cancelled', 'scheduled']) {
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'games', 'reschedulable'), { status });
+    batch.set(doc(db, 'config', 'scheduleRevision'), { revision: ++revision, updatedBy: 'admin' });
+    await assertSucceeds(batch.commit());
+  }
+});
+
 test('organizers cannot replace teams or delete games after scoring starts', async () => {
   const db = dbFor('admin');
   const revision = (await getDoc(doc(db, 'config', 'scheduleRevision'))).data().revision;

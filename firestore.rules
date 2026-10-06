@@ -148,8 +148,11 @@ service cloud.firestore {
     }
     function validScore(d) {
       return d.homeScore is int && d.homeScore >= 0 && d.homeScore <= 9007199254740991 &&
-        d.awayScore is int && d.awayScore >= 0 && d.awayScore <= 9007199254740991 && validBases(d.get('bases', {'first': false, 'second': false, 'third': false}));
+        d.awayScore is int && d.awayScore >= 0 && d.awayScore <= 9007199254740991 && validBases(d.get('bases', {'first': false, 'second': false, 'third': false})) &&
+        validCounter(d.get('inning', 1), 1, 99) && d.get('half', 'top') in ['top', 'bottom'] &&
+        validCounter(d.get('balls', 0), 0, 3) && validCounter(d.get('strikes', 0), 0, 2) && validCounter(d.get('outs', 0), 0, 2);
     }
+    function validCounter(value, minimum, maximum) { return value is int && value >= minimum && value <= maximum; }
     function validBases(b) { return b is map && b.keys().hasOnly(['first', 'second', 'third']) && b.first is bool && b.second is bool && b.third is bool; }
     function scheduleAdvanced() {
       let path = /databases/$(database)/documents/config/scheduleRevision;
@@ -210,14 +213,7 @@ service cloud.firestore {
       allow delete: if organizer() && scheduleAdvanced() && !hasRecordedScore(resource.data);
       allow update: if (organizer() && validAssignmentChanges() && ((!hasRecordedScore(resource.data) && !hasRecordedScore(request.resource.data)) || (request.resource.data.homeTeamId == resource.data.homeTeamId && request.resource.data.awayTeamId == resource.data.awayTeamId)) && (scheduleAdvanced() || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'lineScore', 'scoreCarry', 'lineScoreInning', 'scoreRevision', 'scoredBy'])) && (!scoringChanged() || hasScoreEvent(id))) || (signedIn() && profile().role == 'scorekeeper' && resource.data.scorekeeperId == request.auth.uid && hasScoreEvent(id) &&
         resource.data.status in ['scheduled', 'live'] && request.resource.data.status in ['live', 'completed'] &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'lineScore', 'scoreCarry', 'lineScoreInning', 'scoreRevision', 'scoredBy']) &&
-        validScore(request.resource.data) && request.resource.data.scoredBy == request.auth.uid &&
-        request.resource.data.scoreRevision == resource.data.get('scoreRevision', 0) + 1 &&
-        request.resource.data.inning is int && request.resource.data.inning >= 1 && request.resource.data.inning <= 99 &&
-        request.resource.data.half in ['top', 'bottom'] &&
-        request.resource.data.balls is int && request.resource.data.balls >= 0 && request.resource.data.balls <= 3 &&
-        request.resource.data.strikes is int && request.resource.data.strikes >= 0 && request.resource.data.strikes <= 2 &&
-        request.resource.data.outs is int && request.resource.data.outs >= 0 && request.resource.data.outs <= 2);
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'lineScore', 'scoreCarry', 'lineScoreInning', 'scoreRevision', 'scoredBy']));
     }
     function hasRecordedScore(d) {
       return d.status in ['live', 'completed'] || d.get('scoreRevision', 0) > 0 || d.get('homeScore', null) != null || d.get('awayScore', null) != null;
@@ -258,7 +254,13 @@ service cloud.firestore {
         (!changed.hasAny(['awayName']) || validName(d.awayName)) &&
         (!changed.hasAny(['fieldName']) || validName(d.fieldName)) &&
         (!changed.hasAny(['locked']) || d.locked is bool) &&
-        (!changed.hasAny(['status']) || d.status in ['scheduled', 'live', 'completed', 'cancelled']);
+        (!changed.hasAny(['status']) || validStatusTransition(resource.data, d));
+    }
+    function validStatusTransition(before, after) {
+      return (before.status == 'scheduled' && after.status in ['live', 'completed']) ||
+        (before.status == 'live' && after.status == 'completed') ||
+        (!hasRecordedScore(before) && !hasRecordedScore(after) &&
+          ((before.status == 'scheduled' && after.status == 'cancelled') || (before.status == 'cancelled' && after.status == 'scheduled')));
     }
     match /attendance/{id} {
       allow get: if signedIn() && !exists(/databases/$(database)/documents/attendance/$(id));
