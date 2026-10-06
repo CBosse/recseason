@@ -11,6 +11,13 @@ results. A Resend HTTP adapter is implemented and tested with synthetic HTTP res
 it is not configured for live sending. Server modules are not copied into the public
 Pages build.
 
+`server/game-reminder-service.mjs` now derives game-reminder messages and recipients
+from a consistent database snapshot, checks the requesting organizer's current role,
+and persists immutable game/requester provenance. Its send-time eligibility check
+re-reads current roles, links, opt-outs, roster status, game state, and references.
+The integration test runs the service through durable storage and the Resend adapter
+with synthetic HTTP responses. It does not send to any inbox.
+
 ## Implemented Contract
 
 - Each job contains exactly one recipient. An event kind, stable event ID, and
@@ -45,10 +52,12 @@ Pages build.
 ## Remaining Integration
 
 1. Configure the Resend account, verified sender domain, and server-side sending key.
-2. Deploy the tested durable store with a least-privilege server identity and a trusted
-   enqueue entry point. Authenticate organizers and derive recipients on the server.
-3. Derive invitation, RSVP reminder, reschedule, and cancellation events from committed
-   app changes. Implement eligibility checks and notice-specific preference policy.
+2. Deploy the tested durable store and reminder service with a least-privilege server
+   identity and an authenticated enqueue endpoint. The internal service's `verifiedUid`
+   must come from server-verified authentication, never from a request body.
+3. Connect reminder requests to the app and derive invitation, reschedule, and
+   cancellation events from committed changes. Add their eligibility checks and
+   notice-specific preference policy.
 4. Connect the tested provider adapter to a bounded scheduled worker, delivery webhooks,
    and operator reconciliation for uncertain outcomes. Never report acceptance as delivery.
 5. Verify controlled inbox delivery, recipient privacy, duplicate suppression, worker
@@ -69,6 +78,15 @@ in the app. See the [server client setup](https://firebase.google.com/docs/fires
 The current app backup format does not yet include this collection; add and rehearse
 queue recovery before enabling production sends. Accepted/uncertain states must not
 be reset to pending during restoration.
+
+The reminder service supports at most 1,000 scanned user profiles and 1,000 players
+on the participating teams, failing explicitly above those bounds. Jobs allow at most
+200 recipients per enqueue. Each send rechecks current data; larger leagues need a
+more selective recipient index and capacity testing. One event is identified by its
+game and message snapshot, so repeated requests for that same snapshot deduplicate.
+Recurring reminder cadence is not implemented. The existing reminder preference is
+honored, including address-level opt-outs shared across profiles. Other notice types
+are rejected by this eligibility checker until their own policies are implemented.
 
 ## Resend Adapter
 

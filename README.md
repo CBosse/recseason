@@ -207,6 +207,10 @@ deduplication, concurrent claims, bounded retries, and uncertain delivery outcom
 Its private Firestore store is now emulator-tested for durable claims and persisted
 results. A Resend adapter is tested with synthetic HTTP responses, but no provider
 credentials or production sender are configured and the app does not send mail.
+The internal reminder service now derives recipients from current league data and
+rechecks role, link, preference, and schedule changes before delivery. Its complete
+queue-to-provider path is emulator-tested with synthetic HTTP responses; a verified
+authentication endpoint and app connection are still required.
 See [notification delivery](docs/notification-delivery.md) for the integration contract
 and remaining deployment requirements.
 The setting persists in the profile and is honored by reminder draft recipient

@@ -1,6 +1,6 @@
 import { Firestore } from '@google-cloud/firestore';
 
-const immutable = ['id', 'kind', 'eventId', 'recipient', 'subject', 'body', 'createdAt', 'expiresAt'];
+const immutable = ['id', 'kind', 'eventId', 'sourceId', 'requestedBy', 'recipient', 'subject', 'body', 'createdAt', 'expiresAt'];
 
 export function openNotificationStore(projectId) {
   const emulator = process.env.FIRESTORE_EMULATOR_HOST;

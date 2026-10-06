@@ -18,9 +18,10 @@ export function notificationEmail(value) {
   return email;
 }
 
-export function notificationJobs({ kind, eventId, recipients, subject, body, expiresAt }, now) {
+export function notificationJobs({ kind, eventId, recipients, subject, body, expiresAt, sourceId = null, requestedBy = null }, now) {
   timestamp(now); timestamp(expiresAt);
   if (!kinds.has(kind) || typeof eventId !== 'string' || !eventId.trim() || eventId.length > 200) throw new Error('Invalid notification event.');
+  for (const id of [sourceId, requestedBy]) if (id !== null && (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(id))) throw new Error('Invalid notification source.');
   if (!Array.isArray(recipients) || !recipients.length || recipients.length > 200) throw new Error('Notifications require 1-200 recipients.');
   if (typeof subject !== 'string' || !subject.trim() || subject.length > 200 || /[\r\n]/.test(subject)) throw new Error('Invalid notification subject.');
   if (typeof body !== 'string' || !body.trim() || body.length > 20000) throw new Error('Invalid notification body.');
@@ -28,7 +29,7 @@ export function notificationJobs({ kind, eventId, recipients, subject, body, exp
   const addresses = recipients.map(notificationEmail);
   return [...new Set(addresses)].sort().map(recipient => ({
     id: createHash('sha256').update(JSON.stringify([kind, eventId, recipient])).digest('hex'),
-    kind, eventId, recipient, subject, body, createdAt: now, expiresAt,
+    kind, eventId, sourceId, requestedBy, recipient, subject, body, createdAt: now, expiresAt,
     status: 'pending', version: 0, attempts: 0, nextAttemptAt: now,
     leaseToken: null, leaseUntil: null, outcome: null, providerReceipt: null,
   }));
