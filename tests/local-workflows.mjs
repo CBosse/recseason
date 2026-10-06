@@ -60,7 +60,12 @@ try {
   const inviteDb = getFirestore(inviteApp, 'recseason'); connectFirestoreEmulator(inviteDb, '127.0.0.1', 8180);
   const { user: invited } = await createUserWithEmailAndPassword(inviteAuth, 'invited@recseason.test', 'LocalDemo123!');
   await setDoc(doc(inviteDb, 'users', invited.uid), newPlayerProfile(invited, 'Invited Parent'));
-  const invitation = invitationDetails({ email: invited.email, role: 'parent', linkedPlayerIds: ['child'] }, { teams: [], players: [{ id: 'child', teamId: 'away' }] });
+  const invitedChild = await getDoc(doc(admin.db, 'players', 'child'));
+  const invitedTeam = await getDoc(doc(admin.db, 'teams', invitedChild.data().teamId));
+  assert.ok(invitedChild.exists() && invitedTeam.exists());
+  const invitation = invitationDetails({ email: invited.email, role: 'parent', linkedPlayerIds: ['child'] }, {
+    teams: [{ id: invitedTeam.id, ...invitedTeam.data() }], players: [{ id: invitedChild.id, ...invitedChild.data() }],
+  });
   await setDoc(doc(admin.db, 'invitations', 'workflow-invite'), { ...invitation, status: 'pending', createdBy: admin.user.uid, createdAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 3600000) });
   await sendEmailVerification(invited);
   const codesResponse = await fetch('http://127.0.0.1:9099/emulator/v1/projects/demo-recseason/oobCodes');

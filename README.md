@@ -244,8 +244,12 @@ capacity testing against rule document-access limits, not only the write-count l
 Invitation domain validation and database rules are implemented and
 emulator-tested. Only site admins may issue invitations, never for the site-admin
 role. Acceptance requires a verified matching email and an atomic profile/invite
-update; invitations expire within seven days and can be revoked. Parent invites
-carry explicit child links. Automated invitation delivery and authenticated production
+update; invitations expire within seven days and can be revoked. Manager links must
+reference an existing team at creation and acceptance. Player/captain links must
+reference an active player still on the invited team, and that team must exist.
+Parent invites carry explicit unique child links; the client validates active players
+and their teams, but acceptance-time validation of every child remains unfinished.
+Automated invitation delivery and authenticated production
 acceptance testing remain outstanding. The Admin Panel now creates shareable invitation links,
 shows status, and revokes pending invitations. Recipients open the link, sign in
 or register with the invited email, request verification if needed, and accept.

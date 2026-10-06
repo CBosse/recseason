@@ -15,3 +15,9 @@ test('parent links are explicit, unique and limited to active players', () => {
 test('invalid emails, elevated roles and missing links are rejected', () => {
   for (const value of [{ email: 'bad', role: 'umpire' }, { email: 'a@b.test', role: 'siteAdmin' }, { email: 'a@b.test', role: 'teamManager' }, { email: 'a@b.test', role: 'player', linkedPlayerId: 'old' }]) assert.throws(() => invitationDetails(value, context));
 });
+
+test('roster invitations reject players whose team no longer exists', () => {
+  for (const role of ['player', 'captain', 'parent']) {
+    assert.throws(() => invitationDetails({ email: 'recipient@example.test', role, linkedPlayerId: 'p', linkedPlayerIds: ['p'] }, { ...context, teams: [] }));
+  }
+});

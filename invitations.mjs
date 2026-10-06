@@ -12,12 +12,12 @@ export function invitationDetails(values, { teams, players }) {
   if (['player', 'captain'].includes(values.role)) {
     linkedPlayerId = values.linkedPlayerId;
     const player = players.find(p => p.id === linkedPlayerId && !p.archived);
-    if (!player) throw new Error('Choose an active roster player.');
+    if (!player || !teams.some(t => t.id === player.teamId)) throw new Error('Choose an active roster player on an existing team.');
     linkedTeamId = player.teamId;
   }
   if (values.role === 'parent') {
     linkedPlayerIds = [...new Set(values.linkedPlayerIds || [])];
-    if (!linkedPlayerIds.length || linkedPlayerIds.length > 30 || linkedPlayerIds.some(id => !players.some(p => p.id === id && !p.archived))) throw new Error('Choose between one and thirty active children.');
+    if (!linkedPlayerIds.length || linkedPlayerIds.length > 30 || linkedPlayerIds.some(id => !players.some(p => p.id === id && !p.archived && teams.some(t => t.id === p.teamId)))) throw new Error('Choose between one and thirty active children on existing teams.');
   }
   return { email, role: values.role, linkedTeamId, linkedPlayerId, linkedPlayerIds };
 }

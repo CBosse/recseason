@@ -1,7 +1,8 @@
 import { before, after, test } from 'node:test';
+import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
-import { doc, documentId, setDoc, getDoc, updateDoc, deleteField, collection, getDocs, query, where, writeBatch, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { doc, documentId, setDoc, getDoc, updateDoc, deleteDoc, deleteField, collection, getDocs, query, where, writeBatch, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { invitationProfilePatch } from '../../invitations.mjs';
 import { newPlayerProfile } from '../../accounts.mjs';
 import { liveScoreUpdate } from '../../live-scoring.mjs';
@@ -487,6 +488,52 @@ test('invitation creation is admin-only and cannot grant siteAdmin', async () =>
   await assertFails(updateDoc(doc(dbFor('admin'), 'invitations', 'revocation-check'), { status: 'pending' }));
   await assertFails(getDoc(doc(dbFor('other'), 'invitations', 'parent-invite')));
   await assertFails(getDocs(collection(dbFor('player'), 'invitations')));
+});
+
+test('invitation creation validates role-specific links and current single-player records', async () => {
+  const db = dbFor('admin');
+  const base = { email: 'linked@example.test', role: 'captain', linkedTeamId: 'a', linkedPlayerId: 'p', linkedPlayerIds: [], status: 'pending', createdBy: 'admin', createdAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 3600000) };
+  for (const patch of [{ linkedPlayerId: 'missing' }, { linkedPlayerId: 'archived' }, { linkedTeamId: 'b' }, { role: 'teamManager', linkedPlayerId: null, linkedTeamId: 'missing' }, { role: 'scorekeeper' }, { role: 'parent', linkedTeamId: null, linkedPlayerId: null, linkedPlayerIds: [] }, { role: 'parent', linkedTeamId: null, linkedPlayerId: null, linkedPlayerIds: ['p', 'p'] }]) {
+    await assertFails(setDoc(doc(db, 'invitations', 'invalid-links'), { ...base, ...patch }));
+  }
+  await assertSucceeds(setDoc(doc(db, 'invitations', 'valid-captain'), base));
+});
+
+test('stale manager and roster invitations cannot grant access until their links are repaired', async () => {
+  const adminDb = dbFor('admin');
+  for (const kind of ['archived', 'moved', 'deleted-player', 'deleted-team', 'manager']) {
+    const uid = `stale-${kind}`, teamId = `invite-team-${kind}`, playerId = `invite-player-${kind}`;
+    const original = { name: 'Invite player', teamId, archived: false };
+    await env.withSecurityRulesDisabled(async context => {
+      await setDoc(doc(context.firestore(), 'teams', teamId), { name: 'Invite team' });
+      await setDoc(doc(context.firestore(), 'players', playerId), original);
+      await setDoc(doc(context.firestore(), 'users', uid), profile(uid, 'player'));
+    });
+    const invite = { email: `${uid}@example.test`, role: kind === 'manager' ? 'teamManager' : 'captain', linkedTeamId: teamId, linkedPlayerId: kind === 'manager' ? null : playerId, linkedPlayerIds: [], status: 'pending', createdBy: 'admin', createdAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + 3600000) };
+    await assertSucceeds(setDoc(doc(adminDb, 'invitations', uid), invite));
+    await env.withSecurityRulesDisabled(async context => {
+      const db = context.firestore();
+      if (kind === 'archived') await updateDoc(doc(db, 'players', playerId), { archived: true });
+      if (kind === 'moved') await updateDoc(doc(db, 'players', playerId), { teamId: 'b' });
+      if (kind === 'deleted-player') await deleteDoc(doc(db, 'players', playerId));
+      if (kind === 'deleted-team' || kind === 'manager') await deleteDoc(doc(db, 'teams', teamId));
+    });
+    const recipient = env.authenticatedContext(uid, { email: invite.email, email_verified: true }).firestore();
+    const accept = () => {
+      const batch = writeBatch(recipient);
+      batch.update(doc(recipient, 'users', uid), invitationProfilePatch(uid, invite));
+      batch.update(doc(recipient, 'invitations', uid), { status: 'accepted', acceptedBy: uid, acceptedAt: serverTimestamp() });
+      return batch.commit();
+    };
+    await assertFails(accept());
+    assert.equal((await getDoc(doc(recipient, 'users', uid))).data().role, 'player');
+    assert.equal((await getDoc(doc(recipient, 'invitations', uid))).data().status, 'pending');
+    await env.withSecurityRulesDisabled(async context => {
+      await setDoc(doc(context.firestore(), 'teams', teamId), { name: 'Invite team' });
+      await setDoc(doc(context.firestore(), 'players', playerId), original);
+    });
+    await assertSucceeds(accept());
+  }
 });
 
 test('invitation acceptance requires verified matching email and atomic consumption', async () => {

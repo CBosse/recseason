@@ -22,8 +22,21 @@ service cloud.firestore {
       return signedIn() && request.auth.token.email_verified == true && request.auth.token.email.lower() == invite.email;
     }
     function matchesInvitation(user, invite) {
-      return user.role == invite.role && user.linkedTeamId == invite.linkedTeamId &&
+      return validInvitationLinks(invite) && user.role == invite.role && user.linkedTeamId == invite.linkedTeamId &&
         user.linkedPlayerId == invite.linkedPlayerId && user.linkedPlayerIds == invite.linkedPlayerIds;
+    }
+    function validInvitationPlayer(invite) {
+      let player = getAfter(/databases/$(database)/documents/players/$(invite.linkedPlayerId)).data;
+      return player.get('archived', false) == false && player.teamId == invite.linkedTeamId &&
+        existsAfter(/databases/$(database)/documents/teams/$(player.teamId));
+    }
+    function validInvitationLinks(invite) {
+      return (invite.role == 'teamManager' && invite.linkedTeamId is string && invite.linkedPlayerId == null && invite.linkedPlayerIds == [] &&
+          existsAfter(/databases/$(database)/documents/teams/$(invite.linkedTeamId))) ||
+        (invite.role in ['player', 'captain'] && invite.linkedPlayerId is string && invite.linkedTeamId is string && invite.linkedPlayerIds == [] && validInvitationPlayer(invite)) ||
+        (invite.role == 'parent' && invite.linkedTeamId == null && invite.linkedPlayerId == null && invite.linkedPlayerIds is list &&
+          invite.linkedPlayerIds.size() > 0 && invite.linkedPlayerIds.size() <= 30 && invite.linkedPlayerIds.toSet().size() == invite.linkedPlayerIds.size()) ||
+        (invite.role in ['commissioner', 'leagueManager', 'umpire', 'scorekeeper'] && invite.linkedTeamId == null && invite.linkedPlayerId == null && invite.linkedPlayerIds == []);
     }
     function acceptsInvitation(uid) {
       let id = request.resource.data.acceptedInvitationId;
@@ -43,7 +56,7 @@ service cloud.firestore {
         (request.resource.data.linkedTeamId == null || request.resource.data.linkedTeamId is string) &&
         (request.resource.data.linkedPlayerId == null || request.resource.data.linkedPlayerId is string) &&
         request.resource.data.linkedPlayerIds is list && request.resource.data.linkedPlayerIds.size() <= 30 &&
-        request.resource.data.status == 'pending' && request.resource.data.createdBy == request.auth.uid &&
+        validInvitationLinks(request.resource.data) && request.resource.data.status == 'pending' && request.resource.data.createdBy == request.auth.uid &&
         request.resource.data.createdAt == request.time && request.resource.data.expiresAt is timestamp &&
         request.resource.data.expiresAt > request.time && request.resource.data.expiresAt <= request.time + duration.value(7, 'd');
       allow update: if (admin() && resource.data.status == 'pending' && request.resource.data.status == 'revoked' &&
