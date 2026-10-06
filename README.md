@@ -205,7 +205,8 @@ Signed-in accounts can opt out of email game reminders in the account panel.
 The server-only notification worker protocol now has tests for one-recipient jobs,
 deduplication, concurrent claims, bounded retries, and uncertain delivery outcomes.
 Its private Firestore store is now emulator-tested for durable claims and persisted
-results, but no provider or production sender is configured and it does not send mail.
+results. A Resend adapter is tested with synthetic HTTP responses, but no provider
+credentials or production sender are configured and the app does not send mail.
 See [notification delivery](docs/notification-delivery.md) for the integration contract
 and remaining deployment requirements.
 The setting persists in the profile and is honored by reminder draft recipient

@@ -75,6 +75,14 @@ test('confirmed transient rejections back off and stop after five attempts', asy
   }
 });
 
+test('provider retry-after is respected without extending a notice beyond its expiry', async () => {
+  const x = await setup({ transport: { send: async () => ({ accepted: false, retryable: true, retryAfterMs: 300000 }) } });
+  assert.equal((await executeNotification(x.worker, x.job.id)).status, 'retry');
+  assert.equal((await x.store.get(x.job.id)).nextAttemptAt, 300000);
+  const expired = await setup({ transport: { send: async () => ({ accepted: false, retryable: true, retryAfterMs: 86400000 }) } });
+  assert.equal((await executeNotification(expired.worker, expired.job.id)).status, 'failed');
+});
+
 test('ambiguous provider outcomes never automatically resend', async () => {
   for (const send of [async () => { throw new Error('Sensitive provider text'); }, async () => ({}), async () => ({ accepted: true })]) {
     const x = await setup({ transport: { send } });

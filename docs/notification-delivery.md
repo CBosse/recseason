@@ -7,7 +7,9 @@ and no mail is sent by the new module. `server/notification-jobs.mjs` contains a
 provider-independent worker protocol. `server/notification-store.mjs` supplies a
 durable transactional Firestore store fixed to the named `recseason` database.
 Its emulator test uses independent clients to verify concurrent claims and persisted
-results. Neither server module is copied into the public Pages build.
+results. A Resend HTTP adapter is implemented and tested with synthetic HTTP responses;
+it is not configured for live sending. Server modules are not copied into the public
+Pages build.
 
 ## Implemented Contract
 
@@ -34,19 +36,20 @@ results. Neither server module is copied into the public Pages build.
   and permanent rejections fail without retry.
 - A timeout, exception, malformed response, or expired send lease means delivery is
   uncertain. It requires operator reconciliation rather than an automatic retry.
-  Provider idempotency support would strengthen recovery, but is not assumed.
+  The Resend adapter also sends a stable idempotency key. Unknown outcomes still
+  require review rather than relying solely on the provider's retention window.
 - `accepted` means the provider accepted the request, not that an inbox received it.
   Delivery/bounce webhooks, receipt reconciliation, operator review, and audit UI remain
   to be implemented. The module records only bounded outcome codes, not raw exceptions.
 
 ## Remaining Integration
 
-1. Select the sending provider and verified domain; configure server-side credentials.
+1. Configure the Resend account, verified sender domain, and server-side sending key.
 2. Deploy the tested durable store with a least-privilege server identity and a trusted
    enqueue entry point. Authenticate organizers and derive recipients on the server.
 3. Derive invitation, RSVP reminder, reschedule, and cancellation events from committed
    app changes. Implement eligibility checks and notice-specific preference policy.
-4. Add an authenticated provider adapter, bounded scheduled worker, delivery webhooks,
+4. Connect the tested provider adapter to a bounded scheduled worker, delivery webhooks,
    and operator reconciliation for uncertain outcomes. Never report acceptance as delivery.
 5. Verify controlled inbox delivery, recipient privacy, duplicate suppression, worker
    restarts, preference changes, expired invitations, cancellations, and timezones.
@@ -66,3 +69,21 @@ in the app. See the [server client setup](https://firebase.google.com/docs/fires
 The current app backup format does not yet include this collection; add and rehearse
 queue recovery before enabling production sends. Accepted/uncertain states must not
 be reset to pending during restoration.
+
+## Resend Adapter
+
+`resendTransport({ apiKey, sender })` accepts a server-held sending key and one bare
+sender email address on a verified domain. It makes no network request until `send`
+is called. Nothing reads a key from browser state, and no key has been configured.
+Requests use the fixed HTTPS `/emails` endpoint, reject redirects, contain one `to`
+recipient, and time out after 15 seconds. Header injection and oversized messages
+are rejected before the request. Provider error text is not logged or persisted.
+
+The adapter follows the [send API](https://resend.com/docs/api-reference/emails/send-email),
+[error responses](https://resend.com/docs/api-reference/errors), and
+[idempotency contract](https://resend.com/docs/dashboard/emails/idempotency-keys).
+Rate-limit rejection honors `Retry-After` without extending job expiry. Authentication
+and validation failures are permanent for the current job. Timeouts, idempotency
+conflicts, server failures, and malformed successes are treated as uncertain. Provider
+acceptance stores a receipt, not a claim of inbox delivery. Operator reconciliation
+and actual controlled-inbox verification remain required before enabling live mail.

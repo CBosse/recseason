@@ -11,6 +11,13 @@ function timestamp(value) {
   return value;
 }
 
+export function notificationEmail(value) {
+  if (typeof value !== 'string') throw new Error('Invalid notification recipient.');
+  const email = value.trim().toLowerCase();
+  if (email.length > 254 || !emailPattern.test(email)) throw new Error('Invalid notification recipient.');
+  return email;
+}
+
 export function notificationJobs({ kind, eventId, recipients, subject, body, expiresAt }, now) {
   timestamp(now); timestamp(expiresAt);
   if (!kinds.has(kind) || typeof eventId !== 'string' || !eventId.trim() || eventId.length > 200) throw new Error('Invalid notification event.');
@@ -18,12 +25,7 @@ export function notificationJobs({ kind, eventId, recipients, subject, body, exp
   if (typeof subject !== 'string' || !subject.trim() || subject.length > 200 || /[\r\n]/.test(subject)) throw new Error('Invalid notification subject.');
   if (typeof body !== 'string' || !body.trim() || body.length > 20000) throw new Error('Invalid notification body.');
   if (expiresAt <= now || expiresAt - now > DAY_MS) throw new Error('Notification lifetime must be between zero and 24 hours.');
-  const addresses = recipients.map(value => {
-    if (typeof value !== 'string') throw new Error('Invalid notification recipient.');
-    const email = value.trim().toLowerCase();
-    if (email.length > 254 || !emailPattern.test(email)) throw new Error('Invalid notification recipient.');
-    return email;
-  });
+  const addresses = recipients.map(notificationEmail);
   return [...new Set(addresses)].sort().map(recipient => ({
     id: createHash('sha256').update(JSON.stringify([kind, eventId, recipient])).digest('hex'),
     kind, eventId, recipient, subject, body, createdAt: now, expiresAt,
@@ -65,8 +67,9 @@ export async function executeNotification({ store, transport, isEligible, clock 
     const next = transition(claimed, { leaseToken: null, leaseUntil: null, ...patch });
     return { status: await store.compareAndSet(id, claimed.version, next) ? next.status : 'superseded' };
   };
-  const retry = async outcome => {
-    const nextAttemptAt = timestamp(clock()) + Math.min(3600000, 60000 * 2 ** (claimed.attempts - 1));
+  const retry = async (outcome, minimumDelay = 0) => {
+    const delay = Number.isSafeInteger(minimumDelay) && minimumDelay >= 0 ? Math.min(DAY_MS, minimumDelay) : 0;
+    const nextAttemptAt = timestamp(clock()) + Math.max(delay, Math.min(3600000, 60000 * 2 ** (claimed.attempts - 1)));
     return settle(claimed.attempts >= MAX_ATTEMPTS || nextAttemptAt >= job.expiresAt
       ? { status: 'failed', outcome }
       : { status: 'retry', outcome, nextAttemptAt });
@@ -87,7 +90,7 @@ export async function executeNotification({ store, transport, isEligible, clock 
   if (result?.accepted === true && typeof result.receipt === 'string' && result.receipt.length > 0 && result.receipt.length <= 500) {
     return settle({ status: 'accepted', outcome: 'provider-accepted', providerReceipt: result.receipt });
   }
-  if (result?.accepted === false && result.retryable === true) return retry('provider-retryable-rejection');
+  if (result?.accepted === false && result.retryable === true) return retry('provider-retryable-rejection', result.retryAfterMs);
   if (result?.accepted === false && result.retryable === false) return settle({ status: 'failed', outcome: 'provider-permanent-rejection' });
   return settle({ status: 'needs-review', outcome: 'delivery-unknown' });
 }
