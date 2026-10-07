@@ -3,6 +3,7 @@ import { openNotificationStore, notificationStore } from '../server/notification
 import { notificationJobs, enqueueNotifications, executeNotification } from '../server/notification-jobs.mjs';
 import { enqueueGameReminder, gameReminderEligibility } from '../server/game-reminder-service.mjs';
 import { resendTransport } from '../server/resend-transport.mjs';
+import { drainNotifications } from '../server/notification-drain.mjs';
 
 if (process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8180') throw new Error('This test requires the local Firestore emulator.');
 assert.throws(() => openNotificationStore('bosse-testing'));
@@ -84,6 +85,27 @@ try {
   assert.deepEqual(providerPayload.to, ['player@example.test']);
   assert.equal((await second.store.get(fresh.id)).providerReceipt, 'synthetic-provider-receipt');
   console.log('PASS: fresh organizer reminder flows through durable queue, current eligibility, synthetic Resend HTTP, and persisted provider acceptance.');
+  const batchJobs = notificationJobs({ kind: 'cancellation', eventId: `batch-${Date.now()}`, recipients: ['due@example.test', 'future@example.test', 'lease@example.test'], subject: 'Batch', body: 'Synthetic', expiresAt: 86400000 }, 0);
+  await enqueueNotifications(second.store, batchJobs);
+  const dueJob = batchJobs.find(job => job.recipient.startsWith('due@'));
+  const future = batchJobs.find(job => job.recipient.startsWith('future@'));
+  const lease = batchJobs.find(job => job.recipient.startsWith('lease@'));
+  await second.store.compareAndSet(future.id, 0, { ...future, version: 1, status: 'retry', nextAttemptAt: 5000 });
+  await second.store.compareAndSet(lease.id, 0, { ...lease, version: 1, status: 'sending', leaseUntil: 1000 });
+  const beforeLease = await second.store.due(0, 100);
+  assert.ok(beforeLease.includes(dueJob.id));
+  assert.ok(!beforeLease.includes(future.id)); assert.ok(!beforeLease.includes(lease.id));
+  assert.ok(!beforeLease.includes(fresh.id));
+  assert.equal((await second.store.due(1000, 1)).length, 1);
+  assert.ok((await second.store.due(1000, 100)).includes(lease.id));
+  let batchSends = 0;
+  const batchResult = await drainNotifications({ store: second.store, clock: () => 1000, isEligible: async () => true, transport: { send: async () => { batchSends++; return { accepted: true, receipt: 'batch-synthetic' }; } } });
+  assert.equal(batchResult.outcomes['needs-review'], 1);
+  assert.ok(batchSends >= 1);
+  assert.equal((await second.store.get(lease.id)).status, 'needs-review');
+  assert.equal((await second.store.get(future.id)).status, 'retry');
+  assert.equal((await second.store.due(1000, 100)).length, 0);
+  console.log('PASS: bounded due selection excludes future retries and terminal jobs, drains pending work, and reconciles expired leases without resending them.');
 } finally {
   await second.db.terminate();
   await first.db.terminate();

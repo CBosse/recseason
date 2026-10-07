@@ -1,5 +1,5 @@
 {
   "firestore": [
-    { "database": "recseason", "rules": "firestore.rules" }
+    { "database": "recseason", "rules": "firestore.rules", "indexes": "firestore.indexes.json" }
   ]
 }

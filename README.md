@@ -202,6 +202,11 @@ operator-approved production restore procedure remain outstanding.
 ### Feature gaps
 
 Signed-in accounts can opt out of email game reminders in the account panel.
+A bounded server-side queue drain and explicit one-shot send runner are implemented.
+They select due work, honor retry delays, and reconcile abandoned leases without
+resending uncertain messages. They are not deployed or scheduled; verified sender
+configuration, production index readiness, queue recovery, and inbox acceptance
+remain required before live sending. See `docs/notification-delivery.md`.
 The server-only notification worker protocol now has tests for one-recipient jobs,
 deduplication, concurrent claims, bounded retries, and uncertain delivery outcomes.
 Its private Firestore store is now emulator-tested for durable claims and persisted

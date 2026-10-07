@@ -16,6 +16,16 @@ export function notificationStore(db) {
     return db.collection('notificationJobs').doc(id);
   };
   return {
+    async due(now, limit = 25) {
+      if (!Number.isSafeInteger(now) || now < 0 || !Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('Invalid notification batch bounds.');
+      const candidates = [];
+      for (const [status, field] of [['pending', 'nextAttemptAt'], ['retry', 'nextAttemptAt'], ['sending', 'leaseUntil']]) {
+        const snapshot = await db.collection('notificationJobs').where('status', '==', status)
+          .where(field, '<=', now).orderBy(field).limit(limit).get();
+        for (const row of snapshot.docs) candidates.push({ id: row.id, dueAt: row.data()[field] });
+      }
+      return candidates.sort((a, b) => a.dueAt - b.dueAt || a.id.localeCompare(b.id)).slice(0, limit).map(row => row.id);
+    },
     async create(job) {
       if (job.version !== 0 || job.status !== 'pending' || job.attempts !== 0) throw new Error('Only new pending jobs may be created.');
       const target = ref(job.id);

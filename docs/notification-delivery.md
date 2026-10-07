@@ -51,6 +51,24 @@ with synthetic HTTP responses. It does not send to any inbox.
 
 ## Remaining Integration
 
+The one-shot runner `node scripts/send-notifications.mjs --send` now drains up to
+25 due jobs with a 60-second admission budget. It requires server-side
+`RESEND_API_KEY`, `RECSEASON_MAIL_FROM`, and application-default credentials.
+Do not enable it until the remaining production gates below are complete.
+It refuses emulator targets and missing explicit send intent. Output contains only
+aggregate status counts, never recipients, message bodies, keys, or raw errors.
+No runner has been invoked against production. It is not a deployed scheduler.
+
+`store.due` reads at most three times the requested limit (maximum 100 per status),
+selecting pending, due retries, and expired sending leases in oldest-due order.
+Terminal states and active leases cannot consume the batch. The drain settles an
+in-flight send before stopping admission at its deadline; this is not a hard runtime
+timeout. Storage failures stop the batch, and concurrent drains use the same atomic
+claim protocol. Deploy the two indexes in `firestore.indexes.json` to the named
+database and wait for readiness before enabling a runner. Emulator query tests do
+not prove production index readiness. Provider rate limits are handled by the
+existing per-job backoff; deployment still needs an appropriate scheduler cadence.
+
 1. Configure the Resend account, verified sender domain, and server-side sending key.
 2. Deploy the tested durable store and reminder service with a least-privilege server
    identity and an authenticated enqueue endpoint. The internal service's `verifiedUid`
