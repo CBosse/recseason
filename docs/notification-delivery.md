@@ -51,6 +51,32 @@ with synthetic HTTP responses. It does not send to any inbox.
 
 ## Remaining Integration
 
+An authenticated Node endpoint is implemented at `POST /api/game-reminders`.
+It accepts only JSON `{ "gameId": "..." }` and a Firebase ID token in the Bearer
+authorization header. Firebase Admin verifies the token with revocation checking;
+the service then reads the current organizer role. The response is aggregate counts
+with HTTP 202 (queued, not sent). Recipient lists and caller-provided identities are
+rejected. Invalid tokens return 401, non-organizers 403, unavailable games 409,
+and temporary service failures 503 without raw error details.
+
+The runtime admits one request per authenticated UID per minute using a Firestore
+transaction in private `notificationLimits`, plus at most 16 active requests per
+process. JSON bodies are limited to 1 KiB. CORS permits only the production app
+origin, or fixed loopback origins in explicitly selected emulator mode. CORS is not
+the authorization boundary. Production hosting must provide HTTPS, request limits,
+least-privilege credentials and monitoring; it is not deployed by the Pages workflow.
+
+Run `node scripts/serve-reminders.mjs --local` with both exact emulator variables
+set to `127.0.0.1:9099` (Auth) and `127.0.0.1:8180` (Firestore), respectively.
+The default listener is loopback port 8082. Without `--local`, the runtime targets
+only `bosse-testing` and rejects emulator variables; use a managed HTTPS ingress.
+The endpoint never starts the sending worker. App UI connection remains unfinished.
+CI verifies actual emulator-issued tokens, enqueue/deduplication, persistent rate
+limits, changed roles and disabled accounts. It does not prove production token
+verification or hosted endpoint operation. The SDK behavior follows
+[Firebase token verification](https://firebase.google.com/docs/auth/admin/verify-id-tokens)
+and [revocation checking](https://firebase.google.com/docs/auth/admin/manage-sessions).
+
 The one-shot runner `node scripts/send-notifications.mjs --send` now drains up to
 25 due jobs with a 60-second admission budget. It requires server-side
 `RESEND_API_KEY`, `RECSEASON_MAIL_FROM`, and application-default credentials.
@@ -71,8 +97,8 @@ existing per-job backoff; deployment still needs an appropriate scheduler cadenc
 
 1. Configure the Resend account, verified sender domain, and server-side sending key.
 2. Deploy the tested durable store and reminder service with a least-privilege server
-   identity and an authenticated enqueue endpoint. The internal service's `verifiedUid`
-   must come from server-verified authentication, never from a request body.
+   identity and the tested authenticated enqueue endpoint. The internal service's
+   `verifiedUid` is derived from server-verified authentication, never a request body.
 3. Connect reminder requests to the app and derive invitation, reschedule, and
    cancellation events from committed changes. Add their eligibility checks and
    notice-specific preference policy.

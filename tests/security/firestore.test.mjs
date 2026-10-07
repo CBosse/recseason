@@ -39,14 +39,16 @@ before(async () => {
 });
 after(async () => { await env?.cleanup(); });
 
-test('private notification jobs are inaccessible to all browser roles', async () => {
-  await env.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'notificationJobs', 'private-job'), { recipient: 'private@example.test', body: 'Private notice' }));
-  for (const uid of ['admin', 'organizer', 'scorer', 'player', 'parent', 'manager']) {
-    const db = dbFor(uid);
-    await assertFails(getDoc(doc(db, 'notificationJobs', 'private-job')));
-    await assertFails(getDocs(collection(db, 'notificationJobs')));
-    await assertFails(setDoc(doc(db, 'notificationJobs', 'injected'), { status: 'pending' }));
-    await assertFails(deleteDoc(doc(db, 'notificationJobs', 'private-job')));
+test('private notification jobs and rate limits are inaccessible to all browser roles', async () => {
+  for (const name of ['notificationJobs', 'notificationLimits']) {
+    await env.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), name, 'private-job'), { recipient: 'private@example.test', body: 'Private notice' }));
+    for (const uid of ['admin', 'organizer', 'scorer', 'player', 'parent', 'manager']) {
+      const db = dbFor(uid);
+      await assertFails(getDoc(doc(db, name, 'private-job')));
+      await assertFails(getDocs(collection(db, name)));
+      await assertFails(setDoc(doc(db, name, 'injected'), { status: 'pending' }));
+      await assertFails(deleteDoc(doc(db, name, 'private-job')));
+    }
   }
 });
 

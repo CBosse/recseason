@@ -35,7 +35,7 @@ async function currentReminder(db, gameId, actorUid) {
 // This internal service is not a public HTTP handler and cannot verify a token itself.
 export async function enqueueGameReminder({ db, store, verifiedUid, gameId, now = Date.now() }) {
   const current = await currentReminder(db, gameId, verifiedUid);
-  if (!current) throw new Error('This game is not available for reminders.');
+  if (!current) throw Object.assign(new Error('This game is not available for reminders.'), { code: 'game-unavailable' });
   if (!current.draft.recipients.length) return { created: 0, existing: 0, recipients: 0, playersWithoutRecipient: current.draft.playersWithoutRecipient };
   const jobs = notificationJobs({ kind: 'rsvp-reminder', eventId: current.eventId, sourceId: gameId, requestedBy: verifiedUid,
     ...current.draft, expiresAt: now + 86400000 }, now);
