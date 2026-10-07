@@ -11,6 +11,14 @@ remain on Node 22 and the Firestore emulator uses Java 21. Update the hashes and
 version comments together when maintaining CI, and require a complete successful
 deployment plus live checksum verification before accepting a tooling upgrade.
 
+Regenerate dependency lockfiles with npm 10.9.9, matching the verified Node 22 CI
+toolchain: `npm exec --yes --package=npm@10.9.9 -- npm install --package-lock-only --ignore-scripts`.
+Before pushing dependency changes, run
+`npm exec --yes --package=npm@10.9.9 -- npm ci --dry-run --ignore-scripts --no-audit --no-fund`.
+Then require the real Linux clean install and complete deployment to pass. A local
+incremental install is not sufficient: npm 11 previously omitted a nested picomatch
+dependency from the lockfile even though local tests continued to run.
+
 `dist/release.json` records the expected release version and file checksums.
 `node scripts/verify-release.mjs` checks the production Pages URL against that
 local manifest. Do not download an untrusted manifest from the live site and treat
