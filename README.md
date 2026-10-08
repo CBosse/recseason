@@ -171,7 +171,7 @@ Losing it makes encrypted backups unrecoverable. No production backup is attempt
 when the environment variable is missing.
 The export reads the named production database only and writes an authenticated,
 encrypted `.encrypted.json` file under ignored `.tools/backups`. It includes all
-twelve app collections, including score history, and retains raw
+fourteen app collections, including score history, notification jobs and request limits, and retains raw
 Firestore value types, and uses one `readTime` for every page for a consistent
 snapshot. This follows the [Firestore list API](https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.documents/list).
 The file contains private data. Keep it protected and out of Git, Pages, and shared
@@ -191,13 +191,20 @@ documents. It verifies every restored document after one atomic create-only comm
 Encrypted input is authenticated before any database request. Files above 48 MiB
 and encrypted plaintext above 32 MiB are rejected. No decrypted file is written.
 `npm run test:recovery` tests encrypted synthetic data, a wrong passphrase before
-restore, and an overwrite attempt; it runs in CI. A five-document production export was successfully restored
+restore, all seven notification states with receipts/leases/retry metadata, and an
+overwrite attempt; it runs in CI. A five-document production export was successfully restored
 and verified locally on September 26, 2026. Production was not modified.
 
 This is an app-data recovery tool, not complete disaster recovery. Auth accounts,
 storage files, indexes, rules and unknown collections/subcollections are not included.
 Scheduled encrypted off-device backups, larger snapshots, retention policy, and an
 operator-approved production restore procedure remain outstanding.
+Notification jobs are restored verbatim into the isolated recovery database, which
+the sending store refuses to open. Never resume sending from a historical snapshot
+without provider reconciliation: a job pending at backup time may have been accepted
+afterward. Earlier eleven/twelve-collection backups lack queue records and cannot
+establish whether a notification was already sent. See the notification recovery
+procedure in `docs/notification-delivery.md`.
 
 ### Feature gaps
 

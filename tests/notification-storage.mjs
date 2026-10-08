@@ -8,6 +8,7 @@ import { drainNotifications } from '../server/notification-drain.mjs';
 if (process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8180') throw new Error('This test requires the local Firestore emulator.');
 assert.throws(() => openNotificationStore('bosse-testing'));
 assert.throws(() => notificationStore({ databaseId: '(default)' }));
+assert.throws(() => notificationStore({ databaseId: 'recovery' }));
 const first = openNotificationStore('demo-recseason');
 const second = openNotificationStore('demo-recseason');
 try {

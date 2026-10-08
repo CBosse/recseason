@@ -127,9 +127,29 @@ documents are in `notificationJobs` within `recseason`; no default database is u
 Production authentication uses the Google server client's application-default
 credentials, which must be configured by the eventual server runtime, not embedded
 in the app. See the [server client setup](https://firebase.google.com/docs/firestore/quickstart-server).
-The current app backup format does not yet include this collection; add and rehearse
-queue recovery before enabling production sends. Accepted/uncertain states must not
-be reset to pending during restoration.
+New encrypted app backups include `notificationJobs` and `notificationLimits`.
+The recovery rehearsal preserves all seven states, event IDs, recipients, messages,
+provenance, receipts, revision counters, leases, attempts, and next-attempt times.
+Accepted/uncertain states are never reset to pending. Older eleven/twelve-collection
+backups remain readable, but contain no queue coverage. Current snapshots still have
+a 500-document limit across all collections; exports fail explicitly above that size.
+
+### Notification Recovery Gate
+
+1. Stop the enqueue endpoint and all sending workers before a production recovery.
+2. Restore the authenticated encrypted snapshot into the local `recovery` database
+   and verify every document. The notification store rejects this database, so no
+   restored job can be sent from the recovery rehearsal.
+3. Reconcile jobs with provider receipts and activity since the snapshot's read time.
+   Even a backed-up pending/retry job may have been accepted after that snapshot.
+   The snapshot alone cannot prove that resending is safe. Preserve accepted and
+   needs-review states; treat unmatched or uncertain outcomes as review-required.
+4. Verify current recipient preferences, roles, game state, and expired invitations
+   before resuming any eligible work. Do not restore old authorization state and
+   immediately resume delivery without a separate account/access review.
+5. Obtain operator approval for a production restore and controlled inbox test before
+   restarting the sender. No production queue restore or reconciliation tool exists
+   yet; the local rehearsal is not proof of a complete production recovery procedure.
 
 The reminder service supports at most 1,000 scanned user profiles and 1,000 players
 on the participating teams, failing explicitly above those bounds. Jobs allow at most
