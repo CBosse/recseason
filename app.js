@@ -19,6 +19,7 @@ import { localDateKey } from './calendar.mjs';
 import { rosterEntry } from './team-roster.mjs';
 import { checkInTeams, attendanceUpdate, openCheckIn } from './attendance.mjs';
 import { gameReminder, openReminderDraft } from './reminders.mjs';
+import { reminderEndpoint, requestGameReminder, openQueuedReminder } from './reminder-client.mjs';
 import { scheduleRevision, nextScheduleRevision } from './schedule-version.mjs';
 import { validateSeasonChange } from './season-config.mjs';
 import { rosterPresentation } from './roster-scope.mjs';
@@ -134,6 +135,7 @@ function clearSessionData() {
   document.getElementById('game-editor-dialog')?.remove();
   document.getElementById('attendance-dialog')?.remove();
   document.getElementById('reminder-dialog')?.remove();
+  document.getElementById('queued-reminder-dialog')?.remove();
   subscriptions.clear();
   clearTimeout(_connectTimeout);
   _listenersStarted = false;
@@ -944,6 +946,16 @@ function renderScheduleView() {
       li.querySelector('.edit-score-btn')?.addEventListener('click', () => showInlineScoreEdit(li, game));
       li.querySelector('.edit-game-btn')?.addEventListener('click', () => editGame(game));
       li.querySelector('.cancel-game-btn')?.addEventListener('click', () => cancelGame(game));
+      if (canEdit() && game.status === 'scheduled' && reminderEndpoint(localMode)) {
+        const queue = document.createElement('button'); queue.className = 'btn btn-ghost btn-sm'; queue.textContent = 'Queue reminder';
+        queue.onclick = () => {
+          const user = auth.currentUser;
+          if (!user || currentUser?.uid !== user.uid || !canEdit()) return;
+          openQueuedReminder(game, () => requestGameReminder({ endpoint: reminderEndpoint(localMode), gameId: game.id, user,
+            isCurrent: () => auth.currentUser === user && currentUser?.uid === user.uid && canEdit() }));
+        };
+        li.querySelector('.game-actions').append(queue);
+      }
       if (currentUser?.role === 'siteAdmin' && game.status === 'scheduled') {
         const reminder = document.createElement('button'); reminder.className = 'btn btn-ghost btn-sm'; reminder.textContent = 'Reminder draft';
         reminder.onclick = async () => {

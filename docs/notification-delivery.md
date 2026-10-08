@@ -2,7 +2,8 @@
 
 ## Current Status
 
-The browser still downloads email drafts only. No background sender is configured,
+The production browser still downloads email drafts only. The local app now connects
+organizer game actions to the authenticated enqueue endpoint. No background sender is configured,
 and no mail is sent by the new module. `server/notification-jobs.mjs` contains a
 provider-independent worker protocol. `server/notification-store.mjs` supplies a
 durable transactional Firestore store fixed to the named `recseason` database.
@@ -70,7 +71,14 @@ Run `node scripts/serve-reminders.mjs --local` with both exact emulator variable
 set to `127.0.0.1:9099` (Auth) and `127.0.0.1:8180` (Firestore), respectively.
 The default listener is loopback port 8082. Without `--local`, the runtime targets
 only `bosse-testing` and rejects emulator variables; use a managed HTTPS ingress.
-The endpoint never starts the sending worker. App UI connection remains unfinished.
+The endpoint never starts the sending worker. The organizer schedule now includes a
+separate confirmation dialog and queue action when an endpoint is configured.
+`reminder-client.mjs` fixes the local address to loopback port 8082 and leaves the
+production address unset until hosting and inbox gates pass. No URL parameter or
+browser storage value can redirect an ID token. The client sends only a game ID,
+checks account continuity before and after the request, and reports queued versus
+existing counts without claiming delivery. Network failures are not automatically
+retried. Existing draft downloads remain available to site administrators.
 CI verifies actual emulator-issued tokens, enqueue/deduplication, persistent rate
 limits, changed roles and disabled accounts. It does not prove production token
 verification or hosted endpoint operation. The SDK behavior follows

@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Queued reminder verification</title>
+<link rel="stylesheet" href="../style.css">
+<button id="success">Successful request</button>
+<button id="failure">Rate-limited request</button>
+<script type="module">
+import { openQueuedReminder } from '../reminder-client.mjs';
+const game = { homeName: 'Riverside', awayName: 'Northside', date: '2026-10-09', time: '18:00', fieldName: 'Community Field' };
+document.getElementById('success').onclick = () => openQueuedReminder(game, async () => ({ created: 8, existing: 1, playersWithoutRecipient: 2 }));
+document.getElementById('failure').onclick = () => openQueuedReminder(game, async () => { throw new Error('Please wait one minute before requesting another reminder.'); });
+</script>
+</html>
