@@ -14,10 +14,10 @@ export function validatedScoreState(game) {
     !integer(state.inning, 1, 99) || !integer(state.balls, 0, 3) || !integer(state.strikes, 0, 2) || !integer(state.outs, 0, 2)) throw new Error('Invalid scoring counters.');
   for (const side of ['home', 'away']) {
     const total = state[`${side}Score`];
-    if (!(total === null && ['scheduled', 'cancelled'].includes(state.status)) && !integer(total, 0, 99999)) throw new Error('Invalid scoring total.');
+    if (!(total === null && ['scheduled', 'cancelled'].includes(state.status)) && !integer(total, 0, Number.MAX_SAFE_INTEGER)) throw new Error('Invalid scoring total.');
   }
   const scorePair = value => value && typeof value === 'object' && !Array.isArray(value) &&
-    Object.keys(value).length === 2 && integer(value.home, 0, 99999) && integer(value.away, 0, 99999);
+    Object.keys(value).length === 2 && integer(value.home, 0, Number.MAX_SAFE_INTEGER) && integer(value.away, 0, Number.MAX_SAFE_INTEGER);
   if (!state.lineScore || typeof state.lineScore !== 'object' || Array.isArray(state.lineScore)) throw new Error('Invalid inning scores.');
   const innings = Object.entries(state.lineScore);
   if (innings.some(([key, value]) => !/^[1-9][0-9]?$/.test(key) || !scorePair(value))) throw new Error('Invalid inning scores.');

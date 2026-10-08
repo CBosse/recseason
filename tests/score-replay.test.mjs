@@ -68,3 +68,9 @@ test('malformed event containers and corrupt displayed state do not throw', () =
   assert.equal(replay.frames.length, 4);
   assert.match(replay.warnings.join(' '), /displayed game.*invalid/);
 });
+
+test('replay accepts the same safe-integer score range as the database', () => {
+  const state = { status: 'completed', homeScore: Number.MAX_SAFE_INTEGER, awayScore: 0 };
+  const event = scoreHistoryEntry('g', state, { ...state, scoreRevision: 1 }, 'scorer', 'Legacy correction');
+  assert.deepEqual(scoreReplay({ ...state, id: 'g', scoreRevision: 1 }, [event]).warnings, []);
+});

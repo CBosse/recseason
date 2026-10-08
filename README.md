@@ -211,8 +211,15 @@ procedure in `docs/notification-delivery.md`.
 Play-by-play must support organizer-configured league rules across competition
 levels, rather than one fixed baseball/softball preset. Each game must retain its
 rules version so later league edits cannot rewrite historical outcomes. Current
-legacy score-state limits still match the existing Firestore schema; configurable
-pitch/inning/out limits and rules-aware replay are not implemented yet.
+legacy score-state limits still match the existing Firestore schema. `league-rules.mjs`
+now defines validated, revisioned profiles and independent per-game snapshots for
+innings, count thresholds, starting counts, foul-at-limit policy, half-inning run
+caps, mercy rules, time limits, ties and extra-inning runners. Stale profile changes
+are rejected and scored legacy games cannot silently adopt a new profile. This is
+the data contract only: settings UI, database enforcement/persistence, game creation
+integration, configurable scoring and rules-aware replay are not implemented yet.
+Unsupported rule fields are rejected, not treated as implemented. The initial model
+does not yet cover every possible league exception or timed-game ending procedure.
 
 Signed-in accounts can opt out of email game reminders in the account panel.
 A bounded server-side queue drain and explicit one-shot send runner are implemented.
