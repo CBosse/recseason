@@ -10,6 +10,7 @@ import { inningScoreUpdate } from '../../inning-scores.mjs';
 import { rsvpSchedule } from '../../rsvps.mjs';
 import { rosterEntry } from '../../team-roster.mjs';
 import { scoreHistoryEntry } from '../../score-history.mjs';
+import { nextRulesProfile } from '../../league-rules.mjs';
 let env;
 const profile = (uid, role, extra = {}) => ({ ...newPlayerProfile({ uid, email: `${uid}@example.test` }, uid), role, ...extra });
 const game = { status: 'scheduled', homeTeamId: 'a', awayTeamId: 'b', homeName: 'Home', awayName: 'Away', fieldName: 'Main', durationMinutes: 90, scorekeeperId: 'scorer', date: '2026-09-25', time: '18:00', fieldId: 'main' };
@@ -38,6 +39,41 @@ before(async () => {
   });
 });
 after(async () => { await env?.cleanup(); });
+
+const leagueRuleValues = { name: 'Youth division', rules: { innings: 6, ballsForWalk: 5, strikesForOut: 4, outsPerHalf: 4, startingBalls: 1, startingStrikes: 1,
+  foulAtStrikeLimit: 'strikeout', runsPerHalf: 5, unlimitedFinalInning: true, mercy: { runs: 10, afterInning: 4 }, timeLimitMinutes: 75, tiePolicy: 'extra-innings', extraInningRunner: 'second' } };
+
+test('only organizers persist validated rule profiles, with public reads and no deletion', async () => {
+  const value = nextRulesProfile(null, leagueRuleValues, 0);
+  for (const uid of ['scorer', 'player', 'parent', 'manager', 'captain']) await assertFails(setDoc(doc(dbFor(uid), 'ruleProfiles', `forbidden-${uid}`), value));
+  await assertFails(setDoc(doc(env.unauthenticatedContext().firestore(), 'ruleProfiles', 'anonymous'), value));
+  await assertSucceeds(setDoc(doc(dbFor('organizer'), 'ruleProfiles', 'youth'), value));
+  assert.deepEqual((await assertSucceeds(getDoc(doc(env.unauthenticatedContext().firestore(), 'ruleProfiles', 'youth')))).data(), value);
+  await assertFails(deleteDoc(doc(dbFor('admin'), 'ruleProfiles', 'youth')));
+  const next = nextRulesProfile(value, { ...leagueRuleValues, name: 'Updated youth division' }, 1);
+  await assertSucceeds(setDoc(doc(dbFor('admin'), 'ruleProfiles', 'youth'), next));
+  await assertFails(setDoc(doc(dbFor('organizer'), 'ruleProfiles', 'youth'), next));
+  await assertFails(setDoc(doc(dbFor('admin'), 'ruleProfiles', 'youth'), { ...next, revision: 4 }));
+});
+
+test('direct organizer writes cannot bypass league rule schema or cross-field constraints', async () => {
+  const value = nextRulesProfile(null, leagueRuleValues, 0);
+  const target = doc(dbFor('admin'), 'ruleProfiles', 'invalid-profile');
+  for (const patch of [{ innings: 0 }, { startingBalls: 5 }, { startingStrikes: 4 }, { outsPerHalf: 13 }, { runsPerHalf: null },
+    { mercy: { runs: 10, afterInning: 7 } }, { mercy: { runs: 10, afterInning: 4, ignored: true } }, { timeLimitMinutes: -1 },
+    { tiePolicy: 'allow-tie' }, { foulAtStrikeLimit: 'guess' }, { unknown: true }]) await assertFails(setDoc(target, { ...value, rules: { ...value.rules, ...patch } }));
+  for (const patch of [{ revision: 2 }, { schemaVersion: 2 }, { name: ' ' }, { name: 'x'.repeat(101) }, { name: 'two\nlines' }, { extra: true }]) await assertFails(setDoc(target, { ...value, ...patch }));
+  const { startingBalls, ...missing } = value.rules;
+  await assertFails(setDoc(target, { ...value, rules: missing }));
+});
+
+test('concurrent profile saves admit one revision and reject the stale writer', async () => {
+  const value = nextRulesProfile(null, leagueRuleValues, 0);
+  await setDoc(doc(dbFor('admin'), 'ruleProfiles', 'concurrent-rules'), value);
+  const writes = await Promise.allSettled(['admin', 'organizer'].map(uid => setDoc(doc(dbFor(uid), 'ruleProfiles', 'concurrent-rules'), nextRulesProfile(value, { ...leagueRuleValues, name: uid }, 1))));
+  assert.equal(writes.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal((await getDoc(doc(dbFor('admin'), 'ruleProfiles', 'concurrent-rules'))).data().revision, 2);
+});
 
 test('private notification jobs and rate limits are inaccessible to all browser roles', async () => {
   for (const name of ['notificationJobs', 'notificationLimits']) {

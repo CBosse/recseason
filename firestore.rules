@@ -110,6 +110,27 @@ service cloud.firestore {
         d.hasLights is bool && d.zipCode is string &&
         ((d.hasLights && d.zipCode == '') || d.zipCode.matches('[0-9]{5}'));
     }
+    match /ruleProfiles/{id} {
+      allow read: if true;
+      allow create: if organizer() && id.matches('[A-Za-z0-9_-]{1,128}') && validRulesProfile(request.resource.data) && request.resource.data.revision == 1;
+      allow update: if organizer() && validRulesProfile(request.resource.data) && request.resource.data.revision == resource.data.revision + 1;
+      allow delete: if false;
+    }
+    function validRulesProfile(d) {
+      return d.keys().hasOnly(['schemaVersion', 'revision', 'name', 'rules']) && d.schemaVersion == 1 &&
+        validCounter(d.revision, 1, 9007199254740991) && validName(d.name) && validLeagueRules(d.rules);
+    }
+    function validLeagueRules(r) {
+      return r is map && r.keys().hasOnly(['innings', 'ballsForWalk', 'strikesForOut', 'outsPerHalf', 'startingBalls', 'startingStrikes',
+        'foulAtStrikeLimit', 'runsPerHalf', 'unlimitedFinalInning', 'mercy', 'timeLimitMinutes', 'tiePolicy', 'extraInningRunner']) &&
+        validCounter(r.innings, 1, 99) && validCounter(r.ballsForWalk, 1, 12) && validCounter(r.strikesForOut, 1, 12) && validCounter(r.outsPerHalf, 1, 12) &&
+        validCounter(r.startingBalls, 0, r.ballsForWalk - 1) && validCounter(r.startingStrikes, 0, r.strikesForOut - 1) &&
+        r.foulAtStrikeLimit in ['dead-ball', 'strikeout'] && (r.runsPerHalf == null || validCounter(r.runsPerHalf, 1, 99999)) &&
+        r.unlimitedFinalInning is bool && (r.runsPerHalf != null || !r.unlimitedFinalInning) &&
+        (r.mercy == null || (r.mercy is map && r.mercy.keys().hasOnly(['runs', 'afterInning']) && validCounter(r.mercy.runs, 1, 99999) && validCounter(r.mercy.afterInning, 1, r.innings))) &&
+        (r.timeLimitMinutes == null || validCounter(r.timeLimitMinutes, 1, 1440)) && r.tiePolicy in ['allow-tie', 'extra-innings'] &&
+        r.extraInningRunner in ['none', 'second'] && (r.tiePolicy != 'allow-tie' || r.extraInningRunner == 'none');
+    }
     match /config/{id} {
       allow read: if true;
       allow write: if (id == 'rosterRevision' && signedIn() && (organizer() || profile().role == 'teamManager') &&

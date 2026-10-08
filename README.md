@@ -171,7 +171,7 @@ Losing it makes encrypted backups unrecoverable. No production backup is attempt
 when the environment variable is missing.
 The export reads the named production database only and writes an authenticated,
 encrypted `.encrypted.json` file under ignored `.tools/backups`. It includes all
-fourteen app collections, including score history, notification jobs and request limits, and retains raw
+fifteen app collections, including score history, notification jobs, request limits and league rule profiles, and retains raw
 Firestore value types, and uses one `readTime` for every page for a consistent
 snapshot. This follows the [Firestore list API](https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.documents/list).
 The file contains private data. Keep it protected and out of Git, Pages, and shared
@@ -216,8 +216,11 @@ now defines validated, revisioned profiles and independent per-game snapshots fo
 innings, count thresholds, starting counts, foul-at-limit policy, half-inning run
 caps, mercy rules, time limits, ties and extra-inning runners. Stale profile changes
 are rejected and scored legacy games cannot silently adopt a new profile. This is
-the data contract only: settings UI, database enforcement/persistence, game creation
-integration, configurable scoring and rules-aware replay are not implemented yet.
+the data contract. Firestore now validates organizer-only `ruleProfiles` writes,
+requires the next revision, rejects stale saves and disallows deletion. Profiles
+are public league configuration, not a place for private participant information,
+and are included in encrypted backups. Settings UI, game creation integration,
+configurable scoring and rules-aware replay are not implemented yet.
 Unsupported rule fields are rejected, not treated as implemented. The initial model
 does not yet cover every possible league exception or timed-game ending procedure.
 

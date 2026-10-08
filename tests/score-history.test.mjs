@@ -22,5 +22,5 @@ test('final-result corrections require a bounded nonblank reason', () => {
 test('backups include score history while prior backups remain readable', () => {
   const backup = createBackup([], new Date().toISOString());
   assert.ok(backup.collections.includes('scoreEvents'));
-  assert.doesNotThrow(() => validateBackup({ ...backup, collections: backup.collections.filter(c => !['scoreEvents', 'notificationJobs', 'notificationLimits'].includes(c)) }));
+  assert.doesNotThrow(() => validateBackup({ ...backup, collections: backup.collections.filter(c => !['ruleProfiles', 'scoreEvents', 'notificationJobs', 'notificationLimits'].includes(c)) }));
 });

@@ -22,7 +22,7 @@ export function validateLeagueRules(rules) {
 
 export function validateRulesProfile(profile) {
   if (!exactKeys(profile, ['schemaVersion', 'revision', 'name', 'rules']) || profile.schemaVersion !== 1 ||
-    !integer(profile.revision, 1, Number.MAX_SAFE_INTEGER) || typeof profile.name !== 'string' || !profile.name.trim() || profile.name.length > 100) throw new Error('Invalid rules profile.');
+    !integer(profile.revision, 1, Number.MAX_SAFE_INTEGER) || typeof profile.name !== 'string' || !profile.name.trim() || profile.name.length > 100 || /[\r\n]/.test(profile.name)) throw new Error('Invalid rules profile.');
   return { schemaVersion: 1, revision: profile.revision, name: profile.name, rules: validateLeagueRules(profile.rules) };
 }
 

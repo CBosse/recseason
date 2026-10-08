@@ -23,11 +23,12 @@ test('backup rejects corruption, unexpected sources, paths, duplicates and overs
 
 test('prior app-only backup manifests remain readable without silently adding queue coverage', () => {
   const backup = createBackup(docs, date);
-  for (const removed of [['notificationJobs', 'notificationLimits'], ['notificationJobs', 'notificationLimits', 'scoreEvents']]) {
+  for (const removed of [['ruleProfiles', 'notificationJobs', 'notificationLimits'], ['ruleProfiles', 'notificationJobs', 'notificationLimits', 'scoreEvents']]) {
     const old = { ...backup, collections: backup.collections.filter(name => !removed.includes(name)) };
     assert.equal(validateBackup(old), old);
     assert.equal(old.collections.includes('notificationJobs'), false);
   }
+  assert.doesNotThrow(() => validateBackup({ ...backup, collections: backup.collections.filter(name => name !== 'ruleProfiles') }));
 });
 
 test('notification backup preserves accepted and uncertain states without creating resendable jobs', async () => {

@@ -5,6 +5,18 @@ import { createBackup } from '../scripts/backup-format.mjs';
 import { encryptBackup } from '../scripts/backup-encryption.mjs';
 import { randomBytes } from 'node:crypto';
 import { notificationJobs } from '../server/notification-jobs.mjs';
+import { nextRulesProfile } from '../league-rules.mjs';
+
+function typed(value) {
+  if (value === null) return { nullValue: null };
+  if (typeof value === 'number') return { integerValue: String(value) };
+  if (typeof value === 'boolean') return { booleanValue: value };
+  if (typeof value === 'string') return { stringValue: value };
+  return { mapValue: { fields: Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, typed(entry)])) } };
+}
+const rulesProfile = nextRulesProfile(null, { name: 'Recovery division', rules: { innings: 6, ballsForWalk: 4, strikesForOut: 3, outsPerHalf: 3,
+  startingBalls: 1, startingStrikes: 1, foulAtStrikeLimit: 'strikeout', runsPerHalf: 5, unlimitedFinalInning: true,
+  mercy: { runs: 10, afterInning: 4 }, timeLimitMinutes: 75, tiePolicy: 'extra-innings', extraInningRunner: 'second' } }, 0);
 
 const queueDocuments = ['pending', 'retry', 'sending', 'accepted', 'suppressed', 'failed', 'needs-review'].map(status => {
   const [base] = notificationJobs({ kind: 'rsvp-reminder', eventId: `recovery-${status}`, recipients: ['synthetic@example.test'], subject: 'Recovery', body: 'Synthetic recovery test.', expiresAt: 86400000, sourceId: 'game', requestedBy: 'organizer' }, 0);
@@ -17,6 +29,7 @@ const queueDocuments = ['pending', 'retry', 'sending', 'accepted', 'suppressed',
 });
 
 const backup = createBackup([
+  { path: 'ruleProfiles/recovery-division', fields: typed(rulesProfile).mapValue.fields },
   ...queueDocuments,
   { path: 'notificationLimits/organizer', fields: { nextRequestAt: { integerValue: '60000' } } },
   { path: 'scoreEvents/game_1', fields: { revision: { integerValue: '1' }, gameId: { stringValue: 'game' }, recordedAt: { timestampValue: '2026-09-26T00:00:00Z' } } },
@@ -30,7 +43,8 @@ const passphrase = randomBytes(32).toString('base64');
 await writeFile(path, JSON.stringify(await encryptBackup(backup, passphrase)));
 const run = (secret = passphrase) => execFileSync(process.execPath, ['scripts/restore-recovery.mjs', path], { encoding: 'utf8', stdio: 'pipe', env: { ...process.env, RECSEASON_BACKUP_PASSPHRASE: secret } });
 assert.throws(() => run('incorrect-test-passphrase'), error => error.stderr?.includes('authentication failed'));
-assert.match(run(), /restored and verified 11 documents/);
+assert.match(run(), /restored and verified 12 documents/);
 assert.throws(run, error => error.stderr?.includes('Recovery database is not empty'));
 console.log('PASS: encrypted typed-value recovery, wrong-passphrase rejection before writes, and refusal to overwrite an existing recovery database.');
 console.log('PASS: all seven notification states, immutable event data, receipts, leases, retry times, versions, and request limits survive isolated recovery unchanged.');
+console.log('PASS: league rule profile schema, revision, optional policies and nested mercy rule survive encrypted recovery.');
