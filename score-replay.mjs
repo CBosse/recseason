@@ -1,4 +1,4 @@
-import { scoreState } from './score-state.mjs';
+import { scoreState, validatedScoreState } from './score-state.mjs';
 
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
@@ -11,6 +11,7 @@ function sameState(a, b) {
 }
 
 export function scoreReplay(game, entries) {
+  if (!Array.isArray(entries) || entries.some(event => !event || typeof event !== 'object' || Array.isArray(event))) return { frames: [], warnings: ['Scoring history contains an invalid event.'] };
   const events = [...entries].sort((a, b) => a.revision - b.revision);
   const warnings = [];
   if (!events.length) return { frames: [], warnings: ['No recorded scoring events.'] };
@@ -18,7 +19,7 @@ export function scoreReplay(game, entries) {
     return { frames: [], warnings: ['Scoring history contains an invalid event.'] };
   }
   try {
-    for (const event of events) { scoreState(event.before); scoreState(event.after); }
+    for (const event of events) { validatedScoreState(event.before); validatedScoreState(event.after); }
   } catch {
     return { frames: [], warnings: ['Scoring history contains an invalid state.'] };
   }
@@ -32,6 +33,9 @@ export function scoreReplay(game, entries) {
     frames.push({ revision: event.revision, state: scoreState(event.after), reason: event.reason || '', scoredBy: event.scoredBy || '', recordedAt: event.recordedAt, baseline: false });
   }
   const last = events.at(-1);
-  if (game.scoreRevision !== undefined && (last.revision !== game.scoreRevision || !sameState(last.after, game))) warnings.push('History does not match the displayed game. Close and reopen history to refresh.');
+  try {
+    validatedScoreState(game);
+    if (game.scoreRevision !== undefined && (last.revision !== game.scoreRevision || !sameState(last.after, game))) warnings.push('History does not match the displayed game. Close and reopen history to refresh.');
+  } catch { warnings.push('The displayed game contains an invalid scoring state.'); }
   return { frames, warnings };
 }

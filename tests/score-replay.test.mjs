@@ -48,3 +48,23 @@ test('replay compares inning maps independent of property insertion order', () =
   const game = { ...after, id: 'g', lineScore: { 1: { away: 0, home: 3 } }, scoreCarry: { away: 0, home: 0 } };
   assert.deepEqual(scoreReplay(game, [event]).warnings, []);
 });
+
+test('replay fails closed on invalid counters, scores, inning maps and totals', () => {
+  const { corrected, events } = sample();
+  for (const patch of [{ homeScore: -1 }, { awayScore: '1' }, { inning: 0 }, { half: 'middle' }, { balls: 4 }, { strikes: 3 }, { outs: 3 },
+    { status: 'unknown' }, { homeScore: null }, { lineScore: [] }, { lineScore: { 0: { home: 2, away: 1 } } },
+    { lineScore: { 1: { home: 2, away: 1 } }, scoreCarry: null }, { lineScore: { 1: { home: 99, away: 1 } }, scoreCarry: { home: 0, away: 0 } }]) {
+    const changed = structuredClone(events); changed[0].after = { ...changed[0].after, ...patch };
+    const replay = scoreReplay(corrected, changed);
+    assert.equal(replay.frames.length, 0, JSON.stringify(patch));
+    assert.match(replay.warnings[0], /invalid state/);
+  }
+});
+
+test('malformed event containers and corrupt displayed state do not throw', () => {
+  const { corrected, events } = sample();
+  for (const entries of [null, {}, [null], [undefined], [42], [[]]]) assert.equal(scoreReplay(corrected, entries).frames.length, 0);
+  const replay = scoreReplay({ ...corrected, bases: { first: 'yes' } }, events);
+  assert.equal(replay.frames.length, 4);
+  assert.match(replay.warnings.join(' '), /displayed game.*invalid/);
+});

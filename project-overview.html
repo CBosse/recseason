@@ -64,7 +64,7 @@
   </section>
   <section id="evidence">
     <h2>Verification, Not Just Feature Claims</h2>
-    <div class="evidence"><div><strong>139</strong>Unit tests passing</div><div><strong>32</strong>Security tests passing</div><div><strong>Passed</strong>Authenticated emulator workflows</div><div><strong>Passed</strong>Encrypted local recovery rehearsal</div></div>
+    <div class="evidence"><div><strong>141</strong>Unit tests passing</div><div><strong>32</strong>Security tests passing</div><div><strong>Passed</strong>Authenticated emulator workflows</div><div><strong>Passed</strong>Encrypted local recovery rehearsal</div></div>
     <p>Tests cover role access, RSVP ownership, invitation acceptance, live scoring, captain attendance, and concurrent schedule publication. Selected dialogs have browser checks, including mobile reminder layout. Anonymous production reads allow public league data and deny private records.</p>
     <p class="muted">These results do not prove every production role journey or every browser layout. Recovery was verified locally, not by overwriting production. Test counts are a dated snapshot, not a permanent release guarantee.</p>
   </section>
@@ -94,6 +94,7 @@
     </ul><p class="gate"><strong>Exit gate:</strong> an independent user completes the season workflow without console intervention, with persistent results and clear failure states.</p></div></article>
     <article class="phase"><div><h3>3. Finish scoring and notices</h3><span class="muted">Game-day functionality</span></div><div><ul>
       <li>Extend the implemented per-inning scoring, manual runner state, and correction history into a replayable play log; test replay/correction scenarios and legacy run allocation.</li>
+      <li>Support organizer-configured league rules across competition levels. Preserve a rules version with each game so league edits do not change past replays or results.</li>
       <li>Connect a sending service; keep credentials server-side. Add opt-out preferences, bounded recipients, idempotent jobs, retries, and delivery status.</li>
       <li>Deliver invitation, RSVP reminder, reschedule, and cancellation notices; verify links and timezone handling.</li>
     </ul><p class="gate"><strong>Exit gate:</strong> scoring remains consistent after corrections; test messages reach controlled inboxes without duplicates or recipient-address disclosure.</p></div></article>

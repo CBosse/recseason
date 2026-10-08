@@ -208,6 +208,12 @@ procedure in `docs/notification-delivery.md`.
 
 ### Feature gaps
 
+Play-by-play must support organizer-configured league rules across competition
+levels, rather than one fixed baseball/softball preset. Each game must retain its
+rules version so later league edits cannot rewrite historical outcomes. Current
+legacy score-state limits still match the existing Firestore schema; configurable
+pitch/inning/out limits and rules-aware replay are not implemented yet.
+
 Signed-in accounts can opt out of email game reminders in the account panel.
 A bounded server-side queue drain and explicit one-shot send runner are implemented.
 They select due work, honor retry delays, and reconcile abandoned leases without

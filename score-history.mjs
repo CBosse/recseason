@@ -44,7 +44,7 @@ export function openScoreHistory(game, entries) {
   }
   for (const warning of replay.warnings) { const note = document.createElement('p'); note.setAttribute('role', 'alert'); note.textContent = warning; playback.append(note); }
   const list = document.createElement('ol'); list.className = 'score-history-list';
-  for (const entry of [...entries].sort((a, b) => b.revision - a.revision)) {
+  for (const entry of (replay.frames.length ? [...entries].sort((a, b) => b.revision - a.revision) : [])) {
     const item = document.createElement('li');
     const time = entry.recordedAt?.toDate?.().toLocaleString() || '';
     item.textContent = `#${entry.revision} ${time}: ${entry.before.homeScore ?? 0}-${entry.before.awayScore ?? 0} to ${entry.after.homeScore ?? 0}-${entry.after.awayScore ?? 0} (${entry.after.status}, ${entry.after.half} ${entry.after.inning})${entry.reason ? '. ' + entry.reason : ''}`;
@@ -52,8 +52,8 @@ export function openScoreHistory(game, entries) {
     if (entry.after.lineScoreInning) item.append(document.createTextNode(`. Inning entry: ${entry.after.lineScoreInning}`));
     list.append(item);
   }
-  const empty = document.createElement('p'); empty.textContent = 'No recorded score history. Older results may predate score tracking.';
+  const empty = document.createElement('p'); empty.textContent = entries?.length ? 'History cannot be displayed until its invalid records are repaired.' : 'No recorded score history. Older results may predate score tracking.';
   const close = document.createElement('button'); close.className = 'btn btn-primary'; close.textContent = 'Close'; close.onclick = () => dialog.close();
-  dialog.append(title, playback, entries.length ? list : empty, close);
+  dialog.append(title, playback, replay.frames.length ? list : empty, close);
   dialog.addEventListener('close', () => dialog.remove(), { once: true }); document.body.append(dialog); dialog.showModal();
 }
