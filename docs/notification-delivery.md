@@ -79,6 +79,16 @@ browser storage value can redirect an ID token. The client sends only a game ID,
 checks account continuity before and after the request, and reports queued versus
 existing counts without claiming delivery. Network failures are not automatically
 retried. Existing draft downloads remain available to site administrators.
+The same enabled game actions also expose aggregate reminder status, including
+cancelled/completed games. `POST /api/game-reminders/status` accepts the same game-ID
+body and verified token, rechecks the current organizer role transactionally, and
+returns counts only. It reads at most 1,001 game-linked jobs and fails above 1,000,
+rather than presenting a partial history as complete. All reminder event versions
+for the game are included; other notice kinds are excluded. Reads and enqueue
+requests have separate one-minute per-user limits. The status dialog refreshes only
+on request and distinguishes provider acceptance from confirmed inbox delivery.
+There is no recipient/receipt exposure, webhook delivery state, or operator retry
+control in this view. Missing game history returns zero counts, not a delivery claim.
 CI verifies actual emulator-issued tokens, enqueue/deduplication, persistent rate
 limits, changed roles and disabled accounts. It does not prove production token
 verification or hosted endpoint operation. The SDK behavior follows

@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { openNotificationStore } from './notification-store.mjs';
 import { enqueueGameReminder } from './game-reminder-service.mjs';
 import { reminderHandler } from './reminder-http.mjs';
+import { gameReminderStatus } from './reminder-status.mjs';
 
 export function openReminderRuntime(projectId) {
   const emulator = process.env.FIREBASE_AUTH_EMULATOR_HOST;
@@ -17,12 +18,14 @@ export function openReminderRuntime(projectId) {
     origins: local ? ['http://127.0.0.1:8080', 'http://127.0.0.1:8081'] : ['https://cbosse.github.io'],
     verifyToken: token => auth.verifyIdToken(token, true),
     enqueue: request => enqueueGameReminder({ db, store, ...request }),
-    admit: uid => db.runTransaction(async tx => {
+    status: request => gameReminderStatus({ db, ...request }),
+    admit: (uid, operation) => db.runTransaction(async tx => {
       const ref = db.collection('notificationLimits').doc(uid);
       const snapshot = await tx.get(ref);
       const now = Date.now();
-      if (snapshot.exists && snapshot.data().nextRequestAt > now) return false;
-      tx.set(ref, { nextRequestAt: now + 60000 });
+      const field = operation === 'status' ? 'nextStatusAt' : 'nextRequestAt';
+      if (snapshot.exists && snapshot.data()[field] > now) return false;
+      tx.set(ref, { [field]: now + 60000 }, { merge: true });
       return true;
     }),
   });

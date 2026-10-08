@@ -19,7 +19,7 @@ import { localDateKey } from './calendar.mjs';
 import { rosterEntry } from './team-roster.mjs';
 import { checkInTeams, attendanceUpdate, openCheckIn } from './attendance.mjs';
 import { gameReminder, openReminderDraft } from './reminders.mjs';
-import { reminderEndpoint, requestGameReminder, openQueuedReminder } from './reminder-client.mjs';
+import { reminderEndpoint, requestGameReminder, openQueuedReminder, requestReminderStatus, openReminderStatus } from './reminder-client.mjs';
 import { scheduleRevision, nextScheduleRevision } from './schedule-version.mjs';
 import { validateSeasonChange } from './season-config.mjs';
 import { rosterPresentation } from './roster-scope.mjs';
@@ -136,6 +136,7 @@ function clearSessionData() {
   document.getElementById('attendance-dialog')?.remove();
   document.getElementById('reminder-dialog')?.remove();
   document.getElementById('queued-reminder-dialog')?.remove();
+  document.getElementById('reminder-status-dialog')?.remove();
   subscriptions.clear();
   clearTimeout(_connectTimeout);
   _listenersStarted = false;
@@ -946,6 +947,16 @@ function renderScheduleView() {
       li.querySelector('.edit-score-btn')?.addEventListener('click', () => showInlineScoreEdit(li, game));
       li.querySelector('.edit-game-btn')?.addEventListener('click', () => editGame(game));
       li.querySelector('.cancel-game-btn')?.addEventListener('click', () => cancelGame(game));
+      if (canEdit() && reminderEndpoint(localMode)) {
+        const status = document.createElement('button'); status.className = 'btn btn-ghost btn-sm'; status.textContent = 'Reminder status';
+        status.onclick = () => {
+          const user = auth.currentUser;
+          if (!user || currentUser?.uid !== user.uid || !canEdit()) return;
+          openReminderStatus(game, () => requestReminderStatus({ endpoint: reminderEndpoint(localMode), gameId: game.id, user,
+            isCurrent: () => auth.currentUser === user && currentUser?.uid === user.uid && canEdit() }));
+        };
+        li.querySelector('.game-actions').append(status);
+      }
       if (canEdit() && game.status === 'scheduled' && reminderEndpoint(localMode)) {
         const queue = document.createElement('button'); queue.className = 'btn btn-ghost btn-sm'; queue.textContent = 'Queue reminder';
         queue.onclick = () => {
