@@ -219,8 +219,11 @@ are rejected and scored legacy games cannot silently adopt a new profile. This i
 the data contract. Firestore now validates organizer-only `ruleProfiles` writes,
 requires the next revision, rejects stale saves and disallows deletion. Profiles
 are public league configuration, not a place for private participant information,
-and are included in encrypted backups. Settings UI, game creation integration,
-configurable scoring and rules-aware replay are not implemented yet.
+and are included in encrypted backups. Organizers can create and edit profiles in
+Settings, with validated optional limits and transactional conflict protection.
+Browser checks cover persistence, invalid starting counts, concurrent edits and
+the mobile editor. Game creation integration, configurable scoring and rules-aware
+replay are not implemented yet.
 Unsupported rule fields are rejected, not treated as implemented. The initial model
 does not yet cover every possible league exception or timed-game ending procedure.
 

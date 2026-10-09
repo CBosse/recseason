@@ -20,6 +20,8 @@ import { rosterEntry } from './team-roster.mjs';
 import { checkInTeams, attendanceUpdate, openCheckIn } from './attendance.mjs';
 import { gameReminder, openReminderDraft } from './reminders.mjs';
 import { reminderEndpoint, requestGameReminder, openQueuedReminder, requestReminderStatus, openReminderStatus } from './reminder-client.mjs';
+import { nextRulesProfile } from './league-rules.mjs';
+import { openRulesEditor } from './league-rules-editor.mjs';
 import { scheduleRevision, nextScheduleRevision } from './schedule-version.mjs';
 import { validateSeasonChange } from './season-config.mjs';
 import { rosterPresentation } from './roster-scope.mjs';
@@ -114,6 +116,8 @@ const state = {
   rsvps:          [],
   umpires:        [],
   allUsers:       [],
+  ruleProfiles: [],
+  ruleProfilesStatus: 'loading',
   scheduleConfig: { gameDuration: 90, bufferMinutes: 15, startDate: '', endDate: '', rounds: 1 },
   _ready: { teams: false, players: false, fields: false, games: false, scheduleConfig: false, rsvps: false },
 };
@@ -137,11 +141,13 @@ function clearSessionData() {
   document.getElementById('reminder-dialog')?.remove();
   document.getElementById('queued-reminder-dialog')?.remove();
   document.getElementById('reminder-status-dialog')?.remove();
+  document.getElementById('rules-editor-dialog')?.remove();
   subscriptions.clear();
   clearTimeout(_connectTimeout);
   _listenersStarted = false;
   _viewingTeamId = null;
-  for (const key of ['teams', 'players', 'fields', 'games', 'rsvps', 'umpires', 'allUsers']) state[key] = [];
+  for (const key of ['teams', 'players', 'fields', 'games', 'rsvps', 'umpires', 'allUsers', 'ruleProfiles']) state[key] = [];
+  state.ruleProfilesStatus = 'loading';
   for (const key of Object.keys(state._ready)) state._ready[key] = false;
   state.scheduleConfig = { gameDuration: 90, bufferMinutes: 15, startDate: '', endDate: '', rounds: 1 };
   document.getElementById('loading-overlay').style.display = 'none';
@@ -492,6 +498,11 @@ function startListeners() {
     }
     state._ready.scheduleConfig = true; checkReady();
   }, err => showDbError(err));
+
+  if (canEdit()) onSnapshot(collection(db, 'ruleProfiles'), snap => {
+    state.ruleProfiles = snap.docs.map(d => ({ id: d.id, profile: d.data() })).sort((a, b) => String(a.profile.name).localeCompare(String(b.profile.name)));
+    state.ruleProfilesStatus = 'ready'; if (_activeView === 'settings') renderRulesSection();
+  }, () => { state.ruleProfiles = []; state.ruleProfilesStatus = 'error'; if (_activeView === 'settings') renderRulesSection(); });
 
   if (canEdit() || currentUser?.role === 'umpire') {
     const umpireQuery = canEdit() ? collection(db, 'umpires') : query(collection(db, 'umpires'), where(documentId(), '==', currentUser.uid));
@@ -1608,6 +1619,41 @@ function renderUmpireGames() {
 function renderSettingsView() {
   renderFieldsSection();
   renderScheduleConfigSection();
+  renderRulesSection();
+}
+
+function renderRulesSection() {
+  const section = document.getElementById('rule-profiles-section'); section.hidden = !canEdit();
+  const list = document.getElementById('rule-profiles-list'); list.replaceChildren();
+  const add = document.getElementById('new-rule-profile-btn'); add.disabled = state.ruleProfilesStatus !== 'ready'; add.onclick = () => editRulesProfile(null);
+  if (!canEdit()) return;
+  if (state.ruleProfilesStatus !== 'ready' || !state.ruleProfiles.length) {
+    const message = document.createElement('p'); message.className = 'muted';
+    message.textContent = state.ruleProfilesStatus === 'loading' ? 'Loading profiles...' : state.ruleProfilesStatus === 'error' ? 'Could not load profiles. Refresh to retry.' : 'No rule profiles.';
+    list.append(message); return;
+  }
+  for (const item of state.ruleProfiles) {
+    const row = document.createElement('div'); row.className = 'rule-profile-row';
+    const title = document.createElement('span'); title.textContent = `${item.profile.name} (revision ${item.profile.revision})`;
+    const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'btn btn-ghost btn-sm'; edit.textContent = 'Edit'; edit.setAttribute('aria-label', `Edit rule profile ${item.profile.name}`);
+    edit.onclick = () => editRulesProfile(item); row.append(title, edit); list.append(row);
+  }
+}
+
+function editRulesProfile(item) {
+  if (!canEdit()) return;
+  const uid = currentUser.uid, expected = item?.profile.revision ?? 0;
+  const ref = doc(db, 'ruleProfiles', item?.id ?? genId('rules'));
+  try {
+    openRulesEditor(item?.profile ?? null, async values => {
+      await runTransaction(db, async tx => {
+        const snapshot = await tx.get(ref);
+        if (currentUser?.uid !== uid || !canEdit()) throw new Error('Your account changed. Reopen settings before saving.');
+        tx.set(ref, nextRulesProfile(snapshot.exists() ? snapshot.data() : null, values, expected));
+      });
+      if (currentUser?.uid === uid) showBanner('Rule profile saved.', 'success');
+    });
+  } catch (error) { showBanner(error.message, 'error'); }
 }
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
