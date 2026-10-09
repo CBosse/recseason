@@ -1,6 +1,7 @@
 import { parseScore } from './results.mjs';
 import { baseOccupancy } from './base-occupancy.mjs';
 import { scoreHistoryEntry } from './score-history.mjs';
+import { scoreCounterLimits } from './league-rules.mjs';
 
 export function liveScoreEntry(gameId, game, values, user, expectedRevision) {
   const patch = liveScoreUpdate(game, values, user, expectedRevision);
@@ -19,7 +20,8 @@ export function liveScoreUpdate(game, values, user, expectedRevision) {
   if (!['live', 'completed'].includes(values.status)) throw new Error('Choose a valid game status.');
   const updates = { homeScore: parseScore(values.homeScore), awayScore: parseScore(values.awayScore), status: values.status };
   if (game.lineScore && (updates.homeScore !== game.homeScore || updates.awayScore !== game.awayScore)) throw new Error('Use Record inning to change this game\'s totals.');
-  for (const [name, min, max] of [['inning', 1, 99], ['balls', 0, 3], ['strikes', 0, 2], ['outs', 0, 2]]) {
+  const limits = scoreCounterLimits(game);
+  for (const [name, min, max] of [['inning', 1, 99], ['balls', 0, limits.balls], ['strikes', 0, limits.strikes], ['outs', 0, limits.outs]]) {
     const number = Number(values[name]);
     if (values[name] === '' || values[name] == null || !Number.isInteger(number) || number < min || number > max) throw new Error(`Invalid ${name}.`);
     updates[name] = number;

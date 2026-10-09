@@ -596,7 +596,13 @@ test('saved game rules remain immutable when the source profile changes', async 
   assert.deepEqual((await getDoc(target)).data().rulesSnapshot, original);
   const scorer = dbFor('scorer');
   const before = (await getDoc(target)).data();
-  const patch = liveScoreUpdate(before, { homeScore: '0', awayScore: '0', status: 'live', inning: 1, half: 'top', balls: 1, strikes: 1, outs: 0 }, { uid: 'scorer', role: 'scorekeeper' }, 0);
+  const patch = liveScoreUpdate(before, { homeScore: '0', awayScore: '0', status: 'live', inning: 1, half: 'top', balls: 4, strikes: 3, outs: 3 }, { uid: 'scorer', role: 'scorekeeper' }, 0);
+  for (const [key, value] of Object.entries({ balls: 5, strikes: 4, outs: 4 })) {
+    const invalid = { ...patch, [key]: value }, batch = writeBatch(scorer);
+    batch.update(doc(scorer, 'games', 'game-with-rules'), invalid);
+    batch.set(doc(scorer, 'scoreEvents', 'game-with-rules_1'), { ...scoreHistoryEntry('game-with-rules', before, invalid, 'scorer'), recordedAt: serverTimestamp() });
+    await assertFails(batch.commit());
+  }
   const scoring = writeBatch(scorer);
   scoring.update(doc(scorer, 'games', 'game-with-rules'), patch);
   scoring.set(doc(scorer, 'scoreEvents', 'game-with-rules_1'), { ...scoreHistoryEntry('game-with-rules', before, patch, 'scorer'), recordedAt: serverTimestamp() });

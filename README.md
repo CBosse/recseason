@@ -227,8 +227,13 @@ at game creation or a one-time attachment to an unscored scheduled game. The sna
 cannot be removed or replaced, and later profile edits do not invalidate ordinary
 game updates. Security tests cover forged/stale snapshots, unauthorized attachment,
 legacy scored games and preservation through scoring. This game-snapshot contract
-is not deployed to production yet. Game creation UI integration, configurable
-scoring and rules-aware replay are not implemented yet.
+is not deployed to production yet. Scoring-domain validation and recorded-state
+replay now use the frozen profile's ball, strike and out thresholds; legacy games
+keep their original limits. Candidate Firestore scoring rules enforce the same
+thresholds. Regression tests cover thresholds from 1 through 12, malformed snapshots,
+and custom counters across save/history/replay. Game creation and score editor UI
+integration, automatic play advancement, run/mercy/time-limit enforcement and
+event-derived replay are not implemented yet.
 Unsupported rule fields are rejected, not treated as implemented. The initial model
 does not yet cover every possible league exception or timed-game ending procedure.
 

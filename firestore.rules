@@ -194,10 +194,11 @@ service cloud.firestore {
       allow delete: if manages(resource.data.teamId) && !existsAfter(/databases/$(database)/documents/teamRoster/$(id));
     }
     function validScore(d) {
+      let rules = d.get('rulesSnapshot', {}).get('rules', {'ballsForWalk': 4, 'strikesForOut': 3, 'outsPerHalf': 3});
       return d.homeScore is int && d.homeScore >= 0 && d.homeScore <= 9007199254740991 &&
         d.awayScore is int && d.awayScore >= 0 && d.awayScore <= 9007199254740991 && validBases(d.get('bases', {'first': false, 'second': false, 'third': false})) &&
         validCounter(d.get('inning', 1), 1, 99) && d.get('half', 'top') in ['top', 'bottom'] &&
-        validCounter(d.get('balls', 0), 0, 3) && validCounter(d.get('strikes', 0), 0, 2) && validCounter(d.get('outs', 0), 0, 2);
+        validCounter(d.get('balls', 0), 0, rules.ballsForWalk - 1) && validCounter(d.get('strikes', 0), 0, rules.strikesForOut - 1) && validCounter(d.get('outs', 0), 0, rules.outsPerHalf - 1);
     }
     function validCounter(value, minimum, maximum) { return value is int && value >= minimum && value <= maximum; }
     function validBases(b) { return b is map && b.keys().hasOnly(['first', 'second', 'third']) && b.first is bool && b.second is bool && b.third is bool; }

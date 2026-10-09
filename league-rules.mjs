@@ -33,12 +33,22 @@ export function nextRulesProfile(current, values, expectedRevision) {
   return validateRulesProfile({ schemaVersion: 1, revision: revision + 1, name: typeof values.name === 'string' ? values.name.trim() : values.name, rules: values.rules });
 }
 
+export function validateGameRulesSnapshot(snapshot) {
+  const { profileId, ...profile } = snapshot ?? {};
+  if (typeof profileId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(profileId)) throw new Error('Invalid saved game rules.');
+  return { profileId, ...validateRulesProfile(profile) };
+}
+
+export function scoreCounterLimits(game) {
+  if (game.rulesSnapshot === undefined) return { balls: 3, strikes: 2, outs: 2 };
+  const { rules } = validateGameRulesSnapshot(game.rulesSnapshot);
+  return { balls: rules.ballsForWalk - 1, strikes: rules.strikesForOut - 1, outs: rules.outsPerHalf - 1 };
+}
+
 export function gameRulesSnapshot(game, profileId, profile) {
   if (!game || typeof profileId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(profileId)) throw new Error('Invalid game rules source.');
   if (game.rulesSnapshot !== undefined) {
-    const { profileId: savedId, ...saved } = game.rulesSnapshot ?? {};
-    if (typeof savedId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(savedId)) throw new Error('Invalid saved game rules.');
-    return { profileId: savedId, ...validateRulesProfile(saved) };
+    return validateGameRulesSnapshot(game.rulesSnapshot);
   }
   if (game.status !== 'scheduled' || (game.scoreRevision ?? 0) !== 0 || game.homeScore != null || game.awayScore != null || game.lineScore != null) throw new Error('Rules must be assigned before scoring begins. Legacy scored games require an explicit migration.');
   return { profileId, ...validateRulesProfile(profile) };

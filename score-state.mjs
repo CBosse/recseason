@@ -1,17 +1,18 @@
 import { baseOccupancy } from './base-occupancy.mjs';
+import { scoreCounterLimits } from './league-rules.mjs';
 
 export function scoreState(game) {
   return { homeScore: game.homeScore ?? null, awayScore: game.awayScore ?? null, status: game.status,
     inning: game.inning ?? 1, half: game.half ?? 'top', balls: game.balls ?? 0, strikes: game.strikes ?? 0, outs: game.outs ?? 0, bases: baseOccupancy(game.bases), lineScore: game.lineScore ?? {}, scoreCarry: game.scoreCarry ?? null, lineScoreInning: game.lineScoreInning ?? null };
 }
 
-export function validatedScoreState(game) {
-  // Bounds mirror the existing legacy Firestore scoring schema, not future league rules.
+export function validatedScoreState(game, rulesGame = game) {
   if (!game || typeof game !== 'object' || Array.isArray(game)) throw new Error('Invalid scoring state.');
   const state = scoreState(game);
+  const limits = scoreCounterLimits(rulesGame);
   const integer = (value, min, max) => Number.isSafeInteger(value) && value >= min && value <= max;
   if (!['scheduled', 'live', 'completed', 'cancelled'].includes(state.status) || !['top', 'bottom'].includes(state.half) ||
-    !integer(state.inning, 1, 99) || !integer(state.balls, 0, 3) || !integer(state.strikes, 0, 2) || !integer(state.outs, 0, 2)) throw new Error('Invalid scoring counters.');
+    !integer(state.inning, 1, 99) || !integer(state.balls, 0, limits.balls) || !integer(state.strikes, 0, limits.strikes) || !integer(state.outs, 0, limits.outs)) throw new Error('Invalid scoring counters.');
   for (const side of ['home', 'away']) {
     const total = state[`${side}Score`];
     if (!(total === null && ['scheduled', 'cancelled'].includes(state.status)) && !integer(total, 0, Number.MAX_SAFE_INTEGER)) throw new Error('Invalid scoring total.');

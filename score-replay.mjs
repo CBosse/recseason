@@ -19,7 +19,7 @@ export function scoreReplay(game, entries) {
     return { frames: [], warnings: ['Scoring history contains an invalid event.'] };
   }
   try {
-    for (const event of events) { validatedScoreState(event.before); validatedScoreState(event.after); }
+    for (const event of events) { validatedScoreState(event.before, game); validatedScoreState(event.after, game); }
   } catch {
     return { frames: [], warnings: ['Scoring history contains an invalid state.'] };
   }
