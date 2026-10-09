@@ -10,7 +10,7 @@ import { inningScoreUpdate } from '../../inning-scores.mjs';
 import { rsvpSchedule } from '../../rsvps.mjs';
 import { rosterEntry } from '../../team-roster.mjs';
 import { scoreHistoryEntry } from '../../score-history.mjs';
-import { nextRulesProfile } from '../../league-rules.mjs';
+import { nextRulesProfile, gameRulesSnapshot } from '../../league-rules.mjs';
 let env;
 const profile = (uid, role, extra = {}) => ({ ...newPlayerProfile({ uid, email: `${uid}@example.test` }, uid), role, ...extra });
 const game = { status: 'scheduled', homeTeamId: 'a', awayTeamId: 'b', homeName: 'Home', awayName: 'Away', fieldName: 'Main', durationMinutes: 90, scorekeeperId: 'scorer', date: '2026-09-25', time: '18:00', fieldId: 'main' };
@@ -553,6 +553,74 @@ test('organizers cannot replace teams or delete games after scoring starts', asy
   batch.update(doc(db, 'games', 'validated-new'), { homeTeamId: 'b', awayTeamId: 'a' });
   batch.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
   await assertSucceeds(batch.commit());
+});
+
+test('game rules snapshots require the current exact saved profile and a schedule revision', async () => {
+  const db = dbFor('admin');
+  const profile = nextRulesProfile(null, leagueRuleValues, 0);
+  await setDoc(doc(db, 'ruleProfiles', 'game-rules'), profile);
+  const snapshot = gameRulesSnapshot(game, 'game-rules', profile);
+  const create = async (id, rulesSnapshot, uid = 'admin') => {
+    const client = dbFor(uid), batch = writeBatch(client);
+    const revision = (await getDoc(doc(db, 'config', 'scheduleRevision'))).data().revision;
+    batch.set(doc(client, 'games', id), { ...game, rulesSnapshot });
+    batch.set(doc(client, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: uid });
+    return batch.commit();
+  };
+  for (const rulesSnapshot of [null, { ...snapshot, profileId: 'missing' }, { ...snapshot, revision: 2 },
+    { ...snapshot, name: 'Forged name' }, { ...snapshot, rules: { ...snapshot.rules, innings: 9 } }, { ...snapshot, extra: true }]) {
+    await assertFails(create('invalid-rules-game', rulesSnapshot));
+  }
+  for (const uid of ['scorer', 'manager', 'player']) await assertFails(create(`unauthorized-rules-${uid}`, snapshot, uid));
+  await assertFails(setDoc(doc(db, 'games', 'missing-schedule-marker'), { ...game, rulesSnapshot: snapshot }));
+  await assertSucceeds(create('game-with-rules', snapshot));
+  assert.deepEqual((await getDoc(doc(db, 'games', 'game-with-rules'))).data().rulesSnapshot, snapshot);
+  await setDoc(doc(db, 'ruleProfiles', 'game-rules'), nextRulesProfile(profile, { ...leagueRuleValues, name: 'New division revision' }, 1));
+  await assertFails(create('stale-profile-game', snapshot));
+});
+
+test('saved game rules remain immutable when the source profile changes', async () => {
+  const db = dbFor('admin'), target = doc(db, 'games', 'game-with-rules');
+  const original = (await getDoc(target)).data().rulesSnapshot;
+  const revision = (await getDoc(doc(db, 'config', 'scheduleRevision'))).data().revision;
+  for (const rulesSnapshot of [deleteField(), null, { ...original, revision: 2, name: 'New division revision' }, { ...original, rules: { ...original.rules, innings: 8 } }]) {
+    const batch = writeBatch(db);
+    batch.update(target, { rulesSnapshot });
+    batch.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
+    await assertFails(batch.commit());
+  }
+  const unchanged = writeBatch(db);
+  unchanged.update(target, { time: '19:00' });
+  unchanged.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
+  await assertSucceeds(unchanged.commit());
+  assert.deepEqual((await getDoc(target)).data().rulesSnapshot, original);
+  const scorer = dbFor('scorer');
+  const before = (await getDoc(target)).data();
+  const patch = liveScoreUpdate(before, { homeScore: '0', awayScore: '0', status: 'live', inning: 1, half: 'top', balls: 1, strikes: 1, outs: 0 }, { uid: 'scorer', role: 'scorekeeper' }, 0);
+  const scoring = writeBatch(scorer);
+  scoring.update(doc(scorer, 'games', 'game-with-rules'), patch);
+  scoring.set(doc(scorer, 'scoreEvents', 'game-with-rules_1'), { ...scoreHistoryEntry('game-with-rules', before, patch, 'scorer'), recordedAt: serverTimestamp() });
+  await assertSucceeds(scoring.commit());
+  assert.deepEqual((await getDoc(target)).data().rulesSnapshot, original);
+});
+
+test('rules may be attached once to unscored scheduled games, never legacy scored games', async () => {
+  const db = dbFor('admin');
+  const saved = (await getDoc(doc(db, 'ruleProfiles', 'game-rules'))).data();
+  const snapshot = gameRulesSnapshot(game, 'game-rules', saved);
+  const states = [{}, { status: 'live' }, { status: 'completed' }, { status: 'cancelled' },
+    { scoreRevision: 1 }, { homeScore: 0 }, { lineScore: {} }];
+  for (const [i, state] of states.entries()) {
+    const id = `attach-rules-${i}`;
+    await env.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'games', id), { ...game, ...state }));
+    const revision = (await getDoc(doc(db, 'config', 'scheduleRevision'))).data().revision;
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'games', id), { rulesSnapshot: snapshot });
+    batch.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
+    if (i === 0) await assertSucceeds(batch.commit());
+    else await assertFails(batch.commit());
+  }
+  await assertFails(updateDoc(doc(dbFor('scorer'), 'games', 'g'), { rulesSnapshot: snapshot }));
 });
 
 test('invitation creation is admin-only and cannot grant siteAdmin', async () => {

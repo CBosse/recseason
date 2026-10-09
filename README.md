@@ -222,8 +222,13 @@ are public league configuration, not a place for private participant information
 and are included in encrypted backups. Organizers can create and edit profiles in
 Settings, with validated optional limits and transactional conflict protection.
 Browser checks cover persistence, invalid starting counts, concurrent edits and
-the mobile editor. Game creation integration, configurable scoring and rules-aware
-replay are not implemented yet.
+the mobile editor. Candidate Firestore rules support an exact saved profile snapshot
+at game creation or a one-time attachment to an unscored scheduled game. The snapshot
+cannot be removed or replaced, and later profile edits do not invalidate ordinary
+game updates. Security tests cover forged/stale snapshots, unauthorized attachment,
+legacy scored games and preservation through scoring. This game-snapshot contract
+is not deployed to production yet. Game creation UI integration, configurable
+scoring and rules-aware replay are not implemented yet.
 Unsupported rule fields are rejected, not treated as implemented. The initial model
 does not yet cover every possible league exception or timed-game ending procedure.
 
