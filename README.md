@@ -222,18 +222,26 @@ are public league configuration, not a place for private participant information
 and are included in encrypted backups. Organizers can create and edit profiles in
 Settings, with validated optional limits and transactional conflict protection.
 Browser checks cover persistence, invalid starting counts, concurrent edits and
-the mobile editor. Candidate Firestore rules support an exact saved profile snapshot
+the mobile editor. Firestore rules support an exact saved profile snapshot
 at game creation or a one-time attachment to an unscored scheduled game. The snapshot
 cannot be removed or replaced, and later profile edits do not invalidate ordinary
 game updates. Security tests cover forged/stale snapshots, unauthorized attachment,
 legacy scored games and preservation through scoring. This game-snapshot contract
-is not deployed to production yet. Scoring-domain validation and recorded-state
+and count-limit validation were deployed to the named production database on
+October 9, 2026, with the deployed rules verified by the read-only audit.
+Scoring-domain validation and recorded-state
 replay now use the frozen profile's ball, strike and out thresholds; legacy games
-keep their original limits. Candidate Firestore scoring rules enforce the same
+keep their original limits. Firestore scoring rules enforce the same
 thresholds. Regression tests cover thresholds from 1 through 12, malformed snapshots,
-and custom counters across save/history/replay. Game creation and score editor UI
-integration, automatic play advancement, run/mercy/time-limit enforcement and
-event-derived replay are not implemented yet.
+and custom counters across save/history/replay. The game editor now offers an explicit
+profile selection for new or unscored scheduled games and displays the frozen revision
+after attachment. Its save transaction checks the selected profile and game for
+concurrent changes. The score editor uses the saved starting counts and counter limits.
+Browser checks cover attachment, new-game creation, stale profile rejection, preservation
+after a profile edit, custom-count scoring/replay and mobile layout. Generated games
+remain on legacy scoring until individually assigned a profile. Automatic play
+advancement, run/mercy/time-limit enforcement and event-derived replay are not
+implemented yet.
 Unsupported rule fields are rejected, not treated as implemented. The initial model
 does not yet cover every possible league exception or timed-game ending procedure.
 

@@ -20,7 +20,7 @@ import { rosterEntry } from './team-roster.mjs';
 import { checkInTeams, attendanceUpdate, openCheckIn } from './attendance.mjs';
 import { gameReminder, openReminderDraft } from './reminders.mjs';
 import { reminderEndpoint, requestGameReminder, openQueuedReminder, requestReminderStatus, openReminderStatus } from './reminder-client.mjs';
-import { nextRulesProfile } from './league-rules.mjs';
+import { nextRulesProfile, gameRulesSnapshot, validateRulesProfile } from './league-rules.mjs';
 import { openRulesEditor } from './league-rules-editor.mjs';
 import { scheduleRevision, nextScheduleRevision } from './schedule-version.mjs';
 import { validateSeasonChange } from './season-config.mjs';
@@ -565,7 +565,7 @@ async function publishSchedule(snapshot, removed, replacements, uid, expectedRos
     const rosterRef = doc(db, 'config', 'rosterRevision');
     const rosterVersion = expectedRosterRevision === null ? null : nextRosterRevision((await transaction.get(rosterRef)).data(), expectedRosterRevision, uid);
     // Scoring can change game status without changing its reserved time slot.
-    for (const previous of [...snapshot.games.docs, ...snapshot.fields.docs, ...snapshot.teams.docs, snapshot.configDocument]) {
+    for (const previous of [...snapshot.games.docs, ...snapshot.fields.docs, ...snapshot.teams.docs, snapshot.configDocument, ...(snapshot.ruleProfiles ?? [])]) {
       const latest = await transaction.get(previous.ref);
       if (latest.exists() !== previous.exists() || JSON.stringify(latest.data()) !== JSON.stringify(previous.data())) throw new Error('Schedule data changed. Refresh and try again.');
     }
@@ -1102,27 +1102,38 @@ async function editGame(game = {}) {
   if (!canEdit()) return;
   if (state.teams.length < 2 || !state.fields.length) { showBanner('Add two teams and a field first.', 'error'); return; }
   const uid = currentUser.uid;
-  let scorekeepers = [];
+  let scorekeepers = [], ruleProfiles = [];
   try {
     const snap = await getDocs(query(collection(db, 'users'), where('role', '==', 'scorekeeper')));
     scorekeepers = snap.docs.map(d => ({ id: d.id, name: d.data().displayName || d.data().email || d.id }));
+    const profiles = await getDocs(collection(db, 'ruleProfiles'));
+    ruleProfiles = profiles.docs.map(d => ({ id: d.id, profile: validateRulesProfile(d.data()) })).sort((a, b) => a.profile.name.localeCompare(b.profile.name));
   } catch (err) { showDbError(err); return; }
   if (!canEdit() || currentUser.uid !== uid) return;
   openGameEditor({ game, teams: state.teams, fields: state.fields, config: state.scheduleConfig,
-    scorekeepers,
+    scorekeepers, ruleProfiles,
     umpires: state.umpires.map(u => ({ id: u.id, name: u.name || u.displayName || u.email || u.id })),
     save: async values => {
       if (!canEdit() || currentUser.uid !== uid) throw new Error('Your session changed. Reopen this game.');
+      const { ruleProfileId, ...gameValues } = values;
       const snapshot = await scheduleSnapshot();
       const fresh = snapshot.games;
       const games = fresh.docs.map(d => ({ id: d.id, ...d.data() }));
       const existing = game.id ? games.find(g => g.id === game.id) : null;
       if (game.id && !existing) throw new Error('This game was removed.');
+      if (JSON.stringify(existing?.rulesSnapshot) !== JSON.stringify(game.rulesSnapshot)) throw new Error('Game rules changed in another session. Close and reopen the editor.');
       if (existing && ['date', 'time', 'fieldId', 'homeTeamId', 'awayTeamId', 'durationMinutes', 'umpireId', 'scorekeeperId', 'locked', 'status'].some(key => existing[key] !== game[key])) throw new Error('This game changed in another session. Close and reopen the editor.');
       if (existing?.status === 'completed' && (existing.homeTeamId !== values.homeTeamId || existing.awayTeamId !== values.awayTeamId)) throw new Error('Teams cannot be changed on a completed game.');
       const fields = snapshot.fields.docs.map(d => ({ id: d.id, ...d.data() }));
       const teams = snapshot.teams.docs.map(d => ({ id: d.id, ...d.data() }));
-      const validated = validateGame(values, { teams, fields, games, config: snapshot.config });
+      const validated = validateGame(gameValues, { teams, fields, games, config: snapshot.config });
+      if (ruleProfileId && !existing?.rulesSnapshot) {
+        const chosen = ruleProfiles.find(item => item.id === ruleProfileId);
+        const source = await getDoc(doc(db, 'ruleProfiles', ruleProfileId));
+        if (!chosen || !source.exists() || source.data().revision !== chosen.profile.revision) throw new Error('League rules changed. Close and reopen the editor.');
+        validated.rulesSnapshot = gameRulesSnapshot(existing ?? { status: 'scheduled' }, ruleProfileId, source.data());
+        snapshot.ruleProfiles = [source];
+      }
       const field = fields.find(f => f.id === values.fieldId);
       if (!field.hasLights) {
         const zip = field.zipCode && await fetchZipInfo(field.zipCode);

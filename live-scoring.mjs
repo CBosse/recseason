@@ -31,6 +31,8 @@ export function liveScoreUpdate(game, values, user, expectedRevision) {
 }
 
 export function openScoreEditor(game, save) {
+  const limits = scoreCounterLimits(game);
+  const rules = game.rulesSnapshot?.rules;
   document.getElementById('score-editor-dialog')?.remove();
   const dialog = document.createElement('dialog');
   dialog.id = 'score-editor-dialog'; dialog.className = 'game-editor-dialog';
@@ -42,8 +44,8 @@ export function openScoreEditor(game, save) {
   const controls = {};
   for (const [name, labelText, value, max] of [
     ['homeScore', 'Home score', game.homeScore ?? 0, 99999], ['awayScore', 'Away score', game.awayScore ?? 0, 99999],
-    ['inning', 'Inning', game.inning ?? 1, 99], ['balls', 'Balls', game.balls ?? 0, 3],
-    ['strikes', 'Strikes', game.strikes ?? 0, 2], ['outs', 'Outs', game.outs ?? 0, 2],
+    ['inning', 'Inning', game.inning ?? 1, 99], ['balls', 'Balls', game.balls ?? rules?.startingBalls ?? 0, limits.balls],
+    ['strikes', 'Strikes', game.strikes ?? rules?.startingStrikes ?? 0, limits.strikes], ['outs', 'Outs', game.outs ?? 0, limits.outs],
   ]) {
     const label = document.createElement('label'); label.textContent = labelText;
     const input = document.createElement('input');
@@ -76,6 +78,11 @@ export function openScoreEditor(game, save) {
   const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'btn btn-ghost'; cancel.textContent = 'Cancel'; cancel.onclick = () => dialog.close();
   const submit = document.createElement('button'); submit.className = 'btn btn-primary'; submit.textContent = 'Save score';
   actions.append(cancel, submit); form.append(heading, grid, runners, noteLabel, error, actions);
+  if (game.rulesSnapshot) {
+    const profile = document.createElement('p'); profile.className = 'muted';
+    profile.textContent = `${game.rulesSnapshot.name} (revision ${game.rulesSnapshot.revision})`;
+    heading.after(profile);
+  }
   form.onsubmit = async event => {
     event.preventDefault(); error.textContent = '';
     const values = Object.fromEntries(Object.entries(controls).map(([name, input]) => [name, input.value]));

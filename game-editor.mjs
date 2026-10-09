@@ -26,7 +26,7 @@ export function validateGame(game, { teams, fields, games, config }) {
   return { ...game, durationMinutes: duration, homeName: home.name, awayName: away.name, fieldName: field.name };
 }
 
-export function openGameEditor({ game = {}, teams, fields, umpires, scorekeepers = [], config, save }) {
+export function openGameEditor({ game = {}, teams, fields, umpires, scorekeepers = [], ruleProfiles = [], config, save }) {
   document.getElementById('game-editor-dialog')?.remove();
   const dialog = document.createElement('dialog');
   dialog.id = 'game-editor-dialog';
@@ -68,6 +68,12 @@ export function openGameEditor({ game = {}, teams, fields, umpires, scorekeepers
   if (game.scorekeeperId && !scorekeepers.some(u => u.id === game.scorekeeperId)) scorerOptions.push({ id: game.scorekeeperId, name: 'Current assignment (unavailable)' });
   field('scorekeeperId', 'Scorekeeper', '', game.scorekeeperId || '', scorerOptions);
   controls.scorekeeperId.required = false;
+  const savedRules = game.rulesSnapshot;
+  const ruleOptions = savedRules ? [{ id: savedRules.profileId, name: `${savedRules.name} (revision ${savedRules.revision})` }] :
+    [{ id: '', name: 'Legacy scoring' }, ...ruleProfiles.map(({ id, profile }) => ({ id, name: `${profile.name} (revision ${profile.revision})` }))];
+  field('ruleProfileId', 'Game rules', '', savedRules?.profileId ?? '', ruleOptions);
+  controls.ruleProfileId.required = false;
+  controls.ruleProfileId.disabled = Boolean(savedRules) || hasRecordedScore(game) || Boolean(game.status && game.status !== 'scheduled');
   field('locked', 'Keep during regeneration', 'checkbox', game.locked ?? true);
   const error = document.createElement('p');
   error.setAttribute('role', 'alert');
