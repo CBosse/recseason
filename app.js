@@ -130,6 +130,7 @@ let _connectTimeout   = null;
 let authGeneration = 0;
 
 function clearSessionData() {
+  closeSidebar(false);
   document.getElementById('inning-editor-dialog')?.remove();
   document.getElementById('score-history-dialog')?.remove();
   document.getElementById('invitation-dialog')?.remove();
@@ -357,7 +358,12 @@ function applyRoleNav() {
 }
 
 document.querySelectorAll('.nav-item').forEach(item => {
-  item.addEventListener('click', () => navigate(item.dataset.view));
+  item.addEventListener('click', () => {
+    navigate(item.dataset.view);
+    closeSidebar(false);
+    const heading = document.querySelector(`#view-${item.dataset.view} h1`);
+    if (heading) { heading.tabIndex = -1; heading.focus(); }
+  });
 });
 
 function navigate(viewId) {
@@ -368,6 +374,8 @@ function navigate(viewId) {
   if (target) target.classList.add('active');
   document.querySelectorAll('.nav-item').forEach(item => {
     item.classList.toggle('active', item.dataset.view === viewId);
+    if (item.dataset.view === viewId) item.setAttribute('aria-current', 'page');
+    else item.removeAttribute('aria-current');
   });
   renderCurrentView();
 }
@@ -2039,25 +2047,41 @@ async function generateSchedule(teams, fields, config, existingGames = state.gam
 // ── Mobile sidebar drawer ──────────────────────────────────────────────────
 
 function openSidebar() {
+  if (window.innerWidth > 720) return;
+  document.getElementById('sidebar').inert = false;
+  document.getElementById('main-wrapper').inert = true;
+  document.getElementById('hamburger-btn').setAttribute('aria-expanded', 'true');
   document.getElementById('sidebar').classList.add('sidebar-open');
   document.getElementById('sidebar-backdrop').classList.add('visible');
   document.body.style.overflow = 'hidden';
+  document.getElementById('close-menu-btn').focus();
 }
 
-function closeSidebar() {
+function closeSidebar(restoreFocus = true) {
+  const wasOpen = document.getElementById('sidebar').classList.contains('sidebar-open');
+  document.getElementById('sidebar').inert = window.innerWidth <= 720;
+  document.getElementById('main-wrapper').inert = false;
+  document.getElementById('hamburger-btn').setAttribute('aria-expanded', 'false');
   document.getElementById('sidebar').classList.remove('sidebar-open');
   document.getElementById('sidebar-backdrop').classList.remove('visible');
   document.body.style.overflow = '';
+  if (wasOpen && restoreFocus && window.innerWidth <= 720) document.getElementById('hamburger-btn').focus();
 }
 
 document.getElementById('hamburger-btn').addEventListener('click', openSidebar);
-document.getElementById('sidebar-backdrop').addEventListener('click', closeSidebar);
+document.getElementById('sidebar-backdrop').addEventListener('click', () => closeSidebar());
+document.getElementById('close-menu-btn').addEventListener('click', () => closeSidebar());
+window.matchMedia('(max-width: 720px)').addEventListener('change', () => closeSidebar(false));
+closeSidebar(false);
 
-// Close drawer when a nav item is tapped on mobile
-document.querySelectorAll('.nav-item').forEach(item => {
-  item.addEventListener('click', () => {
-    if (window.innerWidth <= 720) closeSidebar();
-  });
+document.getElementById('sidebar').addEventListener('keydown', event => {
+  if (!document.getElementById('sidebar').classList.contains('sidebar-open')) return;
+  if (event.key === 'Escape') { event.preventDefault(); closeSidebar(); }
+  if (event.key !== 'Tab') return;
+  const items = [...document.getElementById('sidebar').querySelectorAll('button, input, select, a[href], [tabindex="0"]')].filter(item => !item.disabled && item.getClientRects().length);
+  const first = items[0], last = items.at(-1);
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
 });
 
 // ── Utilities ──────────────────────────────────────────────────────────────

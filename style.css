@@ -105,6 +105,11 @@ body {
 }
 
 .nav-item {
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -125,6 +130,8 @@ body {
 }
 
 .nav-item:hover { background: #f8f6f0; }
+.nav-item:focus-visible, #close-menu-btn:focus-visible, #hamburger-btn:focus-visible { outline: 2px solid #206c4b; outline-offset: 2px; }
+#close-menu-btn { display: none; }
 
 .nav-item.active {
   background: #f8f6f0;
@@ -1002,6 +1009,7 @@ body {
 /* ── Responsive ───────────────────────────────────────────────────────────── */
 
 @media (max-width: 720px) {
+  #close-menu-btn { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; margin-left: auto; border: 0; background: transparent; font-size: 26px; cursor: pointer; }
   #app-layout {
     grid-template-columns: 1fr;
     position: relative;

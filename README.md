@@ -208,6 +208,12 @@ procedure in `docs/notification-delivery.md`.
 
 ### Feature gaps
 
+Main navigation uses keyboard-operable buttons with a current-page indicator and
+heading focus after activation. The mobile drawer has a close button, Escape handling,
+focus wrapping, and inert background/closed navigation. Browser checks cover Tab,
+Space/Enter activation, focus restoration, narrow layout, and desktop resize. This is
+not a claim of a complete accessibility audit of every form and role journey.
+
 Play-by-play must support organizer-configured league rules across competition
 levels, rather than one fixed baseball/softball preset. Each game must retain its
 rules version so later league edits cannot rewrite historical outcomes. Current
