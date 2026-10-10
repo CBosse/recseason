@@ -1,6 +1,6 @@
 const validId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 
-export function reminderHandler({ verifyToken, enqueue, status, admit, origins }) {
+export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellation, cancellationStatus, admit, origins }) {
   const allowed = new Set(origins);
   let active = 0;
   return async (req, res) => {
@@ -12,8 +12,9 @@ export function reminderHandler({ verifyToken, enqueue, status, admit, origins }
     const origin = req.headers.origin;
     if (origin && !allowed.has(origin)) return reply(403, { error: 'origin-denied' });
     if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
-    const statusRequest = req.url === '/api/game-reminders/status';
-    if (!statusRequest && req.url !== '/api/game-reminders') return reply(404, { error: 'not-found' });
+    const cancellation = req.url === '/api/game-cancellations' || req.url === '/api/game-cancellations/status';
+    const statusRequest = req.url === '/api/game-reminders/status' || req.url === '/api/game-cancellations/status';
+    if (!statusRequest && !cancellation && req.url !== '/api/game-reminders') return reply(404, { error: 'not-found' });
     if (req.method === 'OPTIONS') {
       res.setHeader('Access-Control-Allow-Methods', 'POST');
       res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
@@ -42,8 +43,8 @@ export function reminderHandler({ verifyToken, enqueue, status, admit, origins }
       catch { return reply(401, { error: 'authentication-required' }); }
       if (!validId(identity?.uid)) return reply(401, { error: 'authentication-required' });
       if (!await admit(identity.uid, statusRequest ? 'status' : 'enqueue')) { res.setHeader('Retry-After', '60'); return reply(429, { error: 'rate-limited' }); }
-      if (statusRequest) return reply(200, await status({ verifiedUid: identity.uid, gameId: body.gameId }));
-      const result = await enqueue({ verifiedUid: identity.uid, gameId: body.gameId });
+      if (statusRequest) return reply(200, await (cancellation ? cancellationStatus : status)({ verifiedUid: identity.uid, gameId: body.gameId }));
+      const result = await (cancellation ? enqueueCancellation : enqueue)({ verifiedUid: identity.uid, gameId: body.gameId });
       return reply(202, { created: result.created, existing: result.existing, recipients: result.recipients, playersWithoutRecipient: result.playersWithoutRecipient });
     } catch (error) {
       return reply(error.code === 'permission-denied' ? 403 : error.code === 'game-unavailable' ? 409 : 503,

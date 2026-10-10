@@ -264,8 +264,16 @@ results. A Resend adapter is tested with synthetic HTTP responses, but no provid
 credentials or production sender are configured and the app does not send mail.
 The internal reminder service now derives recipients from current league data and
 rechecks role, link, preference, and schedule changes before delivery. Its complete
-queue-to-provider path is emulator-tested with synthetic HTTP responses; a verified
-authentication endpoint and app connection are still required.
+queue-to-provider path is emulator-tested with synthetic HTTP responses. The verified
+authentication endpoint and local reminder UI are implemented; production endpoint
+deployment and app configuration remain required.
+Cancellation enqueue and status endpoints now share that authenticated runtime.
+They derive recipients from a currently cancelled game, honor the existing opt-out,
+and deduplicate against its server document version. Reinstated or modified games
+invalidate queued cancellation jobs; a later cancellation creates a distinct event.
+Emulator tests cover verified tokens, revoked roles, rate limits, recipient-free status,
+deduplication, opt-outs and repeated cancellations. The cancellation UI, automatic
+triggering and real delivery are not implemented or deployed yet.
 See [notification delivery](docs/notification-delivery.md) for the integration contract
 and remaining deployment requirements.
 The setting persists in the profile and is honored by reminder draft recipient

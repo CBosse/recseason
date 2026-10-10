@@ -2,7 +2,13 @@ const emailPattern = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-
 const line = value => String(value ?? '').replace(/[\r\n]+/g, ' ').trim();
 
 export function gameReminder(game, players, users, appUrl) {
-  if (game.status !== 'scheduled') throw new Error('Reminders are available for scheduled games only.');
+  return gameNotice(game, players, users, appUrl, 'rsvp-reminder');
+}
+
+export function gameNotice(game, players, users, appUrl, kind) {
+  if (!['rsvp-reminder', 'cancellation'].includes(kind)) throw new Error('Unsupported game notice.');
+  const cancelled = kind === 'cancellation';
+  if (game.status !== (cancelled ? 'cancelled' : 'scheduled')) throw new Error('This game is not available for the requested notice.');
   const active = players.filter(p => !p.archived && [game.homeTeamId, game.awayTeamId].includes(p.teamId));
   const ids = new Set(active.map(p => p.id));
   const covered = new Set();
@@ -19,8 +25,9 @@ export function gameReminder(game, players, users, appUrl) {
   }
   const url = new URL(appUrl);
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Invalid app URL.');
-  const subject = `Game reminder: ${line(game.homeName)} vs ${line(game.awayName)}`;
-  const body = `${line(game.homeName)} vs ${line(game.awayName)}\nDate: ${line(game.date)}\nTime: ${line(game.time)} (field local time)\nField: ${line(game.fieldName)}\n\nPlease confirm your availability in RecSeason and check the schedule for updates.\n${url.href}\n`;
+  const subject = `${cancelled ? 'Game cancelled' : 'Game reminder'}: ${line(game.homeName)} vs ${line(game.awayName)}`;
+  const action = cancelled ? 'This game has been cancelled. Check RecSeason for the current schedule.' : 'Please confirm your availability in RecSeason and check the schedule for updates.';
+  const body = `${line(game.homeName)} vs ${line(game.awayName)}\nDate: ${line(game.date)}\nTime: ${line(game.time)} (field local time)\nField: ${line(game.fieldName)}\n\n${action}\n${url.href}\n`;
   return { subject, body, recipients: [...emails].sort(), playersWithoutRecipient: active.filter(p => !covered.has(p.id)).length };
 }
 

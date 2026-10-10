@@ -1,8 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { gameReminder, reminderEml } from '../reminders.mjs';
+import { gameReminder, gameNotice, reminderEml } from '../reminders.mjs';
 const game = { status: 'scheduled', homeTeamId: 'a', awayTeamId: 'b', homeName: 'Home', awayName: 'Away', date: '2026-09-26', time: '18:00', fieldName: 'Main', umpireId: 'u' };
 const players = [{ id: 'p', teamId: 'a' }, { id: 'child', teamId: 'b' }, { id: 'no-email', teamId: 'a' }, { id: 'archived', teamId: 'a', archived: true }];
+
+test('cancellation notices retain recipient privacy and do not request an RSVP', () => {
+  const users = [{ role: 'player', linkedPlayerId: 'p', email: 'player@example.test' },
+    { role: 'parent', linkedPlayerIds: ['child'], email: 'parent@example.test', emailReminders: false }];
+  const draft = gameNotice({ ...game, status: 'cancelled' }, players, users, 'https://example.test/', 'cancellation');
+  assert.deepEqual(draft.recipients, ['player@example.test']);
+  assert.equal(draft.subject, 'Game cancelled: Home vs Away');
+  assert.match(draft.body, /has been cancelled/);
+  assert.match(draft.body, /18:00 \(field local time\)/);
+  assert.doesNotMatch(draft.body, /confirm your availability|player@example/);
+  assert.throws(() => gameNotice(game, players, users, 'https://example.test/', 'cancellation'));
+  assert.throws(() => gameNotice(game, players, users, 'https://example.test/', 'unknown'));
+});
 test('reminders include linked participants, parents and assigned staff, with deduplicated Bcc', () => {
   const draft = gameReminder(game, players, [
     { role: 'player', linkedPlayerId: 'p', email: 'Person@example.test' },

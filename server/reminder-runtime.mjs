@@ -2,7 +2,7 @@ import { initializeApp, deleteApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { randomUUID } from 'node:crypto';
 import { openNotificationStore } from './notification-store.mjs';
-import { enqueueGameReminder } from './game-reminder-service.mjs';
+import { enqueueGameReminder, enqueueGameCancellation } from './game-reminder-service.mjs';
 import { reminderHandler } from './reminder-http.mjs';
 import { gameReminderStatus } from './reminder-status.mjs';
 
@@ -19,6 +19,8 @@ export function openReminderRuntime(projectId) {
     verifyToken: token => auth.verifyIdToken(token, true),
     enqueue: request => enqueueGameReminder({ db, store, ...request }),
     status: request => gameReminderStatus({ db, ...request }),
+    enqueueCancellation: request => enqueueGameCancellation({ db, store, ...request }),
+    cancellationStatus: request => gameReminderStatus({ db, ...request, kind: 'cancellation' }),
     admit: (uid, operation) => db.runTransaction(async tx => {
       const ref = db.collection('notificationLimits').doc(uid);
       const snapshot = await tx.get(ref);

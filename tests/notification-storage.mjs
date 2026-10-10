@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { openNotificationStore, notificationStore } from '../server/notification-store.mjs';
 import { notificationJobs, enqueueNotifications, executeNotification } from '../server/notification-jobs.mjs';
-import { enqueueGameReminder, gameReminderEligibility } from '../server/game-reminder-service.mjs';
+import { enqueueGameReminder, enqueueGameCancellation, gameReminderEligibility } from '../server/game-reminder-service.mjs';
 import { resendTransport } from '../server/resend-transport.mjs';
 import { drainNotifications } from '../server/notification-drain.mjs';
 
@@ -49,6 +50,7 @@ try {
   assert.equal(reminder.recipient, 'player@example.test');
   assert.equal(reminder.subject, 'Game reminder: Home vs Away');
   assert.equal(reminder.requestedBy, 'notice-organizer');
+  assert.equal(reminder.eventId, createHash('sha256').update(JSON.stringify(['notice-game', 'scheduled', 'notice-home', 'notice-away', 'notice-field', reminder.subject, reminder.body])).digest('hex'));
   const eligible = gameReminderEligibility(db);
   assert.equal(await eligible(reminder), true);
   await db.collection('users').doc('notice-organizer').update({ role: 'player' });
@@ -107,6 +109,35 @@ try {
   assert.equal((await second.store.get(future.id)).status, 'retry');
   assert.equal((await second.store.due(1000, 100)).length, 0);
   console.log('PASS: bounded due selection excludes future retries and terminal jobs, drains pending work, and reconciles expired leases without resending them.');
+  await assert.rejects(enqueueGameCancellation(request), /not available/);
+  await db.collection('games').doc('notice-game').update({ status: 'cancelled' });
+  assert.equal((await enqueueGameCancellation(request)).created, 1);
+  assert.equal((await enqueueGameCancellation(request)).existing, 1);
+  const cancellations = () => db.collection('notificationJobs').where('sourceId', '==', 'notice-game').get();
+  const cancelled = (await cancellations()).docs.map(row => row.data()).find(job => job.kind === 'cancellation');
+  assert.equal(cancelled.subject, 'Game cancelled: Home vs Away');
+  assert.equal(await eligible(cancelled), true);
+  await db.collection('users').doc('notice-player').update({ emailReminders: false });
+  assert.equal(await eligible(cancelled), false);
+  await db.collection('users').doc('notice-player').update({ emailReminders: true });
+  await db.collection('users').doc('notice-organizer').update({ role: 'player' });
+  assert.equal(await eligible(cancelled), false);
+  await assert.rejects(enqueueGameCancellation(request), /organizer/);
+  await db.collection('users').doc('notice-organizer').update({ role: 'leagueManager' });
+  await db.collection('games').doc('notice-game').update({ status: 'scheduled' });
+  assert.equal(await eligible(cancelled), false);
+  await db.collection('games').doc('notice-game').update({ status: 'cancelled' });
+  assert.equal(await eligible(cancelled), false);
+  assert.equal((await enqueueGameCancellation(request)).created, 1);
+  const latest = (await cancellations()).docs.map(row => row.data()).find(job => job.kind === 'cancellation' && job.id !== cancelled.id);
+  assert.equal(await eligible(latest), true);
+  let cancellationSends = 0;
+  const cancellationWorker = { store: second.store, clock: () => 0, isEligible: eligible, transport: { send: async () => { cancellationSends++; return { accepted: true, receipt: 'synthetic-cancellation' }; } } };
+  assert.equal((await executeNotification(cancellationWorker, cancelled.id)).status, 'suppressed');
+  assert.equal((await executeNotification(cancellationWorker, latest.id)).status, 'accepted');
+  assert.equal((await executeNotification(cancellationWorker, latest.id)).status, 'accepted');
+  assert.equal(cancellationSends, 1);
+  console.log('PASS: cancellation notices deduplicate by game version, respect opt-outs and revoked roles, suppress restored games and distinguish repeated cancellations. No email sent.');
 } finally {
   await second.db.terminate();
   await first.db.terminate();

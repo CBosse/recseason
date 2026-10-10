@@ -167,8 +167,26 @@ on the participating teams, failing explicitly above those bounds. Jobs allow at
 more selective recipient index and capacity testing. One event is identified by its
 game and message snapshot, so repeated requests for that same snapshot deduplicate.
 Recurring reminder cadence is not implemented. The existing reminder preference is
-honored, including address-level opt-outs shared across profiles. Other notice types
-are rejected by this eligibility checker until their own policies are implemented.
+honored, including address-level opt-outs shared across profiles. Invitation and
+reschedule jobs are still rejected by this eligibility checker.
+
+## Cancellation Notices
+
+`POST /api/game-cancellations` and `POST /api/game-cancellations/status` accept only
+`{ "gameId": "..." }`, with the same verified bearer-token, organizer-role, origin,
+body-size and shared per-user rate limits as reminder requests. Enqueue returns only
+aggregate counts; status filters cancellation jobs and never returns addresses.
+
+The server requires a currently cancelled game and derives its recipients and message
+from current league data. It honors the existing `emailReminders` opt-out. Cancellation
+event identity includes the game's Firestore update timestamp, so a duplicate request
+for the same version deduplicates while cancellation after restoration is a new event.
+Any intervening game write invalidates an older queued cancellation. The worker also
+rechecks organizer access, roster links and opt-outs immediately before sending.
+
+Durable storage and authenticated HTTP tests cover these paths using synthetic messages
+and provider responses. Cancellation UI controls, automatic triggers, production endpoint
+deployment and controlled-inbox verification remain outstanding. No real mail is enabled.
 
 ## Resend Adapter
 
