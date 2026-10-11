@@ -251,7 +251,7 @@ implemented yet.
 Unsupported rule fields are rejected, not treated as implemented. The initial model
 does not yet cover every possible league exception or timed-game ending procedure.
 
-Signed-in accounts can opt out of email game reminders in the account panel.
+Signed-in accounts can opt out of email game notices in the account panel.
 A bounded server-side queue drain and explicit one-shot send runner are implemented.
 They select due work, honor retry delays, and reconcile abandoned leases without
 resending uncertain messages. They are not deployed or scheduled; verified sender
@@ -272,8 +272,11 @@ They derive recipients from a currently cancelled game, honor the existing opt-o
 and deduplicate against its server document version. Reinstated or modified games
 invalidate queued cancellation jobs; a later cancellation creates a distinct event.
 Emulator tests cover verified tokens, revoked roles, rate limits, recipient-free status,
-deduplication, opt-outs and repeated cancellations. The cancellation UI, automatic
-triggering and real delivery are not implemented or deployed yet.
+deduplication, opt-outs and repeated cancellations. The local app now offers explicit
+cancellation queue confirmation on cancelled games and separate cancellation status
+for every game. Browser checks cover duplicate-request confirmation, cancellation-only
+totals and the mobile status dialog. Production actions remain hidden while the endpoint
+is unconfigured. Automatic triggering and real delivery are not implemented or deployed yet.
 See [notification delivery](docs/notification-delivery.md) for the integration contract
 and remaining deployment requirements.
 The setting persists in the profile and is honored by reminder draft recipient

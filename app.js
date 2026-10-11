@@ -410,7 +410,7 @@ function updateSidebarUserCard() {
       <span class="chip ${chipCls}" style="font-size:10px">${escHtml(roleLabel)}</span>
       ${ctx}
     </div>
-    ${currentUser.uid ? `<label class="reminder-preference"><input id="email-reminders" type="checkbox" ${currentUser.emailReminders !== false ? 'checked' : ''}> Email game reminders</label>` : ''}
+    ${currentUser.uid ? `<label class="reminder-preference"><input id="email-reminders" type="checkbox" ${currentUser.emailReminders !== false ? 'checked' : ''}> Email game notices</label>` : ''}
     ${actionBtn}`;
 
   document.getElementById('email-reminders')?.addEventListener('change', async event => {
@@ -967,22 +967,25 @@ function renderScheduleView() {
       li.querySelector('.edit-game-btn')?.addEventListener('click', () => editGame(game));
       li.querySelector('.cancel-game-btn')?.addEventListener('click', () => cancelGame(game));
       if (canEdit() && reminderEndpoint(localMode)) {
-        const status = document.createElement('button'); status.className = 'btn btn-ghost btn-sm'; status.textContent = 'Reminder status';
-        status.onclick = () => {
-          const user = auth.currentUser;
-          if (!user || currentUser?.uid !== user.uid || !canEdit()) return;
-          openReminderStatus(game, () => requestReminderStatus({ endpoint: reminderEndpoint(localMode), gameId: game.id, user,
-            isCurrent: () => auth.currentUser === user && currentUser?.uid === user.uid && canEdit() }));
-        };
-        li.querySelector('.game-actions').append(status);
+        for (const [kind, label] of [['rsvp-reminder', 'Reminder status'], ['cancellation', 'Cancellation status']]) {
+          const status = document.createElement('button'); status.className = 'btn btn-ghost btn-sm'; status.textContent = label;
+          status.onclick = () => {
+            const user = auth.currentUser;
+            if (!user || currentUser?.uid !== user.uid || !canEdit()) return;
+            openReminderStatus(game, () => requestReminderStatus({ endpoint: reminderEndpoint(localMode, kind), kind, gameId: game.id, user,
+              isCurrent: () => auth.currentUser === user && currentUser?.uid === user.uid && canEdit() }), kind);
+          };
+          li.querySelector('.game-actions').append(status);
+        }
       }
-      if (canEdit() && game.status === 'scheduled' && reminderEndpoint(localMode)) {
-        const queue = document.createElement('button'); queue.className = 'btn btn-ghost btn-sm'; queue.textContent = 'Queue reminder';
+      if (canEdit() && ['scheduled', 'cancelled'].includes(game.status) && reminderEndpoint(localMode)) {
+        const kind = game.status === 'cancelled' ? 'cancellation' : 'rsvp-reminder';
+        const queue = document.createElement('button'); queue.className = 'btn btn-ghost btn-sm'; queue.textContent = kind === 'cancellation' ? 'Queue cancellation' : 'Queue reminder';
         queue.onclick = () => {
           const user = auth.currentUser;
           if (!user || currentUser?.uid !== user.uid || !canEdit()) return;
-          openQueuedReminder(game, () => requestGameReminder({ endpoint: reminderEndpoint(localMode), gameId: game.id, user,
-            isCurrent: () => auth.currentUser === user && currentUser?.uid === user.uid && canEdit() }));
+          openQueuedReminder(game, () => requestGameReminder({ endpoint: reminderEndpoint(localMode, kind), kind, gameId: game.id, user,
+            isCurrent: () => auth.currentUser === user && currentUser?.uid === user.uid && canEdit() }), kind);
         };
         li.querySelector('.game-actions').append(queue);
       }

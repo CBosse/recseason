@@ -185,8 +185,12 @@ Any intervening game write invalidates an older queued cancellation. The worker 
 rechecks organizer access, roster links and opt-outs immediately before sending.
 
 Durable storage and authenticated HTTP tests cover these paths using synthetic messages
-and provider responses. Cancellation UI controls, automatic triggers, production endpoint
-deployment and controlled-inbox verification remain outstanding. No real mail is enabled.
+and provider responses. The local app exposes queue confirmation only for cancelled
+games and cancellation status for every game, including restored games. Tests cover
+client routing, endpoint validation, account-change fencing, duplicate confirmation
+and mobile status display. Production controls stay hidden until endpoint configuration.
+Automatic triggers, production endpoint deployment and controlled-inbox verification
+remain outstanding. No real mail is enabled.
 
 ## Resend Adapter
 
