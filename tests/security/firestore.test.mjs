@@ -688,7 +688,7 @@ test('stale manager and roster invitations cannot grant access until their links
   }
 });
 
-test('invitation acceptance requires verified matching email and atomic consumption', async () => {
+test('parent invitation acceptance cannot bypass the server even with a verified matching email', async () => {
   const invite = { role: 'parent', linkedTeamId: null, linkedPlayerId: null, linkedPlayerIds: ['p'] };
   const recipient = env.authenticatedContext('recipient', { email: 'recipient@example.test', email_verified: true }).firestore();
   const unverified = env.authenticatedContext('recipient', { email: 'recipient@example.test', email_verified: false }).firestore();
@@ -711,9 +711,10 @@ test('invitation acceptance requires verified matching email and atomic consumpt
   forged.update(doc(recipient, 'users', 'recipient'), { ...patch, role: 'siteAdmin' });
   forged.update(doc(recipient, 'invitations', 'parent-invite'), consume);
   await assertFails(forged.commit());
-  await assertSucceeds(accept(recipient));
   await assertFails(accept(recipient));
-  await assertSucceeds(getDoc(doc(recipient, 'players', 'p')));
+  assert.equal((await getDoc(doc(recipient, 'users', 'recipient'))).data().role, 'player');
+  assert.equal((await getDoc(doc(recipient, 'invitations', 'parent-invite'))).data().status, 'pending');
+  await assertFails(getDoc(doc(recipient, 'players', 'p')));
 });
 
 test('expired and revoked invitations cannot update a profile', async () => {

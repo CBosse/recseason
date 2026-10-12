@@ -324,8 +324,8 @@ role. Acceptance requires a verified matching email and an atomic profile/invite
 update; invitations expire within seven days and can be revoked. Manager links must
 reference an existing team at creation and acceptance. Player/captain links must
 reference an active player still on the invited team, and that team must exist.
-Parent invites carry explicit unique child links; the client validates active players
-and their teams, but acceptance-time validation of every child remains unfinished.
+Parent invites carry explicit unique child links. Parent acceptance now uses an
+authenticated server transaction; the candidate rules deny direct client acceptance.
 An internal Admin SDK transaction now checks up to 30 children and all their teams,
 the current verified Auth email, and the issuing administrator's current role before
 atomically accepting a parent invitation. Concurrent retries acknowledge an already
@@ -336,9 +336,14 @@ The local server exposes `POST /api/parent-invitations/accept` with a Bearer ID 
 and exactly `{ "invitationId": "..." }`. It verifies token revocation, applies a
 durable per-user 60-second acceptance throttle independent of notification requests,
 and returns only acceptance status. HTTP tests cover real emulator tokens, spoofed
-identity rejection, retries, and disabled accounts. The browser does not use it yet.
-The production gap remains until endpoint deployment, client routing,
-and rules that deny direct parent acceptance are completed together.
+identity rejection, retries, and disabled accounts. The browser uses this endpoint
+in local emulator mode without a direct-write fallback. A synthetic browser check
+verified acceptance, account reload, and the linked-child dashboard. Client tests
+cover account changes, unsafe endpoint addresses, uncertain responses, and throttling.
+Production parent acceptance is temporarily unavailable in the app because the
+production endpoint is not configured. The production rules still need the matching
+deployment: release the backend, verify it, configure the client, and deploy these
+rules to the named `recseason` database before claiming the production gap is closed.
 Automated invitation delivery and authenticated production
 acceptance testing remain outstanding. The Admin Panel now creates shareable invitation links,
 shows status, and revokes pending invitations. Recipients open the link, sign in

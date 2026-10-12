@@ -44,7 +44,7 @@ service cloud.firestore {
       let accepted = getAfter(/databases/$(database)/documents/invitations/$(id)).data;
       return request.auth.uid == uid && resource.data.role in ['player', 'visitor'] &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'linkedTeamId', 'linkedPlayerId', 'linkedPlayerIds', 'acceptedInvitationId']) &&
-        invitationRecipient(invite) && invite.status == 'pending' && invite.expiresAt > request.time &&
+        invite.role != 'parent' && invitationRecipient(invite) && invite.status == 'pending' && invite.expiresAt > request.time &&
         accepted.status == 'accepted' && accepted.acceptedBy == uid && matchesInvitation(request.resource.data, invite);
     }
     match /invitations/{id} {
@@ -61,7 +61,7 @@ service cloud.firestore {
         request.resource.data.expiresAt > request.time && request.resource.data.expiresAt <= request.time + duration.value(7, 'd');
       allow update: if (admin() && resource.data.status == 'pending' && request.resource.data.status == 'revoked' &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])) ||
-        (invitationRecipient(resource.data) && resource.data.status == 'pending' && resource.data.expiresAt > request.time &&
+        (resource.data.role != 'parent' && invitationRecipient(resource.data) && resource.data.status == 'pending' && resource.data.expiresAt > request.time &&
         request.resource.data.status == 'accepted' && request.resource.data.acceptedBy == request.auth.uid && request.resource.data.acceptedAt == request.time &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedBy', 'acceptedAt']) &&
         getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.acceptedInvitationId == id &&

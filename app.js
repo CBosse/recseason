@@ -12,6 +12,7 @@ import { useLocalEmulators } from './local-runtime.mjs';
 import { openRosterEditor, checkedRosterUpdate, checkedArchiveUpdate } from './roster-editor.mjs';
 import { fieldUpdate, fieldFitsGame, fieldWindow, openFieldEditor } from './field-editor.mjs';
 import { invitationProfilePatch } from './invitations.mjs';
+import { parentInvitationEndpoint, requestParentAcceptance } from './parent-invitation-client.mjs';
 import { openInvitationCreator, openInvitationRecipient } from './invitation-ui.mjs';
 import { dashboardScope, upcomingGames, rsvpTotals, dashboardRecord } from './dashboard.mjs';
 import { rsvpSchedule, isCurrentRsvp } from './rsvps.mjs';
@@ -1923,7 +1924,10 @@ async function showPendingInvitation() {
         await reload(user);
         await user.getIdToken(true);
         if (!user.emailVerified) throw new Error('Verify your email address before accepting.');
-        await runTransaction(db, async transaction => {
+        if (invitation.role === 'parent') {
+          await requestParentAcceptance({ endpoint: parentInvitationEndpoint(localMode), invitationId: id, user,
+            isCurrent: () => auth.currentUser?.uid === user.uid });
+        } else await runTransaction(db, async transaction => {
           const fresh = await transaction.get(ref);
           const profileRef = doc(db, 'users', user.uid);
           const profile = await transaction.get(profileRef);
@@ -1935,6 +1939,7 @@ async function showPendingInvitation() {
           transaction.update(profileRef, invitationProfilePatch(id, invite));
           transaction.update(ref, { status: 'accepted', acceptedBy: user.uid, acceptedAt: serverTimestamp() });
         });
+        if (auth.currentUser?.uid !== user.uid) throw new Error('Your session changed.');
         const url = new URL(window.location.href); url.searchParams.delete('invite');
         window.location.replace(url.href);
       },

@@ -1,5 +1,7 @@
 import '../scripts/seed-local.mjs';
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { openReminderRuntime } from '../server/reminder-runtime.mjs';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, applyActionCode, reload } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator, collection, query, where, documentId, getDocs, doc, setDoc, getDoc, runTransaction, serverTimestamp, Timestamp, onSnapshot, updateDoc } from 'firebase/firestore';
@@ -75,12 +77,23 @@ try {
   assert.ok(code);
   await applyActionCode(inviteAuth, code.oobCode); await reload(invited); await invited.getIdToken(true);
   assert.equal(invited.emailVerified, true);
-  await runTransaction(inviteDb, async transaction => {
+  await assert.rejects(runTransaction(inviteDb, async transaction => {
     const ref = doc(inviteDb, 'invitations', 'workflow-invite');
     const snapshot = await transaction.get(ref);
     transaction.update(doc(inviteDb, 'users', invited.uid), invitationProfilePatch(ref.id, snapshot.data()));
     transaction.update(ref, { status: 'accepted', acceptedBy: invited.uid, acceptedAt: serverTimestamp() });
-  });
+  }), error => error.code === 'permission-denied');
+  const invitationRuntime = openReminderRuntime('demo-recseason');
+  const invitationServer = createServer(invitationRuntime.handler);
+  await new Promise(resolve => invitationServer.listen(0, '127.0.0.1', resolve));
+  try {
+    const accepted = await fetch(`http://127.0.0.1:${invitationServer.address().port}/api/parent-invitations/accept`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await invited.getIdToken()}` },
+      body: JSON.stringify({ invitationId: 'workflow-invite' }),
+    });
+    assert.equal(accepted.status, 200);
+    assert.deepEqual(await accepted.json(), { status: 'accepted' });
+  } finally { await new Promise(resolve => invitationServer.close(resolve)); await invitationRuntime.close(); }
   assert.equal((await getDoc(doc(inviteDb, 'users', invited.uid))).data().role, 'parent');
   assert.equal((await getDoc(doc(inviteDb, 'players', 'child'))).exists(), true);
   console.log('PASS: invitation creation, verification, atomic acceptance and linked-child access.');
