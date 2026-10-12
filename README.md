@@ -326,6 +326,15 @@ reference an existing team at creation and acceptance. Player/captain links must
 reference an active player still on the invited team, and that team must exist.
 Parent invites carry explicit unique child links; the client validates active players
 and their teams, but acceptance-time validation of every child remains unfinished.
+An internal Admin SDK transaction now checks up to 30 children and all their teams,
+the current verified Auth email, and the issuing administrator's current role before
+atomically accepting a parent invitation. Concurrent retries acknowledge an already
+accepted invitation without overwriting a subsequently changed account role.
+`npm run test:workflows` exercises this service against local Auth and Firestore,
+including stale records on the last child and rejection without partial writes.
+This service is not yet exposed through an authenticated endpoint or used by the
+browser. The production gap remains until endpoint deployment, client routing,
+and rules that deny direct parent acceptance are completed together.
 Automated invitation delivery and authenticated production
 acceptance testing remain outstanding. The Admin Panel now creates shareable invitation links,
 shows status, and revokes pending invitations. Recipients open the link, sign in
