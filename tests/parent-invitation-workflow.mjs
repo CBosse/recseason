@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
 import { Timestamp } from 'firebase-admin/firestore';
 import { openReminderRuntime } from '../server/reminder-runtime.mjs';
 import { acceptParentInvitation } from '../server/parent-invitation-service.mjs';
@@ -7,6 +8,8 @@ import { acceptParentInvitation } from '../server/parent-invitation-service.mjs'
 if (process.env.FIREBASE_AUTH_EMULATOR_HOST !== '127.0.0.1:9099' || process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8180') throw new Error('Both local emulators are required.');
 const runtime = openReminderRuntime('demo-recseason');
 const { db, auth } = runtime;
+const server = createServer(runtime.handler);
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const prefix = `parent-${randomUUID()}`;
 const issuer = `${prefix}-admin`;
 const put = (collection, id, value) => db.collection(collection).doc(id).set(value);
@@ -17,7 +20,7 @@ try {
     const uid = `${prefix}-${fixtures.length}`, id = `${uid}-invite`, email = `${uid}@example.test`;
     const children = Array.from({ length: count }, (_, i) => `${uid}-child-${i}`);
     const teams = children.map((_, i) => `${uid}-team-${i}`);
-    await auth.createUser({ uid, email, emailVerified: true });
+    await auth.createUser({ uid, email, emailVerified: true, password: 'Synthetic123!' });
     await put('users', uid, { email, displayName: 'Synthetic parent', role: 'player', linkedTeamId: null, linkedPlayerId: null, linkedPlayerIds: [] });
     for (let i = 0; i < count; i++) {
       await put('teams', teams[i], { name: `Synthetic team ${i}` });
@@ -73,8 +76,30 @@ try {
   await rejected(staleEmail, 'invitation-unavailable');
   const staff = await fixture(); await db.collection('users').doc(staff.uid).update({ role: 'scorekeeper' });
   await rejected(staff, 'invitation-unavailable');
+  const httpParent = await fixture(30);
+  const login = await fetch('http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=demo-key', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: `${httpParent.uid}@example.test`, password: 'Synthetic123!', returnSecureToken: true }),
+  });
+  assert.equal(login.status, 200);
+  const { idToken } = await login.json();
+  const request = (token = idToken, body = { invitationId: httpParent.id }) => fetch(`http://127.0.0.1:${server.address().port}/api/parent-invitations/accept`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body),
+  });
+  assert.equal((await request('invalid')).status, 401);
+  assert.equal((await request(idToken, { invitationId: httpParent.id, verifiedUid: issuer })).status, 400);
+  const httpAccepted = await request();
+  assert.equal(httpAccepted.status, 200);
+  assert.deepEqual(await httpAccepted.json(), { status: 'accepted' });
+  assert.deepEqual((await db.collection('users').doc(httpParent.uid).get()).data().linkedPlayerIds, httpParent.children);
+  assert.equal((await request()).status, 429);
+  await db.collection('notificationLimits').doc(httpParent.uid).delete();
+  assert.deepEqual(await (await request()).json(), { status: 'already-accepted' });
+  await auth.updateUser(httpParent.uid, { disabled: true });
+  assert.equal((await request()).status, 401);
+  console.log('PASS: parent HTTP acceptance verifies real ID tokens, rejects supplied identities, persists all links, throttles retries, and rejects disabled accounts.');
   const revokedIssuer = await fixture(); await db.collection('users').doc(issuer).update({ role: 'player' });
   await rejected(revokedIssuer, 'invitation-unavailable');
   await assert.rejects(acceptParentInvitation({ db: { databaseId: '(default)' }, auth, verifiedUid: full.uid, invitationId: full.id }), /Invalid/);
   console.log('PASS: server parent acceptance validates 30 child/team links, rejects stale and malformed invitations, checks current Auth identity and issuer role, atomically consumes invitations, and handles concurrent retries.');
-} finally { await runtime.close(); }
+} finally { await new Promise(resolve => server.close(resolve)); await runtime.close(); }

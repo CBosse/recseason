@@ -332,8 +332,12 @@ atomically accepting a parent invitation. Concurrent retries acknowledge an alre
 accepted invitation without overwriting a subsequently changed account role.
 `npm run test:workflows` exercises this service against local Auth and Firestore,
 including stale records on the last child and rejection without partial writes.
-This service is not yet exposed through an authenticated endpoint or used by the
-browser. The production gap remains until endpoint deployment, client routing,
+The local server exposes `POST /api/parent-invitations/accept` with a Bearer ID token
+and exactly `{ "invitationId": "..." }`. It verifies token revocation, applies a
+durable per-user 60-second acceptance throttle independent of notification requests,
+and returns only acceptance status. HTTP tests cover real emulator tokens, spoofed
+identity rejection, retries, and disabled accounts. The browser does not use it yet.
+The production gap remains until endpoint deployment, client routing,
 and rules that deny direct parent acceptance are completed together.
 Automated invitation delivery and authenticated production
 acceptance testing remain outstanding. The Admin Panel now creates shareable invitation links,

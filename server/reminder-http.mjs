@@ -1,6 +1,6 @@
 const validId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 
-export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellation, cancellationStatus, admit, origins }) {
+export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellation, cancellationStatus, acceptParent, admit, origins }) {
   const allowed = new Set(origins);
   let active = 0;
   return async (req, res) => {
@@ -14,7 +14,8 @@ export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellat
     if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
     const cancellation = req.url === '/api/game-cancellations' || req.url === '/api/game-cancellations/status';
     const statusRequest = req.url === '/api/game-reminders/status' || req.url === '/api/game-cancellations/status';
-    if (!statusRequest && !cancellation && req.url !== '/api/game-reminders') return reply(404, { error: 'not-found' });
+    const parentRequest = req.url === '/api/parent-invitations/accept';
+    if (!parentRequest && !statusRequest && !cancellation && req.url !== '/api/game-reminders') return reply(404, { error: 'not-found' });
     if (req.method === 'OPTIONS') {
       res.setHeader('Access-Control-Allow-Methods', 'POST');
       res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
@@ -37,16 +38,25 @@ export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellat
       let body;
       try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
       catch { return reply(400, { error: 'invalid-request' }); }
-      if (!body || Array.isArray(body) || Object.keys(body).length !== 1 || !validId(body.gameId)) return reply(400, { error: 'invalid-request' });
+      const idField = parentRequest ? 'invitationId' : 'gameId';
+      if (!body || Array.isArray(body) || Object.keys(body).length !== 1 || !validId(body[idField])) return reply(400, { error: 'invalid-request' });
       let identity;
       try { identity = await verifyToken(bearer[1]); }
       catch { return reply(401, { error: 'authentication-required' }); }
       if (!validId(identity?.uid)) return reply(401, { error: 'authentication-required' });
-      if (!await admit(identity.uid, statusRequest ? 'status' : 'enqueue')) { res.setHeader('Retry-After', '60'); return reply(429, { error: 'rate-limited' }); }
+      if (!await admit(identity.uid, parentRequest ? 'accept-parent' : statusRequest ? 'status' : 'enqueue')) { res.setHeader('Retry-After', '60'); return reply(429, { error: 'rate-limited' }); }
+      if (parentRequest) {
+        const result = await acceptParent({ verifiedUid: identity.uid, invitationId: body.invitationId });
+        return reply(200, { status: result.status });
+      }
       if (statusRequest) return reply(200, await (cancellation ? cancellationStatus : status)({ verifiedUid: identity.uid, gameId: body.gameId }));
       const result = await (cancellation ? enqueueCancellation : enqueue)({ verifiedUid: identity.uid, gameId: body.gameId });
       return reply(202, { created: result.created, existing: result.existing, recipients: result.recipients, playersWithoutRecipient: result.playersWithoutRecipient });
     } catch (error) {
+      if (parentRequest) {
+        const code = ['permission-denied', 'invitation-unavailable', 'stale-links'].includes(error.code) ? error.code : 'temporarily-unavailable';
+        return reply(code === 'permission-denied' ? 403 : code === 'temporarily-unavailable' ? 503 : 409, { error: code });
+      }
       return reply(error.code === 'permission-denied' ? 403 : error.code === 'game-unavailable' ? 409 : 503,
         { error: error.code === 'permission-denied' ? 'organizer-required' : error.code === 'game-unavailable' ? 'game-unavailable' : 'temporarily-unavailable' });
     } finally { active--; }
