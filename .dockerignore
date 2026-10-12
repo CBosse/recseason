@@ -1,0 +1,11 @@
+**
+!Dockerfile
+!package.json
+!package-lock.json
+!server/
+!server/*.mjs
+!scripts/
+!scripts/serve-reminders.mjs
+!invitations.mjs
+!reminders.mjs
+!notification-status.mjs

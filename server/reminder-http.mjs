@@ -12,6 +12,7 @@ export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellat
     const origin = req.headers.origin;
     if (origin && !allowed.has(origin)) return reply(403, { error: 'origin-denied' });
     if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
+    if (req.url === '/healthz' && req.method === 'GET') return reply(200, { status: 'ok' });
     const cancellation = req.url === '/api/game-cancellations' || req.url === '/api/game-cancellations/status';
     const statusRequest = req.url === '/api/game-reminders/status' || req.url === '/api/game-cancellations/status';
     const parentRequest = req.url === '/api/parent-invitations/accept';

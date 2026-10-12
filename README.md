@@ -1,5 +1,9 @@
 # RecSeason
 
+API packaging and production release gates are documented in
+[API Deployment](docs/api-deployment.md). CI builds and smoke-tests the container;
+it does not deploy a backend or change cloud permissions.
+
 Recreational league management using a static JavaScript interface, Firebase
 Authentication, and the named Firestore database `recseason`.
 
