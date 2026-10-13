@@ -9,3 +9,5 @@
 !invitations.mjs
 !reminders.mjs
 !notification-status.mjs
+!roster-version.mjs
+!schedule-version.mjs

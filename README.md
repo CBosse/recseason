@@ -315,6 +315,14 @@ remain final when corrected with an audit reason. Organizer scoring uses the sam
 inning, half, ball, strike, and out bounds as assigned scorekeepers. Reopening scored
 games is not supported. Cross-game scheduling constraints still need further
 database hardening.
+An internal server team-removal transaction now rejects references from players,
+roster projections, home/away games, linked users, invitations, RSVPs and attendance,
+including archived/history records. Empty removal checks the organizer's current
+role and both confirmation revisions, and advances schedule/roster revisions in
+the same transaction. Emulator coverage includes no-partial-write rejection and
+concurrent deletion/player creation. This is not wired into the HTTP/browser path
+yet; direct privileged deletion and malformed privileged profile links remain open
+until the server route, browser, and rules changes are completed and deployed.
 The authenticated emulator workflow verifies an atomic 12-team, 66-game, one-field
 round-robin publication, exact persisted records, and complete rollback when the last
 game references a missing field. It also checks that fixture games do not conflict.

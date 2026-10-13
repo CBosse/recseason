@@ -11,7 +11,7 @@ docker build --tag recseason-api:test .
 node tests/container-smoke.mjs
 ```
 
-The Docker context is an allowlist: server modules, the server entrypoint, three
+The Docker context is an allowlist: server modules, the server entrypoint, five
 shared domain modules, and the npm manifests. It excludes `.tools`, `.git`, local
 credentials, emulator data, frontend assets, and tests. Dependencies are installed
 from the lockfile with development dependencies and install scripts excluded.
