@@ -1,6 +1,6 @@
 const validId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 
-export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellation, cancellationStatus, acceptParent, admit, origins }) {
+export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellation, cancellationStatus, acceptParent, removeTeam, admit, origins }) {
   const allowed = new Set(origins);
   let active = 0;
   return async (req, res) => {
@@ -16,7 +16,8 @@ export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellat
     const cancellation = req.url === '/api/game-cancellations' || req.url === '/api/game-cancellations/status';
     const statusRequest = req.url === '/api/game-reminders/status' || req.url === '/api/game-cancellations/status';
     const parentRequest = req.url === '/api/parent-invitations/accept';
-    if (!parentRequest && !statusRequest && !cancellation && req.url !== '/api/game-reminders') return reply(404, { error: 'not-found' });
+    const teamRequest = req.url === '/api/teams/delete';
+    if (!teamRequest && !parentRequest && !statusRequest && !cancellation && req.url !== '/api/game-reminders') return reply(404, { error: 'not-found' });
     if (req.method === 'OPTIONS') {
       res.setHeader('Access-Control-Allow-Methods', 'POST');
       res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
@@ -39,13 +40,20 @@ export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellat
       let body;
       try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
       catch { return reply(400, { error: 'invalid-request' }); }
-      const idField = parentRequest ? 'invitationId' : 'gameId';
-      if (!body || Array.isArray(body) || Object.keys(body).length !== 1 || !validId(body[idField])) return reply(400, { error: 'invalid-request' });
+      const idField = teamRequest ? 'teamId' : parentRequest ? 'invitationId' : 'gameId';
+      const keys = teamRequest ? ['teamId', 'expectedRosterRevision', 'expectedScheduleRevision'] : [idField];
+      if (!body || Array.isArray(body) || Object.keys(body).length !== keys.length || Object.keys(body).some(key => !keys.includes(key)) ||
+          !validId(body[idField]) || (teamRequest && ![body.expectedRosterRevision, body.expectedScheduleRevision].every(value => Number.isSafeInteger(value) && value >= 0))) return reply(400, { error: 'invalid-request' });
       let identity;
       try { identity = await verifyToken(bearer[1]); }
       catch { return reply(401, { error: 'authentication-required' }); }
       if (!validId(identity?.uid)) return reply(401, { error: 'authentication-required' });
-      if (!await admit(identity.uid, parentRequest ? 'accept-parent' : statusRequest ? 'status' : 'enqueue')) { res.setHeader('Retry-After', '60'); return reply(429, { error: 'rate-limited' }); }
+      if (!await admit(identity.uid, teamRequest ? 'delete-team' : parentRequest ? 'accept-parent' : statusRequest ? 'status' : 'enqueue')) { res.setHeader('Retry-After', '60'); return reply(429, { error: 'rate-limited' }); }
+      if (teamRequest) {
+        const result = await removeTeam({ verifiedUid: identity.uid, teamId: body.teamId,
+          expectedRosterRevision: body.expectedRosterRevision, expectedScheduleRevision: body.expectedScheduleRevision });
+        return reply(200, { status: result.status });
+      }
       if (parentRequest) {
         const result = await acceptParent({ verifiedUid: identity.uid, invitationId: body.invitationId });
         return reply(200, { status: result.status });
@@ -54,6 +62,10 @@ export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellat
       const result = await (cancellation ? enqueueCancellation : enqueue)({ verifiedUid: identity.uid, gameId: body.gameId });
       return reply(202, { created: result.created, existing: result.existing, recipients: result.recipients, playersWithoutRecipient: result.playersWithoutRecipient });
     } catch (error) {
+      if (teamRequest) {
+        const code = ['permission-denied', 'team-unavailable', 'team-in-use', 'stale-revision'].includes(error.code) ? error.code : 'temporarily-unavailable';
+        return reply(code === 'permission-denied' ? 403 : code === 'temporarily-unavailable' ? 503 : 409, { error: code });
+      }
       if (parentRequest) {
         const code = ['permission-denied', 'invitation-unavailable', 'stale-links'].includes(error.code) ? error.code : 'temporarily-unavailable';
         return reply(code === 'permission-denied' ? 403 : code === 'temporarily-unavailable' ? 503 : 409, { error: code });

@@ -25,7 +25,7 @@ try {
   assert.ok(healthy, 'Container must become live without credentials or emulator access.');
   assert.equal(docker(['exec', name, 'id', '-u']), '1000', 'Runtime must be non-root.');
   assert.equal((await fetch(`${endpoint}/healthz`, { headers: { Origin: 'https://foreign.test' } })).status, 403);
-  for (const route of ['parent-invitations/accept', 'game-reminders', 'game-cancellations']) {
+  for (const route of ['parent-invitations/accept', 'game-reminders', 'game-cancellations', 'teams/delete']) {
     const response = await fetch(`${endpoint}/api/${route}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     assert.equal(response.status, 401);
     assert.deepEqual(await response.json(), { error: 'authentication-required' });

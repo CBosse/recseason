@@ -320,8 +320,11 @@ roster projections, home/away games, linked users, invitations, RSVPs and attend
 including archived/history records. Empty removal checks the organizer's current
 role and both confirmation revisions, and advances schedule/roster revisions in
 the same transaction. Emulator coverage includes no-partial-write rejection and
-concurrent deletion/player creation. This is not wired into the HTTP/browser path
-yet; direct privileged deletion and malformed privileged profile links remain open
+concurrent deletion/player creation. `POST /api/teams/delete` now accepts exactly
+`teamId`, `expectedRosterRevision`, and `expectedScheduleRevision` with a verified
+Bearer token and an independent durable 60-second throttle. Emulator HTTP tests
+cover stale revisions, linked accounts, role revocation, and disabled Auth users.
+This is not wired into the browser path yet; direct privileged deletion and malformed privileged profile links remain open
 until the server route, browser, and rules changes are completed and deployed.
 The authenticated emulator workflow verifies an atomic 12-team, 66-game, one-field
 round-robin publication, exact persisted records, and complete rollback when the last
