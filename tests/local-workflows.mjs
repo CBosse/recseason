@@ -2,6 +2,7 @@ import '../scripts/seed-local.mjs';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { openReminderRuntime } from '../server/reminder-runtime.mjs';
+import { deleteEmptyTeam } from '../server/team-deletion-service.mjs';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, applyActionCode, reload } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator, collection, query, where, documentId, getDocs, doc, setDoc, getDoc, runTransaction, serverTimestamp, Timestamp, onSnapshot, updateDoc } from 'firebase/firestore';
@@ -181,15 +182,9 @@ try {
   const rosterBefore = rosterRevision((await getDoc(rosterRef)).data());
   const scheduleBefore = scheduleRevision((await getDoc(revisionRef)).data());
   assert.equal((await getDocs(query(collection(admin.db, 'players'), where('teamId', '==', 'delete-race')))).empty, true);
-  const removeEmptyTeam = () => runTransaction(admin.db, async tx => {
-    const roster = await tx.get(rosterRef);
-    const schedule = await tx.get(revisionRef);
-    const team = await tx.get(teamRef);
-    if (!team.exists()) throw new Error('Team removed');
-    tx.set(rosterRef, nextRosterRevision(roster.data(), rosterBefore, admin.user.uid));
-    tx.set(revisionRef, nextScheduleRevision(schedule.data(), scheduleBefore, admin.user.uid));
-    tx.delete(teamRef);
-  });
+  const deletionRuntime = openReminderRuntime('demo-recseason');
+  const removeEmptyTeam = () => deleteEmptyTeam({ db: deletionRuntime.db, verifiedUid: admin.user.uid,
+    teamId: 'delete-race', expectedRosterRevision: rosterBefore, expectedScheduleRevision: scheduleBefore });
   const addPlayer = () => runTransaction(admin.db, async tx => {
     const roster = await tx.get(rosterRef);
     const team = await tx.get(teamRef);
@@ -199,7 +194,9 @@ try {
     tx.set(doc(admin.db, 'players', 'race-player'), player);
     tx.set(doc(admin.db, 'teamRoster', 'race-player'), rosterEntry(player));
   });
-  const race = await Promise.allSettled([removeEmptyTeam(), addPlayer()]);
+  let race;
+  try { race = await Promise.allSettled([removeEmptyTeam(), addPlayer()]); }
+  finally { await deletionRuntime.close(); }
   assert.equal(race.filter(result => result.status === 'fulfilled').length, 1);
   assert.equal(race.filter(result => result.status === 'rejected').length, 1);
   const remainingTeam = await getDoc(teamRef);

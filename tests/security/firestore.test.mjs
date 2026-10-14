@@ -146,6 +146,16 @@ test('roster membership writes and team removal cannot bypass revision coordinat
   const deletion = writeBatch(db);
   deletion.delete(doc(db, 'teams', 'valid'));
   await assertFails(deletion.commit());
+  for (const teamId of ['valid', 'a']) {
+    const coordinated = writeBatch(db);
+    coordinated.delete(doc(db, 'teams', teamId));
+    await addRosterVersion(coordinated, db, 'admin');
+    const scheduleRef = doc(db, 'config', 'scheduleRevision');
+    const schedule = await getDoc(scheduleRef);
+    coordinated.set(scheduleRef, { revision: (schedule.data()?.revision ?? 0) + 1, updatedBy: 'admin' });
+    await assertFails(coordinated.commit());
+    assert.equal((await getDoc(doc(db, 'teams', teamId))).exists(), true);
+  }
   await assertFails(setDoc(doc(dbFor('player'), 'config', 'rosterRevision'), { revision: 3, updatedBy: 'player' }));
   const reset = writeBatch(db);
   reset.delete(doc(db, 'config', 'rosterRevision'));

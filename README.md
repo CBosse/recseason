@@ -324,8 +324,13 @@ concurrent deletion/player creation. `POST /api/teams/delete` now accepts exactl
 `teamId`, `expectedRosterRevision`, and `expectedScheduleRevision` with a verified
 Bearer token and an independent durable 60-second throttle. Emulator HTTP tests
 cover stale revisions, linked accounts, role revocation, and disabled Auth users.
-This is not wired into the browser path yet; direct privileged deletion and malformed privileged profile links remain open
-until the server route, browser, and rules changes are completed and deployed.
+The browser captures both revisions before opening an in-page confirmation and
+uses this endpoint without a direct-write fallback. Candidate rules deny all direct
+team deletions, including privileged batches that advance both revisions. The local
+workflow races server removal against an authenticated roster write. Production
+team removal is temporarily unavailable until the hosted endpoint is configured;
+the candidate rules also still need deployment. Malformed privileged profile links
+remain a separate integrity gap, so this does not prove every reference invariant.
 The authenticated emulator workflow verifies an atomic 12-team, 66-game, one-field
 round-robin publication, exact persisted records, and complete rollback when the last
 game references a missing field. It also checks that fixture games do not conflict.

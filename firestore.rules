@@ -81,7 +81,7 @@ service cloud.firestore {
     match /teams/{id} {
       allow read: if true;
       allow create: if organizer() && validTeam(request.resource.data);
-      allow delete: if organizer() && scheduleAdvanced() && rosterAdvanced();
+      allow delete: if false;
       allow update: if manages(id) && validTeam(request.resource.data);
     }
     function boundedText(value, limit) { return value is string && value.size() <= limit; }

@@ -13,6 +13,7 @@ import { openRosterEditor, checkedRosterUpdate, checkedArchiveUpdate } from './r
 import { fieldUpdate, fieldFitsGame, fieldWindow, openFieldEditor } from './field-editor.mjs';
 import { invitationProfilePatch } from './invitations.mjs';
 import { parentInvitationEndpoint, requestParentAcceptance } from './parent-invitation-client.mjs';
+import { teamDeletionEndpoint, requestTeamDeletion, openTeamRemoval } from './team-deletion-client.mjs';
 import { openInvitationCreator, openInvitationRecipient } from './invitation-ui.mjs';
 import { dashboardScope, upcomingGames, rsvpTotals, dashboardRecord } from './dashboard.mjs';
 import { rsvpSchedule, isCurrentRsvp } from './rsvps.mjs';
@@ -144,6 +145,7 @@ function clearSessionData() {
   document.getElementById('queued-reminder-dialog')?.remove();
   document.getElementById('reminder-status-dialog')?.remove();
   document.getElementById('rules-editor-dialog')?.remove();
+  document.getElementById('team-removal-dialog')?.remove();
   subscriptions.clear();
   clearTimeout(_connectTimeout);
   _listenersStarted = false;
@@ -590,18 +592,6 @@ function saveTeam(team) {
     name: team.name, color: team.color ?? '', homefield: team.homefield ?? '',
   }));
 }
-function deleteTeam(id) {
-  return firestoreWrite((async () => {
-    const uid = currentUser.uid;
-    const version = rosterRevision((await getDoc(doc(db, 'config', 'rosterRevision'))).data());
-    const snapshot = await scheduleSnapshot();
-    const players = await getDocs(query(collection(db, 'players'), where('teamId', '==', id)));
-    if (!players.empty || snapshot.games.docs.some(d => d.data().homeTeamId === id || d.data().awayTeamId === id)) throw new Error('This team has roster or game history and cannot be removed.');
-    if (!snapshot.teams.docs.some(d => d.id === id)) throw new Error('This team was already removed.');
-    await publishSchedule(snapshot, [doc(db, 'teams', id)], [], uid, version);
-  })());
-}
-
 function savePlayer(player) {
   const uid = currentUser.uid;
   return firestoreWrite(runTransaction(db, async transaction => {
@@ -1427,8 +1417,19 @@ async function removeTeam(id) {
   if (state.players.some(p => p.teamId === id) || state.games.some(g => g.homeTeamId === id || g.awayTeamId === id)) {
     showBanner('This team has roster or game history and cannot be removed.', 'error'); return;
   }
-  if (!confirm('Remove this empty team?')) return;
-  if (await deleteTeam(id) && _viewingTeamId === id) { _viewingTeamId = null; renderRosterView(); }
+  const user = auth.currentUser;
+  const team = state.teams.find(team => team.id === id);
+  if (!team || !user) return;
+  try {
+    const expectedRosterRevision = rosterRevision((await getDoc(doc(db, 'config', 'rosterRevision'))).data());
+    const expectedScheduleRevision = scheduleRevision((await getDoc(doc(db, 'config', 'scheduleRevision'))).data());
+    const isCurrent = () => auth.currentUser?.uid === user.uid && canEdit();
+    if (!isCurrent()) return;
+    openTeamRemoval(team, async () => {
+      await requestTeamDeletion({ endpoint: teamDeletionEndpoint(localMode), teamId: id, expectedRosterRevision, expectedScheduleRevision, user, isCurrent });
+      if (_viewingTeamId === id) { _viewingTeamId = null; renderRosterView(); }
+    });
+  } catch (error) { if (auth.currentUser?.uid === user.uid) showBanner(error.message, 'error'); }
 }
 
 document.getElementById('add-player-btn').addEventListener('click', addPlayer);
