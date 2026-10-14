@@ -1,3 +1,5 @@
+import { wireDialogSubmission } from './dialog-submit.mjs';
+
 const validTime = value => /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
 const minutes = time => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
 
@@ -54,14 +56,12 @@ export function openFieldEditor(field, save) {
   const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'btn btn-ghost'; cancel.textContent = 'Cancel'; cancel.onclick = () => dialog.close();
   const submit = document.createElement('button'); submit.className = 'btn btn-primary'; submit.textContent = 'Save field';
   actions.append(cancel, submit); form.append(heading, grid, days, error, actions);
-  form.onsubmit = async event => {
-    event.preventDefault(); error.textContent = ''; submit.disabled = true;
-    try {
+  wireDialogSubmission({ dialog, form, error, controls: [...Object.values(controls), ...dayInputs, cancel, submit], save,
+    read: () => {
       const values = Object.fromEntries(Object.entries(controls).map(([key, input]) => [key, input.type === 'checkbox' ? input.checked : input.value]));
       values.availableDays = dayInputs.flatMap((input, day) => input.checked ? [day] : []);
-      await save(fieldUpdate(values)); dialog.close();
-    } catch (reason) { error.textContent = reason.message; }
-    finally { submit.disabled = false; }
-  };
+      return fieldUpdate(values);
+    },
+  });
   dialog.append(form); document.body.append(dialog); dialog.addEventListener('close', () => dialog.remove(), { once: true }); dialog.showModal();
 }

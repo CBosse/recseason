@@ -1,3 +1,5 @@
+import { wireDialogSubmission } from './dialog-submit.mjs';
+
 export function rosterUpdate(kind, values) {
   const limits = kind === 'team' ? { name: 100, color: 40, homefield: 100 } : { name: 100, number: 10, phone: 40 };
   const result = {};
@@ -46,14 +48,9 @@ export function openRosterEditor(kind, record, save) {
   const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'btn btn-ghost'; cancel.textContent = 'Cancel'; cancel.onclick = () => dialog.close();
   const submit = document.createElement('button'); submit.className = 'btn btn-primary'; submit.textContent = 'Save changes';
   actions.append(cancel, submit); form.append(heading, grid, error, actions);
-  form.onsubmit = async event => {
-    event.preventDefault(); error.textContent = ''; submit.disabled = true;
-    try {
-      await save(rosterUpdate(kind, Object.fromEntries(Object.entries(controls).map(([key, input]) => [key, input.value]))));
-      dialog.close();
-    } catch (reason) { error.textContent = reason.message; }
-    finally { submit.disabled = false; }
-  };
+  wireDialogSubmission({ dialog, form, error, controls: [...Object.values(controls), cancel, submit], save,
+    read: () => rosterUpdate(kind, Object.fromEntries(Object.entries(controls).map(([key, input]) => [key, input.value]))),
+  });
   dialog.append(form); document.body.append(dialog);
   dialog.addEventListener('close', () => dialog.remove(), { once: true }); dialog.showModal();
 }
