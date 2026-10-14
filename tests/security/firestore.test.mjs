@@ -11,6 +11,7 @@ import { rsvpSchedule } from '../../rsvps.mjs';
 import { rosterEntry } from '../../team-roster.mjs';
 import { scoreHistoryEntry } from '../../score-history.mjs';
 import { nextRulesProfile, gameRulesSnapshot } from '../../league-rules.mjs';
+import { scheduleChangeUpdate } from '../../schedule-history.mjs';
 let env;
 const profile = (uid, role, extra = {}) => ({ ...newPlayerProfile({ uid, email: `${uid}@example.test` }, uid), role, ...extra });
 const game = { status: 'scheduled', homeTeamId: 'a', awayTeamId: 'b', homeName: 'Home', awayName: 'Away', fieldName: 'Main', durationMinutes: 90, scorekeeperId: 'scorer', date: '2026-09-25', time: '18:00', fieldId: 'main' };
@@ -356,6 +357,44 @@ test('existing game edits validate changed schedule fields and reject unknown da
   batch.update(doc(db, 'games', 'validated-new'), { date: '2026-09-26', time: '19:30', durationMinutes: 120, locked: true, homeName: 'Home updated', status: 'cancelled' });
   batch.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
   await assertSucceeds(batch.commit());
+});
+
+test('schedule change records bind the previous and current arrangements to their authenticated write', async () => {
+  const db = dbFor('admin');
+  const target = doc(db, 'games', 'schedule-history');
+  await env.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'games', 'schedule-history'), game));
+  const write = async patch => {
+    const revision = (await getDoc(doc(db, 'config', 'scheduleRevision'))).data()?.revision ?? 0;
+    const batch = writeBatch(db);
+    batch.update(target, patch);
+    batch.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
+    return batch.commit();
+  };
+  const after = { ...game, time: '19:00' };
+  const change = scheduleChangeUpdate(game, after, 'admin', serverTimestamp()).lastScheduleChange;
+  for (const patch of [
+    { ...change, before: { ...change.before, time: 'invented' } },
+    { ...change, after: { ...change.after, time: '20:00' } },
+    { ...change, revision: 2 }, { ...change, revision: '1' },
+    { ...change, changedBy: 'organizer' }, { ...change, changedAt: Timestamp.fromMillis(0) },
+    { ...change, privateNote: 'not public schedule data' },
+  ]) await assertFails(write({ time: '19:00', lastScheduleChange: patch }));
+  await assertFails(write({ lastScheduleChange: change }));
+  await assertSucceeds(write({ time: '19:00', lastScheduleChange: change }));
+  const saved = (await getDoc(target)).data();
+  assert.equal(saved.lastScheduleChange.revision, 1);
+  assert.equal(saved.lastScheduleChange.changedAt instanceof Timestamp, true);
+  for (const patch of [{ time: '20:00' }, { lastScheduleChange: deleteField() }, { lastScheduleChange: change }]) await assertFails(write(patch));
+  await assertSucceeds(write({ locked: true }));
+  const restored = { ...saved, time: '18:00' };
+  await assertSucceeds(write({ time: '18:00', ...scheduleChangeUpdate(saved, restored, 'admin', serverTimestamp()) }));
+  assert.equal((await getDoc(target)).data().lastScheduleChange.revision, 2);
+  await assertFails(updateDoc(doc(dbFor('scorer'), 'games', 'schedule-history'), { lastScheduleChange: change }));
+  await assertSucceeds(write({ status: 'cancelled' }));
+  await assertFails(write({ status: 'scheduled' }));
+  const cancelled = (await getDoc(target)).data();
+  await assertSucceeds(write({ status: 'scheduled', ...scheduleChangeUpdate(cancelled, { ...cancelled, status: 'scheduled' }, 'admin', serverTimestamp()) }));
+  assert.equal((await getDoc(target)).data().lastScheduleChange.revision, 3);
 });
 
 test('valid reference edits and legacy schedule repairs remain possible', async () => {

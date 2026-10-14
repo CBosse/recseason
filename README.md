@@ -400,6 +400,18 @@ rescheduling, old responses remain stored but are excluded from current totals
 and the participant is prompted to reconfirm. Legacy responses without these
 schedule fields also need reconfirmation. The matching rules are deployed;
 stale-browser RSVP writes are rejected by those rules.
+
+Reschedule notice groundwork: `schedule-history.mjs` builds a revisioned
+`lastScheduleChange` containing only public before/after schedule fields, the
+authenticated editor, and a server timestamp. Candidate Firestore rules verify
+both snapshots against the same atomic game update and prevent removal or silent
+staleness once a record exists. This stores the latest change, not a complete
+append-only schedule audit trail. Legacy games may still be edited without a record
+during rollout. The live editor does not write this field yet, and these candidate
+rules have not been deployed. Deploy the reviewed rules before connecting the
+editor, then make reschedule queueing require a current verified change record;
+do not infer an old schedule from a reminder or claim notices are delivered.
+
 The `tests/live-scoring.html` fixture checks the score form with in-memory data.
 Live scoring has emulator authorization and cross-account integration coverage;
 signed-in production verification remains required before a live season.
