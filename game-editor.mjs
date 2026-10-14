@@ -1,4 +1,5 @@
 import { gamesConflict } from './scheduling.mjs';
+import { wireDialogSubmission } from './dialog-submit.mjs';
 
 export function hasRecordedScore(game) {
   return ['live', 'completed'].includes(game.status) || (game.scoreRevision ?? 0) > 0 || game.homeScore != null || game.awayScore != null;
@@ -86,17 +87,11 @@ export function openGameEditor({ game = {}, teams, fields, umpires, scorekeepers
   submit.className = 'btn btn-primary'; submit.textContent = 'Save game';
   actions.append(cancel, submit);
   form.append(grid, error, actions);
-  form.onsubmit = async event => {
-    event.preventDefault();
-    submit.disabled = true;
-    error.textContent = '';
-    try {
+  wireDialogSubmission({ dialog, form, controls: [...Object.values(controls), cancel, submit], error,
+    read: () => {
       const values = Object.fromEntries(Object.entries(controls).map(([name, input]) => [name, input.type === 'checkbox' ? input.checked : input.value]));
-      await save({ ...values, id: game.id, durationMinutes: Number(values.durationMinutes), umpireId: values.umpireId || null, scorekeeperId: values.scorekeeperId || null });
-      dialog.close();
-    } catch (reason) { error.textContent = reason.message; }
-    finally { submit.disabled = false; }
-  };
+      return { ...values, id: game.id, durationMinutes: Number(values.durationMinutes), umpireId: values.umpireId || null, scorekeeperId: values.scorekeeperId || null };
+    }, save });
   dialog.append(form);
   document.body.append(dialog);
   dialog.addEventListener('close', () => dialog.remove(), { once: true });
