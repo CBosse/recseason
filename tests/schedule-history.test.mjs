@@ -1,9 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { scheduleState, scheduleChanged, scheduleChangeUpdate } from '../schedule-history.mjs';
+import { scheduleState, scheduleChanged, scheduleChangeUpdate, currentScheduleChange } from '../schedule-history.mjs';
 
 const game = { status: 'scheduled', date: '2026-10-20', time: '18:00', durationMinutes: 90,
   fieldId: 'main', fieldName: 'Main', homeTeamId: 'home', awayTeamId: 'away', homeName: 'Home', awayName: 'Away' };
+
+test('notice eligibility requires an exact, current, well-formed schedule change', () => {
+  const after = { ...game, time: '19:00' };
+  const record = scheduleChangeUpdate(game, after, 'organizer', 'now').lastScheduleChange;
+  assert.equal(currentScheduleChange({ ...after, lastScheduleChange: record }), record);
+  for (const invalid of [null, [], {}, { ...record, revision: 0 }, { ...record, changedAt: null }, { ...record, changedBy: '../users' },
+    { ...record, extra: true }, { ...record, before: null }, { ...record, before: { ...record.before, extra: true } },
+    { ...record, before: record.after }, { ...record, after: { ...record.after, time: '20:00' } }]) {
+    assert.equal(currentScheduleChange({ ...after, lastScheduleChange: invalid }), null);
+  }
+  assert.equal(currentScheduleChange(game), null);
+});
 
 test('schedule changes capture bounded public before/after state without mutating the game', () => {
   const before = { ...game, privateNote: 'excluded', scoreRevision: 3 };

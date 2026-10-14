@@ -19,3 +19,16 @@ export function scheduleChangeUpdate(before, after, changedBy, changedAt) {
   if (!Number.isSafeInteger(revision) || revision < 0 || revision === Number.MAX_SAFE_INTEGER) throw new Error('Invalid schedule change revision.');
   return { lastScheduleChange: { revision: revision + 1, before: scheduleState(before), after: scheduleState(after), changedBy, changedAt } };
 }
+
+export function currentScheduleChange(game) {
+  const record = game?.lastScheduleChange;
+  if (!record || typeof record !== 'object' || Array.isArray(record) ||
+      Object.keys(record).length !== 5 || !['revision', 'before', 'after', 'changedBy', 'changedAt'].every(key => Object.hasOwn(record, key)) ||
+      !Number.isSafeInteger(record.revision) || record.revision < 1 || record.changedAt == null ||
+      typeof record.changedBy !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(record.changedBy)) return null;
+  for (const state of [record.before, record.after]) {
+    if (!state || typeof state !== 'object' || Array.isArray(state) || Object.keys(state).length !== keys.length || !keys.every(key => Object.hasOwn(state, key))) return null;
+  }
+  const current = scheduleState(game);
+  return keys.every(key => record.after[key] === current[key]) && scheduleChanged(record.before, record.after) ? record : null;
+}

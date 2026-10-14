@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { gameNotice } from '../reminders.mjs';
+import { currentScheduleChange } from '../schedule-history.mjs';
 import { notificationJobs, enqueueNotifications } from './notification-jobs.mjs';
 
 const appUrl = 'https://cbosse.github.io/recseason/';
@@ -13,7 +14,7 @@ function eventId(game, draft, version) {
 }
 
 async function currentReminder(db, gameId, actorUid, kind = 'rsvp-reminder') {
-  if (!['rsvp-reminder', 'cancellation'].includes(kind)) throw new Error('Unsupported game notice.');
+  if (!['rsvp-reminder', 'cancellation', 'reschedule'].includes(kind)) throw new Error('Unsupported game notice.');
   if (db.databaseId !== 'recseason' || !validId(gameId) || !validId(actorUid)) throw new Error('Invalid reminder source.');
   return db.runTransaction(async tx => {
     const actor = await tx.get(db.collection('users').doc(actorUid));
@@ -22,15 +23,19 @@ async function currentReminder(db, gameId, actorUid, kind = 'rsvp-reminder') {
     if (!snapshot.exists || snapshot.data().status !== (kind === 'cancellation' ? 'cancelled' : 'scheduled')) return null;
     const game = { ...snapshot.data(), id: snapshot.id };
     if (!validId(game.homeTeamId) || !validId(game.awayTeamId) || game.homeTeamId === game.awayTeamId || !validId(game.fieldId)) return null;
+    const change = kind === 'reschedule' ? currentScheduleChange(game) : null;
+    if (kind === 'reschedule' && !change) return null;
+    const teamIds = [...new Set([game.homeTeamId, game.awayTeamId, ...(change ? [change.before.homeTeamId, change.before.awayTeamId] : [])])];
+    if (!teamIds.every(validId)) return null;
     for (const [collection, id] of [['teams', game.homeTeamId], ['teams', game.awayTeamId], ['fields', game.fieldId]]) {
       if (!(await tx.get(db.collection(collection).doc(id))).exists) return null;
     }
-    const players = await tx.get(db.collection('players').where('teamId', 'in', [game.homeTeamId, game.awayTeamId]).limit(1001));
+    const players = await tx.get(db.collection('players').where('teamId', 'in', teamIds).limit(1001));
     const users = await tx.get(db.collection('users').limit(1001));
     if (players.size > 1000 || users.size > 1000) throw new Error('Reminder recipient scan exceeds the supported limit.');
     const data = rows => rows.docs.map(row => ({ ...row.data(), id: row.id }));
     const draft = gameNotice(game, data(players), data(users), appUrl, kind);
-    const version = kind === 'cancellation' ? [snapshot.updateTime.seconds, snapshot.updateTime.nanoseconds] : null;
+    const version = kind !== 'rsvp-reminder' ? [snapshot.updateTime.seconds, snapshot.updateTime.nanoseconds] : null;
     return { draft, eventId: eventId(game, draft, version) };
   });
 }
@@ -45,6 +50,10 @@ export async function enqueueGameCancellation({ db, store, verifiedUid, gameId, 
   return enqueueGameNotice({ db, store, verifiedUid, gameId, now }, 'cancellation');
 }
 
+export async function enqueueGameReschedule({ db, store, verifiedUid, gameId, now = Date.now() }) {
+  return enqueueGameNotice({ db, store, verifiedUid, gameId, now }, 'reschedule');
+}
+
 async function enqueueGameNotice({ db, store, verifiedUid, gameId, now }, kind) {
   const current = await currentReminder(db, gameId, verifiedUid, kind);
   if (!current) throw Object.assign(new Error('This game is not available for reminders.'), { code: 'game-unavailable' });
@@ -56,7 +65,7 @@ async function enqueueGameNotice({ db, store, verifiedUid, gameId, now }, kind) 
 
 export function gameReminderEligibility(db) {
   return async job => {
-    if (!['rsvp-reminder', 'cancellation'].includes(job.kind) || !validId(job.sourceId) || !validId(job.requestedBy)) return false;
+    if (!['rsvp-reminder', 'cancellation', 'reschedule'].includes(job.kind) || !validId(job.sourceId) || !validId(job.requestedBy)) return false;
     let current;
     try { current = await currentReminder(db, job.sourceId, job.requestedBy, job.kind); }
     catch (error) { if (error.code === 'permission-denied') return false; throw error; }

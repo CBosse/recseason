@@ -1,6 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { gameReminder, gameNotice, reminderEml } from '../reminders.mjs';
+import { scheduleChangeUpdate } from '../schedule-history.mjs';
+
+test('reschedule notices show both arrangements and include former teams without exposing addresses', () => {
+  const before = { ...game, homeTeamId: 'former', homeName: 'Former', date: '2026-09-25', time: '17:00', durationMinutes: 60, fieldId: 'old', fieldName: 'Old field' };
+  const after = { ...game, durationMinutes: 90, fieldId: 'new' };
+  const moved = { ...after, ...scheduleChangeUpdate(before, after, 'organizer', 'now') };
+  const users = [{ role: 'player', linkedPlayerId: 'p', email: 'current@example.test' },
+    { role: 'player', linkedPlayerId: 'former', email: 'former@example.test' },
+    { role: 'teamManager', linkedTeamId: 'former', email: 'manager@example.test' },
+    { role: 'parent', linkedPlayerIds: ['child'], email: 'optout@example.test', emailReminders: false }];
+  const draft = gameNotice(moved, [...players, { id: 'former', teamId: 'former' }], users, 'https://example.test/', 'reschedule');
+  assert.deepEqual(draft.recipients, ['current@example.test', 'former@example.test', 'manager@example.test']);
+  assert.equal(draft.subject, 'Game rescheduled: Home vs Away');
+  assert.match(draft.body, /Previous arrangement \(scheduled\):\nFormer vs Away/);
+  assert.match(draft.body, /Date: 2026-09-25\nTime: 17:00 \(field local time\)\nField: Old field\nDuration: 60 minutes/);
+  assert.match(draft.body, /New arrangement:\nHome vs Away/);
+  assert.match(draft.body, /Duration: 90 minutes/);
+  assert.match(draft.body, /reconfirm your availability/);
+  assert.doesNotMatch(draft.body, /@example/);
+  for (const stale of [after, { ...moved, time: '20:00' }, { ...moved, status: 'cancelled' }, { ...moved, lastScheduleChange: { ...moved.lastScheduleChange, revision: 0 } }]) {
+    assert.throws(() => gameNotice(stale, players, users, 'https://example.test/', 'reschedule'));
+  }
+});
 const game = { status: 'scheduled', homeTeamId: 'a', awayTeamId: 'b', homeName: 'Home', awayName: 'Away', date: '2026-09-26', time: '18:00', fieldName: 'Main', umpireId: 'u' };
 const players = [{ id: 'p', teamId: 'a' }, { id: 'child', teamId: 'b' }, { id: 'no-email', teamId: 'a' }, { id: 'archived', teamId: 'a', archived: true }];
 

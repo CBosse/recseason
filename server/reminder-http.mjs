@@ -1,6 +1,6 @@
 const validId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 
-export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellation, cancellationStatus, acceptParent, removeTeam, admit, origins }) {
+export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellation, cancellationStatus, enqueueReschedule, rescheduleStatus, acceptParent, removeTeam, admit, origins }) {
   const allowed = new Set(origins);
   let active = 0;
   return async (req, res) => {
@@ -14,10 +14,11 @@ export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellat
     if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
     if (req.url === '/healthz' && req.method === 'GET') return reply(200, { status: 'ok' });
     const cancellation = req.url === '/api/game-cancellations' || req.url === '/api/game-cancellations/status';
-    const statusRequest = req.url === '/api/game-reminders/status' || req.url === '/api/game-cancellations/status';
+    const reschedule = req.url === '/api/game-reschedules' || req.url === '/api/game-reschedules/status';
+    const statusRequest = req.url === '/api/game-reminders/status' || req.url === '/api/game-cancellations/status' || req.url === '/api/game-reschedules/status';
     const parentRequest = req.url === '/api/parent-invitations/accept';
     const teamRequest = req.url === '/api/teams/delete';
-    if (!teamRequest && !parentRequest && !statusRequest && !cancellation && req.url !== '/api/game-reminders') return reply(404, { error: 'not-found' });
+    if (!teamRequest && !parentRequest && !statusRequest && !cancellation && !reschedule && req.url !== '/api/game-reminders') return reply(404, { error: 'not-found' });
     if (req.method === 'OPTIONS') {
       res.setHeader('Access-Control-Allow-Methods', 'POST');
       res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
@@ -58,8 +59,8 @@ export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellat
         const result = await acceptParent({ verifiedUid: identity.uid, invitationId: body.invitationId });
         return reply(200, { status: result.status });
       }
-      if (statusRequest) return reply(200, await (cancellation ? cancellationStatus : status)({ verifiedUid: identity.uid, gameId: body.gameId }));
-      const result = await (cancellation ? enqueueCancellation : enqueue)({ verifiedUid: identity.uid, gameId: body.gameId });
+      if (statusRequest) return reply(200, await (reschedule ? rescheduleStatus : cancellation ? cancellationStatus : status)({ verifiedUid: identity.uid, gameId: body.gameId }));
+      const result = await (reschedule ? enqueueReschedule : cancellation ? enqueueCancellation : enqueue)({ verifiedUid: identity.uid, gameId: body.gameId });
       return reply(202, { created: result.created, existing: result.existing, recipients: result.recipients, playersWithoutRecipient: result.playersWithoutRecipient });
     } catch (error) {
       if (teamRequest) {

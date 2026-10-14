@@ -5,7 +5,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm cache clean --force
 COPY server/ ./server/
 COPY scripts/serve-reminders.mjs ./scripts/serve-reminders.mjs
-COPY invitations.mjs reminders.mjs notification-status.mjs roster-version.mjs schedule-version.mjs ./
+COPY invitations.mjs reminders.mjs notification-status.mjs roster-version.mjs schedule-version.mjs schedule-history.mjs ./
 USER node
 EXPOSE 8080
 CMD ["node", "scripts/serve-reminders.mjs"]

@@ -12,7 +12,7 @@ node tests/container-smoke.mjs
 ```
 
 The Docker context is an allowlist: server modules, the server entrypoint, five
-shared domain modules, and the npm manifests. It excludes `.tools`, `.git`, local
+shared domain modules plus schedule history, and the npm manifests. It excludes `.tools`, `.git`, local
 credentials, emulator data, frontend assets, and tests. Dependencies are installed
 from the lockfile with development dependencies and install scripts excluded.
 The process runs as the image's non-root `node` user. CI verifies it with a

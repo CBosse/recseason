@@ -1,4 +1,5 @@
 const emailPattern = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+$/;
+import { currentScheduleChange } from './schedule-history.mjs';
 const line = value => String(value ?? '').replace(/[\r\n]+/g, ' ').trim();
 
 export function gameReminder(game, players, users, appUrl) {
@@ -6,10 +7,13 @@ export function gameReminder(game, players, users, appUrl) {
 }
 
 export function gameNotice(game, players, users, appUrl, kind) {
-  if (!['rsvp-reminder', 'cancellation'].includes(kind)) throw new Error('Unsupported game notice.');
+  if (!['rsvp-reminder', 'cancellation', 'reschedule'].includes(kind)) throw new Error('Unsupported game notice.');
   const cancelled = kind === 'cancellation';
   if (game.status !== (cancelled ? 'cancelled' : 'scheduled')) throw new Error('This game is not available for the requested notice.');
-  const active = players.filter(p => !p.archived && [game.homeTeamId, game.awayTeamId].includes(p.teamId));
+  const change = kind === 'reschedule' ? currentScheduleChange(game) : null;
+  if (kind === 'reschedule' && !change) throw new Error('A current schedule change is required.');
+  const teamIds = [game.homeTeamId, game.awayTeamId, ...(change ? [change.before.homeTeamId, change.before.awayTeamId] : [])];
+  const active = players.filter(p => !p.archived && teamIds.includes(p.teamId));
   const ids = new Set(active.map(p => p.id));
   const covered = new Set();
   const emails = new Set();
@@ -17,7 +21,7 @@ export function gameNotice(game, players, users, appUrl, kind) {
   for (const user of users) {
     const linked = user.role === 'parent' ? (user.linkedPlayerIds || []).filter(id => ids.has(id)) :
       ['player', 'captain'].includes(user.role) && ids.has(user.linkedPlayerId) ? [user.linkedPlayerId] : [];
-    const staff = (user.role === 'teamManager' && [game.homeTeamId, game.awayTeamId].includes(user.linkedTeamId)) ||
+    const staff = (user.role === 'teamManager' && teamIds.includes(user.linkedTeamId)) ||
       (user.role === 'umpire' && user.id === game.umpireId) || (user.role === 'scorekeeper' && user.id === game.scorekeeperId);
     const email = String(user.email || '').trim().toLowerCase();
     if ((!linked.length && !staff) || !emailPattern.test(email) || optedOut.has(email)) continue;
@@ -25,9 +29,11 @@ export function gameNotice(game, players, users, appUrl, kind) {
   }
   const url = new URL(appUrl);
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Invalid app URL.');
-  const subject = `${cancelled ? 'Game cancelled' : 'Game reminder'}: ${line(game.homeName)} vs ${line(game.awayName)}`;
-  const action = cancelled ? 'This game has been cancelled. Check RecSeason for the current schedule.' : 'Please confirm your availability in RecSeason and check the schedule for updates.';
-  const body = `${line(game.homeName)} vs ${line(game.awayName)}\nDate: ${line(game.date)}\nTime: ${line(game.time)} (field local time)\nField: ${line(game.fieldName)}\n\n${action}\n${url.href}\n`;
+  const subject = `${cancelled ? 'Game cancelled' : change ? 'Game rescheduled' : 'Game reminder'}: ${line(game.homeName)} vs ${line(game.awayName)}`;
+  const action = cancelled ? 'This game has been cancelled. Check RecSeason for the current schedule.' : change ? 'The schedule has changed. If your team is playing, please reconfirm your availability in RecSeason.' : 'Please confirm your availability in RecSeason and check the schedule for updates.';
+  const arrangement = state => `${line(state.homeName)} vs ${line(state.awayName)}\nDate: ${line(state.date)}\nTime: ${line(state.time)} (field local time)\nField: ${line(state.fieldName)}\n`;
+  const previous = change ? `Previous arrangement (${line(change.before.status)}):\n${arrangement(change.before)}Duration: ${line(change.before.durationMinutes ?? 'Not recorded')} minutes\n\nNew arrangement:\n` : '';
+  const body = `${previous}${arrangement(game)}${change ? `Duration: ${line(game.durationMinutes ?? 'Not recorded')} minutes\n` : ''}\n${action}\n${url.href}\n`;
   return { subject, body, recipients: [...emails].sort(), playersWithoutRecipient: active.filter(p => !covered.has(p.id)).length };
 }
 

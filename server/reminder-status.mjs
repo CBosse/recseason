@@ -1,7 +1,7 @@
 import { summarizeNotifications } from '../notification-status.mjs';
 
 export async function gameReminderStatus({ db, verifiedUid, gameId, kind = 'rsvp-reminder' }) {
-  if (!['rsvp-reminder', 'cancellation'].includes(kind)) throw new Error('Unsupported notice status.');
+  if (!['rsvp-reminder', 'cancellation', 'reschedule'].includes(kind)) throw new Error('Unsupported notice status.');
   if (db.databaseId !== 'recseason' || ![verifiedUid, gameId].every(value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value))) throw new Error('Invalid reminder status request.');
   return db.runTransaction(async tx => {
     const actor = await tx.get(db.collection('users').doc(verifiedUid));

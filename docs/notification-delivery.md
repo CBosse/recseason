@@ -167,8 +167,9 @@ on the participating teams, failing explicitly above those bounds. Jobs allow at
 more selective recipient index and capacity testing. One event is identified by its
 game and message snapshot, so repeated requests for that same snapshot deduplicate.
 Recurring reminder cadence is not implemented. The existing reminder preference is
-honored, including address-level opt-outs shared across profiles. Invitation and
-reschedule jobs are still rejected by this eligibility checker.
+honored, including address-level opt-outs shared across profiles. Reschedule
+jobs now require a current validated schedule-change record; invitation
+jobs remain unsupported by this eligibility checker.
 
 ## Cancellation Notices
 
@@ -191,6 +192,30 @@ client routing, endpoint validation, account-change fencing, duplicate confirmat
 and mobile status display. Production controls stay hidden until endpoint configuration.
 Automatic triggers, production endpoint deployment and controlled-inbox verification
 remain outstanding. No real mail is enabled.
+
+## Reschedule Notices
+
+`POST /api/game-reschedules` and `/api/game-reschedules/status` use the same
+game-ID-only request, verified token, current organizer role, bounded body,
+origin checks and shared rate limits as reminder requests. Status returns only
+aggregate reschedule counts. Queueing requires a scheduled game whose
+`lastScheduleChange.after` matches its current public schedule. Missing, malformed,
+or stale history returns `game-unavailable` rather than inventing an old arrangement.
+
+Messages show the previous and new teams, date, time, field and duration. Times
+are explicitly field-local. Active participants and managers from the immediately
+previous and current teams are included, together with currently assigned officials;
+opt-outs and address deduplication still apply. Event identity includes the Firestore
+document version. A changed game suppresses old jobs before transport; repeated
+requests for the same version reuse jobs. No automatic retry can override that check.
+
+Real emulator tokens and synthetic transport tests cover queueing, status privacy,
+role revocation, disabled accounts, rate limits, deduplication, former-team recipients,
+opt-outs and stale-job suppression. No production endpoint or sender is enabled.
+Editor integration and rules deployment remain pending. Because only the latest
+change is stored, successive team replacements can lose earlier affected teams;
+previous official assignments are also not retained. A durable recipient/event
+history is required to close these gaps before production rollout.
 
 ## Resend Adapter
 

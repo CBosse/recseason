@@ -281,6 +281,15 @@ cancellation queue confirmation on cancelled games and separate cancellation sta
 for every game. Browser checks cover duplicate-request confirmation, cancellation-only
 totals and the mobile status dialog. Production actions remain hidden while the endpoint
 is unconfigured. Automatic triggering and real delivery are not implemented or deployed yet.
+Reschedule enqueue/status endpoints are implemented at `/api/game-reschedules`
+and `/api/game-reschedules/status`. They require a current schedule-change record,
+show old and new arrangements, and include active participants and managers from
+the immediately previous and current teams plus currently assigned officials.
+Emulator tests cover authentication, throttling, deduplication, opt-outs, status
+privacy, and stale-job suppression with a synthetic transport. The editor and
+production API are not connected yet. The latest-change record does not retain
+all former teams through successive replacements; that delivery gap must be
+resolved before production rollout. Previously assigned officials are not retained.
 See [notification delivery](docs/notification-delivery.md) for the integration contract
 and remaining deployment requirements.
 The setting persists in the profile and is honored by reminder draft recipient
@@ -409,7 +418,7 @@ staleness once a record exists. This stores the latest change, not a complete
 append-only schedule audit trail. Legacy games may still be edited without a record
 during rollout. The live editor does not write this field yet, and these candidate
 rules have not been deployed. Deploy the reviewed rules before connecting the
-editor, then make reschedule queueing require a current verified change record;
+editor. Reschedule queueing now requires a current verified change record;
 do not infer an old schedule from a reminder or claim notices are delivered.
 
 The `tests/live-scoring.html` fixture checks the score form with in-memory data.
