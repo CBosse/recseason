@@ -286,8 +286,10 @@ and `/api/game-reschedules/status`. They require a current schedule-change recor
 show old and new arrangements, and include active participants and managers from
 all teams in the recorded event history plus current and previously assigned officials.
 Emulator tests cover authentication, throttling, deduplication, opt-outs, status
-privacy, and stale-job suppression with a synthetic transport. The editor and
-production API are not connected yet. Missing or inconsistent event history blocks
+privacy, and stale-job suppression with a synthetic transport. The local editor now
+publishes the game and immutable event atomically, with explicit reschedule queue
+confirmation and status controls. Production remains disabled pending the coordinated
+API/rules release. Missing or inconsistent event history blocks
 queueing. History scans are bounded at 1,000 events and 30 distinct teams per game;
 larger histories fail closed rather than silently dropping recipients. Participant
 membership and account roles are evaluated at send time, not snapshotted permanently.
@@ -419,9 +421,10 @@ staleness once a record exists. Every new change must atomically create an immut
 `scheduleEvents/{gameId}_{revision}` entry matching the game record. Events retain
 official assignments as well as team and field arrangements, are organizer-readable,
 and are included in encrypted backups. Legacy games may still be edited without a record
-during rollout. The live editor does not write this field yet, and these candidate
-rules have not been deployed. Deploy the reviewed rules before connecting the
-editor. Reschedule queueing now requires a current verified change record;
+during rollout. The emulator-mode editor writes this field and its event in the
+same publication transaction; production does not, because the candidate rules have
+not been deployed. Deploy the reviewed rules before enabling production recording.
+Reschedule queueing now requires a current verified change record;
 do not infer an old schedule from a reminder or claim notices are delivered.
 
 The `tests/live-scoring.html` fixture checks the score form with in-memory data.

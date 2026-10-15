@@ -2,6 +2,7 @@
 
 import { allocateMatchups, validateScheduleConfig, remainingMatchups } from './scheduling.mjs';
 import { cancellationUpdate, reschedulingUpdate } from './game-status.mjs';
+import { currentScheduleChange, scheduleChangeUpdate, scheduleEvent } from './schedule-history.mjs';
 import { canScore, liveScoreEntry, openScoreEditor } from './live-scoring.mjs';
 import { createSubscriptions, writeResult } from './data-lifecycle.mjs';
 import { scoreUpdate, standings } from './results.mjs';
@@ -958,7 +959,7 @@ function renderScheduleView() {
       li.querySelector('.edit-game-btn')?.addEventListener('click', () => editGame(game));
       li.querySelector('.cancel-game-btn')?.addEventListener('click', () => cancelGame(game));
       if (canEdit() && reminderEndpoint(localMode)) {
-        for (const [kind, label] of [['rsvp-reminder', 'Reminder status'], ['cancellation', 'Cancellation status']]) {
+        for (const [kind, label] of [['rsvp-reminder', 'Reminder status'], ['cancellation', 'Cancellation status'], ['reschedule', 'Reschedule status']]) {
           const status = document.createElement('button'); status.className = 'btn btn-ghost btn-sm'; status.textContent = label;
           status.onclick = () => {
             const user = auth.currentUser;
@@ -970,15 +971,18 @@ function renderScheduleView() {
         }
       }
       if (canEdit() && ['scheduled', 'cancelled'].includes(game.status) && reminderEndpoint(localMode)) {
-        const kind = game.status === 'cancelled' ? 'cancellation' : 'rsvp-reminder';
-        const queue = document.createElement('button'); queue.className = 'btn btn-ghost btn-sm'; queue.textContent = kind === 'cancellation' ? 'Queue cancellation' : 'Queue reminder';
-        queue.onclick = () => {
-          const user = auth.currentUser;
-          if (!user || currentUser?.uid !== user.uid || !canEdit()) return;
-          openQueuedReminder(game, () => requestGameReminder({ endpoint: reminderEndpoint(localMode, kind), kind, gameId: game.id, user,
-            isCurrent: () => auth.currentUser === user && currentUser?.uid === user.uid && canEdit() }), kind);
-        };
-        li.querySelector('.game-actions').append(queue);
+        const kinds = [game.status === 'cancelled' ? 'cancellation' : 'rsvp-reminder'];
+        if (game.status === 'scheduled' && currentScheduleChange(game)) kinds.push('reschedule');
+        for (const kind of kinds) {
+          const queue = document.createElement('button'); queue.className = 'btn btn-ghost btn-sm'; queue.textContent = kind === 'cancellation' ? 'Queue cancellation' : kind === 'reschedule' ? 'Queue reschedule' : 'Queue reminder';
+          queue.onclick = () => {
+            const user = auth.currentUser;
+            if (!user || currentUser?.uid !== user.uid || !canEdit()) return;
+            openQueuedReminder(game, () => requestGameReminder({ endpoint: reminderEndpoint(localMode, kind), kind, gameId: game.id, user,
+              isCurrent: () => auth.currentUser === user && currentUser?.uid === user.uid && canEdit() }), kind);
+          };
+          li.querySelector('.game-actions').append(queue);
+        }
       }
       if (currentUser?.role === 'siteAdmin' && game.status === 'scheduled') {
         const reminder = document.createElement('button'); reminder.className = 'btn btn-ghost btn-sm'; reminder.textContent = 'Reminder draft';
@@ -1146,8 +1150,17 @@ async function editGame(game = {}) {
       }
       if (!canEdit() || currentUser.uid !== uid) throw new Error('Your session changed. Reopen this game.');
       const { id, ...updates } = validated;
-      await publishSchedule(snapshot, [], [{ ref: id ? doc(db, 'games', id) : doc(collection(db, 'games')),
-        data: id ? { ...updates, ...reschedulingUpdate(existing) } : { ...updates, status: 'scheduled', homeScore: null, awayScore: null } }], uid);
+      const data = id ? { ...updates, ...reschedulingUpdate(existing) } : { ...updates, status: 'scheduled', homeScore: null, awayScore: null };
+      const replacements = [{ ref: id ? doc(db, 'games', id) : doc(collection(db, 'games')), data }];
+      // Production must deploy the event rules before enabling recorded edits.
+      if (id && localMode) {
+        Object.assign(data, scheduleChangeUpdate(existing, { ...existing, ...data }, uid, serverTimestamp()));
+        if (data.lastScheduleChange) {
+          const event = scheduleEvent(id, data.lastScheduleChange);
+          replacements.push({ ref: doc(db, 'scheduleEvents', event.id), data: event.data });
+        }
+      }
+      await publishSchedule(snapshot, [], replacements, uid);
       showBanner('Game saved.', 'success');
     },
   });

@@ -19,11 +19,13 @@ test('production queue action stays disabled until endpoint release gates pass',
   assert.equal(reminderEndpoint(true), 'http://127.0.0.1:8082/api/game-reminders');
   assert.equal(reminderEndpoint(false, 'cancellation'), null);
   assert.equal(reminderEndpoint(true, 'cancellation'), 'http://127.0.0.1:8082/api/game-cancellations');
+  assert.equal(reminderEndpoint(false, 'reschedule'), null);
+  assert.equal(reminderEndpoint(true, 'reschedule'), 'http://127.0.0.1:8082/api/game-reschedules');
   assert.throws(() => reminderEndpoint(true, 'unknown'), /Unsupported/);
 });
 
-test('cancellation client uses separate enqueue and status routes without sending recipient data', async () => {
-  const cancellation = { ...options, kind: 'cancellation', endpoint: reminderEndpoint(true, 'cancellation') };
+for (const kind of ['cancellation', 'reschedule']) test(`${kind} client uses separate enqueue and status routes without sending recipient data`, async () => {
+  const cancellation = { ...options, kind, endpoint: reminderEndpoint(true, kind) };
   assert.deepEqual(await requestGameReminder({ ...cancellation, fetcher: async (url, request) => {
     assert.equal(url, cancellation.endpoint);
     assert.equal(request.headers.Authorization, 'Bearer test-token');

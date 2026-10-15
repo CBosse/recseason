@@ -212,7 +212,9 @@ requests for the same version reuse jobs. No automatic retry can override that c
 Real emulator tokens and synthetic transport tests cover queueing, status privacy,
 role revocation, disabled accounts, rate limits, deduplication, former-team recipients,
 opt-outs and stale-job suppression. No production endpoint or sender is enabled.
-Editor integration and rules deployment remain pending. Candidate rules require an
+The emulator-mode editor now publishes events atomically with game edits and exposes
+explicit reschedule queue confirmation and status controls. Production recording,
+endpoint configuration and rules deployment remain pending. Candidate rules require an
 immutable `scheduleEvents/{gameId}_{revision}` document in the same atomic write as
 each recorded change. Notification eligibility requires every revision from 1 through
 the game's current marker and rejects mismatches or gaps. Scans are bounded to

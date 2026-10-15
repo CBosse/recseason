@@ -5,6 +5,7 @@ const productionEndpoint = null;
 function noticeType(kind) {
   if (kind === 'rsvp-reminder') return { path: '/api/game-reminders', name: 'Reminder', noun: 'reminder', queueTitle: 'Queue game reminder?' };
   if (kind === 'cancellation') return { path: '/api/game-cancellations', name: 'Cancellation', noun: 'cancellation', queueTitle: 'Queue cancellation notice?' };
+  if (kind === 'reschedule') return { path: '/api/game-reschedules', name: 'Reschedule', noun: 'reschedule', queueTitle: 'Queue reschedule notice?' };
   throw new Error('Unsupported game notice.');
 }
 
