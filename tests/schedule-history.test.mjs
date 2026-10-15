@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { scheduleState, scheduleChanged, scheduleChangeUpdate, currentScheduleChange } from '../schedule-history.mjs';
+import { scheduleState, scheduleChanged, scheduleChangeUpdate, currentScheduleChange, scheduleEvent, scheduleEventHistory } from '../schedule-history.mjs';
 
 const game = { status: 'scheduled', date: '2026-10-20', time: '18:00', durationMinutes: 90,
-  fieldId: 'main', fieldName: 'Main', homeTeamId: 'home', awayTeamId: 'away', homeName: 'Home', awayName: 'Away' };
+  fieldId: 'main', fieldName: 'Main', homeTeamId: 'home', awayTeamId: 'away', homeName: 'Home', awayName: 'Away', umpireId: null, scorekeeperId: null };
 
 test('notice eligibility requires an exact, current, well-formed schedule change', () => {
   const after = { ...game, time: '19:00' };
@@ -31,8 +31,8 @@ test('schedule changes capture bounded public before/after state without mutatin
 });
 
 test('every reservation change and cancellation restoration is distinct from scoring and metadata', () => {
-  for (const key of ['date', 'time', 'durationMinutes', 'fieldId', 'homeTeamId', 'awayTeamId']) assert.equal(scheduleChanged(game, { ...game, [key]: 'changed' }), true);
-  for (const patch of [{ status: 'live' }, { status: 'completed' }, { status: 'cancelled' }, { locked: false }, { homeScore: 3 }, { fieldName: 'Renamed' }, { umpireId: 'new' }]) {
+  for (const key of ['date', 'time', 'durationMinutes', 'fieldId', 'homeTeamId', 'awayTeamId', 'umpireId', 'scorekeeperId']) assert.equal(scheduleChanged(game, { ...game, [key]: 'changed' }), true);
+  for (const patch of [{ status: 'live' }, { status: 'completed' }, { status: 'cancelled' }, { locked: false }, { homeScore: 3 }, { fieldName: 'Renamed' }]) {
     assert.deepEqual(scheduleChangeUpdate(game, { ...game, ...patch }, 'organizer', 'now'), {});
   }
   assert.equal(scheduleChangeUpdate({ ...game, status: 'cancelled' }, game, 'organizer', 'now').lastScheduleChange.revision, 1);
@@ -45,5 +45,16 @@ test('schedule history rejects missing identity, invalid revisions and overflow;
   assert.throws(() => scheduleChangeUpdate(game, after, 'organizer', null));
   assert.throws(() => scheduleChangeUpdate(null, after, 'organizer', 'now'));
   assert.equal(scheduleState({}).durationMinutes, null);
-  assert.equal(Object.keys(scheduleState({})).length, 10);
+  assert.equal(Object.keys(scheduleState({})).length, 12);
+});
+
+test('immutable event history requires a complete sequence matching the current game', () => {
+  const first = { ...game, time: '19:00', ...scheduleChangeUpdate(game, { ...game, time: '19:00' }, 'organizer', 'one') };
+  const second = { ...first, time: '20:00', ...scheduleChangeUpdate(first, { ...first, time: '20:00' }, 'organizer', 'two') };
+  const a = scheduleEvent('game', first.lastScheduleChange), b = scheduleEvent('game', second.lastScheduleChange);
+  assert.equal(a.id, 'game_1'); assert.equal(b.id, 'game_2');
+  assert.deepEqual(scheduleEventHistory('game', second, [b.data, a.data]).map(event => event.revision), [1, 2]);
+  for (const events of [[], [b.data], [a.data, a.data], [{ ...a.data, gameId: 'foreign' }, b.data],
+    [a.data, { ...b.data, change: { ...b.data.change, changedAt: 'different' } }]]) assert.throws(() => scheduleEventHistory('game', second, events));
+  assert.throws(() => scheduleEvent('../game', first.lastScheduleChange));
 });

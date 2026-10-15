@@ -39,6 +39,21 @@ test('cancellation notices retain recipient privacy and do not request an RSVP',
   assert.throws(() => gameNotice(game, players, users, 'https://example.test/', 'cancellation'));
   assert.throws(() => gameNotice(game, players, users, 'https://example.test/', 'unknown'));
 });
+
+test('successive reschedules retain earlier teams and officials while respecting current roles and opt-outs', () => {
+  const original = { ...game, homeTeamId: 'former', umpireId: 'old-umpire', scorekeeperId: 'old-scorer' };
+  const first = { ...game, ...scheduleChangeUpdate(original, game, 'organizer', 'first') };
+  const second = { ...first, time: '19:00', ...scheduleChangeUpdate(first, { ...first, time: '19:00' }, 'organizer', 'second') };
+  const users = [{ role: 'player', linkedPlayerId: 'former-player', email: 'former@example.test' },
+    { id: 'old-umpire', role: 'umpire', email: 'umpire@example.test' },
+    { id: 'old-scorer', role: 'scorekeeper', email: 'scorer@example.test' }];
+  const roster = [{ id: 'former-player', teamId: 'former' }];
+  const history = [first.lastScheduleChange, second.lastScheduleChange];
+  const draft = gameNotice(second, roster, users, 'https://example.test/', 'reschedule', history);
+  assert.deepEqual(draft.recipients, ['former@example.test', 'scorer@example.test', 'umpire@example.test']);
+  assert.deepEqual(gameNotice(second, roster, users.map(user => ({ ...user, emailReminders: false })), 'https://example.test/', 'reschedule', history).recipients, []);
+  assert.deepEqual(gameNotice(second, roster, users.map(user => ({ ...user, role: 'visitor' })), 'https://example.test/', 'reschedule', history).recipients, []);
+});
 test('reminders include linked participants, parents and assigned staff, with deduplicated Bcc', () => {
   const draft = gameReminder(game, players, [
     { role: 'player', linkedPlayerId: 'p', email: 'Person@example.test' },

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { gameNotice } from '../reminders.mjs';
-import { currentScheduleChange } from '../schedule-history.mjs';
+import { currentScheduleChange, scheduleEventHistory } from '../schedule-history.mjs';
 import { notificationJobs, enqueueNotifications } from './notification-jobs.mjs';
 
 const appUrl = 'https://cbosse.github.io/recseason/';
@@ -25,8 +25,15 @@ async function currentReminder(db, gameId, actorUid, kind = 'rsvp-reminder') {
     if (!validId(game.homeTeamId) || !validId(game.awayTeamId) || game.homeTeamId === game.awayTeamId || !validId(game.fieldId)) return null;
     const change = kind === 'reschedule' ? currentScheduleChange(game) : null;
     if (kind === 'reschedule' && !change) return null;
-    const teamIds = [...new Set([game.homeTeamId, game.awayTeamId, ...(change ? [change.before.homeTeamId, change.before.awayTeamId] : [])])];
+    let history = [];
+    if (change) {
+      const events = await tx.get(db.collection('scheduleEvents').where('gameId', '==', gameId).limit(1001));
+      try { history = scheduleEventHistory(gameId, game, events.docs.map(row => row.data())); }
+      catch { return null; }
+    }
+    const teamIds = [...new Set([game.homeTeamId, game.awayTeamId, ...history.flatMap(event => [event.before.homeTeamId, event.before.awayTeamId, event.after.homeTeamId, event.after.awayTeamId])])];
     if (!teamIds.every(validId)) return null;
+    if (teamIds.length > 30) throw new Error('Schedule history exceeds the supported team scan limit.');
     for (const [collection, id] of [['teams', game.homeTeamId], ['teams', game.awayTeamId], ['fields', game.fieldId]]) {
       if (!(await tx.get(db.collection(collection).doc(id))).exists) return null;
     }
@@ -34,7 +41,7 @@ async function currentReminder(db, gameId, actorUid, kind = 'rsvp-reminder') {
     const users = await tx.get(db.collection('users').limit(1001));
     if (players.size > 1000 || users.size > 1000) throw new Error('Reminder recipient scan exceeds the supported limit.');
     const data = rows => rows.docs.map(row => ({ ...row.data(), id: row.id }));
-    const draft = gameNotice(game, data(players), data(users), appUrl, kind);
+    const draft = gameNotice(game, data(players), data(users), appUrl, kind, history);
     const version = kind !== 'rsvp-reminder' ? [snapshot.updateTime.seconds, snapshot.updateTime.nanoseconds] : null;
     return { draft, eventId: eventId(game, draft, version) };
   });

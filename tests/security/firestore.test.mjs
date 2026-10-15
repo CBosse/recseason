@@ -363,10 +363,11 @@ test('schedule change records bind the previous and current arrangements to thei
   const db = dbFor('admin');
   const target = doc(db, 'games', 'schedule-history');
   await env.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'games', 'schedule-history'), game));
-  const write = async patch => {
+  const write = async (patch, includeEvent = true) => {
     const revision = (await getDoc(doc(db, 'config', 'scheduleRevision'))).data()?.revision ?? 0;
     const batch = writeBatch(db);
     batch.update(target, patch);
+    if (includeEvent && Number.isSafeInteger(patch.lastScheduleChange?.revision)) batch.set(doc(db, 'scheduleEvents', `schedule-history_${patch.lastScheduleChange.revision}`), { gameId: 'schedule-history', change: patch.lastScheduleChange });
     batch.set(doc(db, 'config', 'scheduleRevision'), { revision: revision + 1, updatedBy: 'admin' });
     return batch.commit();
   };
@@ -380,10 +381,17 @@ test('schedule change records bind the previous and current arrangements to thei
     { ...change, privateNote: 'not public schedule data' },
   ]) await assertFails(write({ time: '19:00', lastScheduleChange: patch }));
   await assertFails(write({ lastScheduleChange: change }));
+  await assertFails(write({ time: '19:00', lastScheduleChange: change }, false));
   await assertSucceeds(write({ time: '19:00', lastScheduleChange: change }));
   const saved = (await getDoc(target)).data();
   assert.equal(saved.lastScheduleChange.revision, 1);
   assert.equal(saved.lastScheduleChange.changedAt instanceof Timestamp, true);
+  const eventRef = doc(db, 'scheduleEvents', 'schedule-history_1');
+  assert.deepEqual((await assertSucceeds(getDoc(eventRef))).data().change, saved.lastScheduleChange);
+  await assertFails(setDoc(eventRef, { gameId: 'schedule-history', change: saved.lastScheduleChange }));
+  await assertFails(deleteDoc(eventRef));
+  await assertFails(getDoc(doc(dbFor('player'), 'scheduleEvents', 'schedule-history_1')));
+  await assertFails(setDoc(doc(db, 'scheduleEvents', 'schedule-history_99'), { gameId: 'schedule-history', change: { ...saved.lastScheduleChange, revision: 99 } }));
   for (const patch of [{ time: '20:00' }, { lastScheduleChange: deleteField() }, { lastScheduleChange: change }]) await assertFails(write(patch));
   await assertSucceeds(write({ locked: true }));
   const restored = { ...saved, time: '18:00' };

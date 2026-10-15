@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { openReminderRuntime } from '../server/reminder-runtime.mjs';
 import { Timestamp } from '@google-cloud/firestore';
-import { scheduleChangeUpdate } from '../schedule-history.mjs';
+import { scheduleChangeUpdate, scheduleEvent } from '../schedule-history.mjs';
 import { gameReminderEligibility } from '../server/game-reminder-service.mjs';
 import { notificationStore } from '../server/notification-store.mjs';
 import { executeNotification } from '../server/notification-jobs.mjs';
@@ -64,7 +64,21 @@ try {
   await gameRef.update({ homeTeamId: `${uid}-former` });
   const previous = (await gameRef.get()).data();
   const moved = { ...previous, status: 'scheduled', homeTeamId: `${uid}-home`, time: '19:00' };
-  await gameRef.set({ ...moved, ...scheduleChangeUpdate(previous, moved, uid, Timestamp.now()) });
+  const saveMove = async (before, after) => {
+    const update = scheduleChangeUpdate(before, after, uid, Timestamp.now());
+    const event = scheduleEvent(uid, update.lastScheduleChange);
+    const batch = runtime.db.batch();
+    batch.set(gameRef, { ...after, ...update });
+    batch.create(runtime.db.collection('scheduleEvents').doc(event.id), event.data);
+    await batch.commit();
+  };
+  await saveMove(previous, moved);
+  const firstEventRef = runtime.db.collection('scheduleEvents').doc(`${uid}_1`);
+  const savedEvent = (await firstEventRef.get()).data();
+  await firstEventRef.delete();
+  await clearLimit();
+  assert.equal((await request(idToken, '', 'game-reschedules')).status, 409);
+  await firstEventRef.set(savedEvent);
   await clearLimit();
   const rescheduled = await request(idToken, '', 'game-reschedules');
   assert.equal(rescheduled.status, 202); assert.equal((await rescheduled.json()).created, 2);
@@ -87,7 +101,7 @@ try {
   await runtime.db.collection('users').doc(`${uid}-player`).update({ emailReminders: true });
   const firstMove = (await gameRef.get()).data();
   const secondMove = { ...firstMove, time: '20:00' };
-  await gameRef.set({ ...secondMove, ...scheduleChangeUpdate(firstMove, secondMove, uid, Timestamp.now()) });
+  await saveMove(firstMove, secondMove);
   assert.equal(await eligible(oldJob), false);
   let sends = 0;
   const worker = { store: notificationStore(runtime.db), clock: Date.now, isEligible: eligible,
@@ -95,8 +109,8 @@ try {
   assert.equal((await executeNotification(worker, oldJob.id)).status, 'suppressed');
   assert.equal(sends, 0);
   await clearLimit();
-  // The second move has the same teams on both sides, so the former team is no longer a recipient.
-  assert.equal((await (await request(idToken, '', 'game-reschedules')).json()).created, 1);
+  // Earlier affected teams remain recipients after subsequent changes.
+  assert.equal((await (await request(idToken, '', 'game-reschedules')).json()).created, 2);
   const newJob = (await reschedules()).find(job => !originalJobs.some(old => old.id === job.id));
   assert.equal((await executeNotification(worker, newJob.id)).status, 'accepted');
   assert.equal((await executeNotification(worker, newJob.id)).status, 'accepted');
@@ -117,7 +131,7 @@ try {
   const queued = await runtime.db.collection('notificationJobs').where('sourceId', '==', uid).get();
   assert.equal((await request(idToken, '', 'game-cancellations')).status, 401);
   assert.equal((await request(idToken, '', 'game-reschedules')).status, 401);
-  assert.equal(queued.size, 5); assert.ok(queued.docs.every(row => row.data().requestedBy === uid));
+  assert.equal(queued.size, 6); assert.ok(queued.docs.every(row => row.data().requestedBy === uid));
   console.log('PASS: real emulator ID tokens, HTTP enqueue, durable rate limiting, deduplication, live role revocation and disabled-account rejection. No email sent.');
   console.log('PASS: authenticated game-scoped status counts, independent read/write rate limits, recipient privacy and revoked-access rejection.');
   console.log('PASS: reschedule notices require current history, include former teams, deduplicate, honor opt-outs, and suppress stale work before transport. Synthetic transport only.');

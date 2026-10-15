@@ -203,8 +203,8 @@ aggregate reschedule counts. Queueing requires a scheduled game whose
 or stale history returns `game-unavailable` rather than inventing an old arrangement.
 
 Messages show the previous and new teams, date, time, field and duration. Times
-are explicitly field-local. Active participants and managers from the immediately
-previous and current teams are included, together with currently assigned officials;
+are explicitly field-local. Active participants and managers from every team in the
+complete recorded event history are included, together with current and former officials;
 opt-outs and address deduplication still apply. Event identity includes the Firestore
 document version. A changed game suppresses old jobs before transport; repeated
 requests for the same version reuse jobs. No automatic retry can override that check.
@@ -212,10 +212,14 @@ requests for the same version reuse jobs. No automatic retry can override that c
 Real emulator tokens and synthetic transport tests cover queueing, status privacy,
 role revocation, disabled accounts, rate limits, deduplication, former-team recipients,
 opt-outs and stale-job suppression. No production endpoint or sender is enabled.
-Editor integration and rules deployment remain pending. Because only the latest
-change is stored, successive team replacements can lose earlier affected teams;
-previous official assignments are also not retained. A durable recipient/event
-history is required to close these gaps before production rollout.
+Editor integration and rules deployment remain pending. Candidate rules require an
+immutable `scheduleEvents/{gameId}_{revision}` document in the same atomic write as
+each recorded change. Notification eligibility requires every revision from 1 through
+the game's current marker and rejects mismatches or gaps. Scans are bounded to
+1,000 events and 30 distinct teams, in addition to the existing user/player limits.
+Roster membership, roles and email preferences remain current-data checks, not
+immutable personal-contact snapshots. Event records are included in encrypted backup
+and isolated recovery coverage; older manifests remain readable but lack this history.
 
 ## Resend Adapter
 

@@ -270,7 +270,7 @@ service cloud.firestore {
       let before = resource.data;
       let after = request.resource.data;
       let scoreOnly = after.diff(before).affectedKeys().hasOnly(['homeScore', 'awayScore', 'status', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'lineScore', 'scoreCarry', 'lineScoreInning', 'scoreRevision', 'scoredBy']);
-      return organizer() && ((scoreOnly && (before.status == after.status || after.status in ['live', 'completed'])) || (validAssignmentChanges() && scheduleAdvanced() &&
+      return organizer() && ((scoreOnly && (before.status == after.status || after.status in ['live', 'completed'])) || (validAssignmentChanges(id) && scheduleAdvanced() &&
         ((!hasRecordedScore(before) && !hasRecordedScore(after)) || (after.homeTeamId == before.homeTeamId && after.awayTeamId == before.awayTeamId)))) &&
         (before.status == after.status || validStatusTransition(before, after)) && (!scoringChanged() || hasScoreEvent(id));
     }
@@ -296,15 +296,15 @@ service cloud.firestore {
     function validScorekeeper(id) {
       return id == null || (boundedText(id, 128) && id.size() > 0 && getAfter(/databases/$(database)/documents/users/$(id)).data.role == 'scorekeeper');
     }
-    function validAssignmentChanges() {
-      return validGameChanges() && (request.resource.data.get('umpireId', null) == resource.data.get('umpireId', null) || validUmpire(request.resource.data.get('umpireId', null))) &&
+    function validAssignmentChanges(id) {
+      return validGameChanges(id) && (request.resource.data.get('umpireId', null) == resource.data.get('umpireId', null) || validUmpire(request.resource.data.get('umpireId', null))) &&
         (request.resource.data.get('scorekeeperId', null) == resource.data.get('scorekeeperId', null) || validScorekeeper(request.resource.data.get('scorekeeperId', null)));
     }
-    function validGameChanges() {
+    function validGameChanges(id) {
       let d = request.resource.data;
       let changed = d.diff(resource.data).affectedKeys();
       return changed.hasOnly(['date', 'time', 'durationMinutes', 'homeTeamId', 'awayTeamId', 'homeName', 'awayName', 'fieldId', 'fieldName', 'status', 'homeScore', 'awayScore', 'locked', 'umpireId', 'scorekeeperId', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'lineScore', 'scoreCarry', 'lineScoreInning', 'scoreRevision', 'scoredBy', 'rulesSnapshot', 'lastScheduleChange']) &&
-        validScheduleHistory(resource.data, d) &&
+        validScheduleHistory(id, resource.data, d) &&
         validGameRulesChange(resource.data, d) &&
         (!changed.hasAny(['date']) || validSeasonDate(d.date)) &&
         (!changed.hasAny(['time']) || (d.time is string && d.time.matches('([01][0-9]|2[0-3]):[0-5][0-9]'))) &&
@@ -327,11 +327,12 @@ service cloud.firestore {
     function scheduleState(d) {
       return {'date': d.get('date', null), 'time': d.get('time', null), 'durationMinutes': d.get('durationMinutes', null),
         'fieldId': d.get('fieldId', null), 'fieldName': d.get('fieldName', null), 'homeTeamId': d.get('homeTeamId', null),
-        'awayTeamId': d.get('awayTeamId', null), 'homeName': d.get('homeName', null), 'awayName': d.get('awayName', null), 'status': d.get('status', null)};
+        'awayTeamId': d.get('awayTeamId', null), 'homeName': d.get('homeName', null), 'awayName': d.get('awayName', null), 'status': d.get('status', null),
+        'umpireId': d.get('umpireId', null), 'scorekeeperId': d.get('scorekeeperId', null)};
     }
-    function validScheduleHistory(before, after) {
+    function validScheduleHistory(id, before, after) {
       let changed = after.diff(before).affectedKeys();
-      let moved = changed.hasAny(['date', 'time', 'durationMinutes', 'fieldId', 'homeTeamId', 'awayTeamId']) || (before.status == 'cancelled' && after.status == 'scheduled');
+      let moved = changed.hasAny(['date', 'time', 'durationMinutes', 'fieldId', 'homeTeamId', 'awayTeamId', 'umpireId', 'scorekeeperId']) || (before.status == 'cancelled' && after.status == 'scheduled');
       let history = after.get('lastScheduleChange', null);
       // Legacy clients may omit history until rollout; existing history cannot be silently abandoned.
       return (!before.keys().hasAny(['lastScheduleChange']) && !after.keys().hasAny(['lastScheduleChange'])) ||
@@ -339,7 +340,16 @@ service cloud.firestore {
         (moved && history is map && history.keys().hasOnly(['revision', 'before', 'after', 'changedBy', 'changedAt']) &&
           validCounter(history.revision, 1, 9007199254740991) && history.revision == before.get('lastScheduleChange', {}).get('revision', 0) + 1 &&
           history.before == scheduleState(before) && history.after == scheduleState(after) &&
-          history.changedBy == request.auth.uid && history.changedAt == request.time);
+          history.changedBy == request.auth.uid && history.changedAt == request.time &&
+          getAfter(/databases/$(database)/documents/scheduleEvents/$(id + '_' + string(history.revision))).data == {'gameId': id, 'change': history});
+    }
+    match /scheduleEvents/{id} {
+      allow read: if organizer();
+      allow create: if organizer() && request.resource.data.keys().hasOnly(['gameId', 'change']) &&
+        id == request.resource.data.gameId + '_' + string(request.resource.data.change.revision) &&
+        request.resource.data.change == getAfter(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data.lastScheduleChange &&
+        request.resource.data.change.revision == get(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data.get('lastScheduleChange', {}).get('revision', 0) + 1;
+      allow update, delete: if false;
     }
     match /attendance/{id} {
       allow get: if signedIn() && !exists(/databases/$(database)/documents/attendance/$(id));

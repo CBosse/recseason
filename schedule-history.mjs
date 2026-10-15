@@ -1,5 +1,5 @@
-const keys = ['date', 'time', 'durationMinutes', 'fieldId', 'fieldName', 'homeTeamId', 'awayTeamId', 'homeName', 'awayName', 'status'];
-const reservationKeys = ['date', 'time', 'durationMinutes', 'fieldId', 'homeTeamId', 'awayTeamId'];
+const keys = ['date', 'time', 'durationMinutes', 'fieldId', 'fieldName', 'homeTeamId', 'awayTeamId', 'homeName', 'awayName', 'status', 'umpireId', 'scorekeeperId'];
+const reservationKeys = ['date', 'time', 'durationMinutes', 'fieldId', 'homeTeamId', 'awayTeamId', 'umpireId', 'scorekeeperId'];
 
 // Only public schedule fields belong in a notice's before/after record.
 export function scheduleState(game) {
@@ -31,4 +31,26 @@ export function currentScheduleChange(game) {
   }
   const current = scheduleState(game);
   return keys.every(key => record.after[key] === current[key]) && scheduleChanged(record.before, record.after) ? record : null;
+}
+
+export function scheduleEvent(gameId, record) {
+  if (typeof gameId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(gameId) ||
+      !record || !currentScheduleChange({ ...record.after, lastScheduleChange: record })) throw new Error('Invalid schedule event.');
+  return { id: `${gameId}_${record.revision}`, data: { gameId, change: record } };
+}
+
+export function scheduleEventHistory(gameId, game, events) {
+  const current = currentScheduleChange(game);
+  if (!current || !Array.isArray(events) || !events.length || events.length > 1000 || events.length !== current.revision) throw new Error('Incomplete schedule event history.');
+  const ordered = events.map(event => ({ gameId: event.gameId, ...event.change })).sort((a, b) => a.revision - b.revision);
+  for (const [index, event] of ordered.entries()) {
+    const { gameId: source, ...record } = event;
+    if (source !== gameId || record.revision !== index + 1) throw new Error('Invalid schedule event sequence.');
+    scheduleEvent(gameId, record);
+  }
+  const latest = ordered.at(-1);
+  if (latest.changedBy !== current.changedBy ||
+      !(typeof latest.changedAt?.isEqual === 'function' ? latest.changedAt.isEqual(current.changedAt) : latest.changedAt === current.changedAt) ||
+      !keys.every(key => latest.before[key] === current.before[key] && latest.after[key] === current.after[key])) throw new Error('Schedule event history does not match the game.');
+  return ordered;
 }

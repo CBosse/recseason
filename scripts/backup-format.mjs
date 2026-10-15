@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto';
 const legacyCollections = ['users', 'teams', 'players', 'teamRoster', 'fields', 'games', 'attendance', 'rsvps', 'config', 'umpires', 'invitations'];
 const scoreHistoryCollections = [...legacyCollections, 'scoreEvents'];
 const notificationCollections = [...scoreHistoryCollections, 'notificationJobs', 'notificationLimits'];
-export const backupCollections = [...notificationCollections, 'ruleProfiles'];
+const ruleCollections = [...notificationCollections, 'ruleProfiles'];
+export const backupCollections = [...ruleCollections, 'scheduleEvents'];
 export const recoveryDatabase = 'projects/demo-recseason/databases/recovery';
 const digest = documents => createHash('sha256').update(JSON.stringify(documents)).digest('hex');
 
@@ -16,7 +17,7 @@ export function createBackup(documents, readTime) {
 
 export function validateBackup(backup) {
   if (backup?.format !== 'recseason-firestore-v1' || backup.source !== 'projects/bosse-testing/databases/recseason' ||
-      !Number.isFinite(Date.parse(backup.readTime)) || ![backupCollections, notificationCollections, scoreHistoryCollections, legacyCollections].some(collections => JSON.stringify(collections) === JSON.stringify(backup.collections)) ||
+      !Number.isFinite(Date.parse(backup.readTime)) || ![backupCollections, ruleCollections, notificationCollections, scoreHistoryCollections, legacyCollections].some(collections => JSON.stringify(collections) === JSON.stringify(backup.collections)) ||
       !Array.isArray(backup.documents) || backup.documents.length > 500) throw new Error('Unsupported backup format, source, collections, or size (maximum 500 documents).');
   if (backup.sha256 !== digest(backup.documents)) throw new Error('Backup checksum mismatch.');
   const paths = new Set();

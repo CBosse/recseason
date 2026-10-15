@@ -175,7 +175,7 @@ Losing it makes encrypted backups unrecoverable. No production backup is attempt
 when the environment variable is missing.
 The export reads the named production database only and writes an authenticated,
 encrypted `.encrypted.json` file under ignored `.tools/backups`. It includes all
-fifteen app collections, including score history, notification jobs, request limits and league rule profiles, and retains raw
+sixteen app collections, including score history, schedule events, notification jobs, request limits and league rule profiles, and retains raw
 Firestore value types, and uses one `readTime` for every page for a consistent
 snapshot. This follows the [Firestore list API](https://firebase.google.com/docs/firestore/reference/rest/v1/projects.databases.documents/list).
 The file contains private data. Keep it protected and out of Git, Pages, and shared
@@ -284,12 +284,13 @@ is unconfigured. Automatic triggering and real delivery are not implemented or d
 Reschedule enqueue/status endpoints are implemented at `/api/game-reschedules`
 and `/api/game-reschedules/status`. They require a current schedule-change record,
 show old and new arrangements, and include active participants and managers from
-the immediately previous and current teams plus currently assigned officials.
+all teams in the recorded event history plus current and previously assigned officials.
 Emulator tests cover authentication, throttling, deduplication, opt-outs, status
 privacy, and stale-job suppression with a synthetic transport. The editor and
-production API are not connected yet. The latest-change record does not retain
-all former teams through successive replacements; that delivery gap must be
-resolved before production rollout. Previously assigned officials are not retained.
+production API are not connected yet. Missing or inconsistent event history blocks
+queueing. History scans are bounded at 1,000 events and 30 distinct teams per game;
+larger histories fail closed rather than silently dropping recipients. Participant
+membership and account roles are evaluated at send time, not snapshotted permanently.
 See [notification delivery](docs/notification-delivery.md) for the integration contract
 and remaining deployment requirements.
 The setting persists in the profile and is honored by reminder draft recipient
@@ -414,8 +415,10 @@ Reschedule notice groundwork: `schedule-history.mjs` builds a revisioned
 `lastScheduleChange` containing only public before/after schedule fields, the
 authenticated editor, and a server timestamp. Candidate Firestore rules verify
 both snapshots against the same atomic game update and prevent removal or silent
-staleness once a record exists. This stores the latest change, not a complete
-append-only schedule audit trail. Legacy games may still be edited without a record
+staleness once a record exists. Every new change must atomically create an immutable
+`scheduleEvents/{gameId}_{revision}` entry matching the game record. Events retain
+official assignments as well as team and field arrangements, are organizer-readable,
+and are included in encrypted backups. Legacy games may still be edited without a record
 during rollout. The live editor does not write this field yet, and these candidate
 rules have not been deployed. Deploy the reviewed rules before connecting the
 editor. Reschedule queueing now requires a current verified change record;

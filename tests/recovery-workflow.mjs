@@ -6,6 +6,7 @@ import { encryptBackup } from '../scripts/backup-encryption.mjs';
 import { randomBytes } from 'node:crypto';
 import { notificationJobs } from '../server/notification-jobs.mjs';
 import { nextRulesProfile } from '../league-rules.mjs';
+import { scheduleChangeUpdate, scheduleEvent } from '../schedule-history.mjs';
 
 function typed(value) {
   if (value === null) return { nullValue: null };
@@ -28,7 +29,13 @@ const queueDocuments = ['pending', 'retry', 'sending', 'accepted', 'suppressed',
     value === null ? { nullValue: null } : typeof value === 'number' ? { integerValue: String(value) } : { stringValue: value }])) };
 });
 
+const previousGame = { status: 'scheduled', date: '2026-09-26', time: '18:00', durationMinutes: 90, fieldId: 'main', fieldName: 'Main', homeTeamId: 'home', awayTeamId: 'away', homeName: 'Home', awayName: 'Away', umpireId: 'former-official' };
+const movedGame = { ...previousGame, time: '19:00', umpireId: null };
+const event = scheduleEvent('game', scheduleChangeUpdate(previousGame, movedGame, 'organizer', '2026-09-26T00:00:00Z').lastScheduleChange);
+const eventFields = typed(event.data).mapValue.fields;
+eventFields.change.mapValue.fields.changedAt = { timestampValue: '2026-09-26T00:00:00Z' };
 const backup = createBackup([
+  { path: `scheduleEvents/${event.id}`, fields: eventFields },
   { path: 'ruleProfiles/recovery-division', fields: typed(rulesProfile).mapValue.fields },
   ...queueDocuments,
   { path: 'notificationLimits/organizer', fields: { nextRequestAt: { integerValue: '60000' } } },
@@ -43,8 +50,9 @@ const passphrase = randomBytes(32).toString('base64');
 await writeFile(path, JSON.stringify(await encryptBackup(backup, passphrase)));
 const run = (secret = passphrase) => execFileSync(process.execPath, ['scripts/restore-recovery.mjs', path], { encoding: 'utf8', stdio: 'pipe', env: { ...process.env, RECSEASON_BACKUP_PASSPHRASE: secret } });
 assert.throws(() => run('incorrect-test-passphrase'), error => error.stderr?.includes('authentication failed'));
-assert.match(run(), /restored and verified 12 documents/);
+assert.match(run(), /restored and verified 13 documents/);
 assert.throws(run, error => error.stderr?.includes('Recovery database is not empty'));
 console.log('PASS: encrypted typed-value recovery, wrong-passphrase rejection before writes, and refusal to overwrite an existing recovery database.');
 console.log('PASS: all seven notification states, immutable event data, receipts, leases, retry times, versions, and request limits survive isolated recovery unchanged.');
 console.log('PASS: league rule profile schema, revision, optional policies and nested mercy rule survive encrypted recovery.');
+console.log('PASS: schedule event revision, before/after arrangements, former official and timestamp survive encrypted recovery.');

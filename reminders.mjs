@@ -6,13 +6,14 @@ export function gameReminder(game, players, users, appUrl) {
   return gameNotice(game, players, users, appUrl, 'rsvp-reminder');
 }
 
-export function gameNotice(game, players, users, appUrl, kind) {
+export function gameNotice(game, players, users, appUrl, kind, history = []) {
   if (!['rsvp-reminder', 'cancellation', 'reschedule'].includes(kind)) throw new Error('Unsupported game notice.');
   const cancelled = kind === 'cancellation';
   if (game.status !== (cancelled ? 'cancelled' : 'scheduled')) throw new Error('This game is not available for the requested notice.');
   const change = kind === 'reschedule' ? currentScheduleChange(game) : null;
   if (kind === 'reschedule' && !change) throw new Error('A current schedule change is required.');
-  const teamIds = [game.homeTeamId, game.awayTeamId, ...(change ? [change.before.homeTeamId, change.before.awayTeamId] : [])];
+  const arrangements = change ? [game, change.before, ...history.flatMap(event => [event.before, event.after])] : [game];
+  const teamIds = arrangements.flatMap(state => [state.homeTeamId, state.awayTeamId]);
   const active = players.filter(p => !p.archived && teamIds.includes(p.teamId));
   const ids = new Set(active.map(p => p.id));
   const covered = new Set();
@@ -22,7 +23,8 @@ export function gameNotice(game, players, users, appUrl, kind) {
     const linked = user.role === 'parent' ? (user.linkedPlayerIds || []).filter(id => ids.has(id)) :
       ['player', 'captain'].includes(user.role) && ids.has(user.linkedPlayerId) ? [user.linkedPlayerId] : [];
     const staff = (user.role === 'teamManager' && teamIds.includes(user.linkedTeamId)) ||
-      (user.role === 'umpire' && user.id === game.umpireId) || (user.role === 'scorekeeper' && user.id === game.scorekeeperId);
+      (user.role === 'umpire' && arrangements.some(state => user.id === state.umpireId)) ||
+      (user.role === 'scorekeeper' && arrangements.some(state => user.id === state.scorekeeperId));
     const email = String(user.email || '').trim().toLowerCase();
     if ((!linked.length && !staff) || !emailPattern.test(email) || optedOut.has(email)) continue;
     linked.forEach(id => covered.add(id)); emails.add(email);
