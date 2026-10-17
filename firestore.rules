@@ -243,7 +243,8 @@ service cloud.firestore {
     }
     function hasScoreEvent(id) {
       let event = getAfter(/databases/$(database)/documents/scoreEvents/$(id + '_' + string(request.resource.data.scoreRevision))).data;
-      return validScore(request.resource.data) && validLineScore(resource.data, request.resource.data) && event.gameId == id && validScoreEvent(event, resource.data, request.resource.data);
+      return !resource.data.keys().hasAny(['automaticScoring']) && !request.resource.data.keys().hasAny(['automaticScoring']) &&
+        validScore(request.resource.data) && validLineScore(resource.data, request.resource.data) && event.gameId == id && validScoreEvent(event, resource.data, request.resource.data);
     }
     function scoringChanged() {
       return request.resource.data.diff(resource.data).affectedKeys().hasAny(['homeScore', 'awayScore', 'inning', 'half', 'balls', 'strikes', 'outs', 'bases', 'lineScore', 'scoreCarry', 'lineScoreInning', 'scoreRevision', 'scoredBy']) ||

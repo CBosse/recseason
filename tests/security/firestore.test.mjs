@@ -12,6 +12,7 @@ import { rosterEntry } from '../../team-roster.mjs';
 import { scoreHistoryEntry } from '../../score-history.mjs';
 import { nextRulesProfile, gameRulesSnapshot } from '../../league-rules.mjs';
 import { scheduleChangeUpdate } from '../../schedule-history.mjs';
+import { automaticScoreEntry } from '../../automatic-scoring.mjs';
 let env;
 const profile = (uid, role, extra = {}) => ({ ...newPlayerProfile({ uid, email: `${uid}@example.test` }, uid), role, ...extra });
 const game = { status: 'scheduled', homeTeamId: 'a', awayTeamId: 'b', homeName: 'Home', awayName: 'Away', fieldName: 'Main', durationMinutes: 90, scorekeeperId: 'scorer', date: '2026-09-25', time: '18:00', fieldId: 'main' };
@@ -98,6 +99,31 @@ test('users can change only their own boolean email preference without changing 
   await assertSucceeds(updateDoc(doc(db, 'users', 'player'), { emailReminders: true }));
 });
 const dbFor = uid => env.authenticatedContext(uid, { email: `${uid}@example.test` }).firestore();
+
+test('automatic games reject manual score writes and removal of the engine marker', async () => {
+  const initial = { ...game, rulesSnapshot: gameRulesSnapshot(game, 'auto', nextRulesProfile(null, leagueRuleValues, 0)) };
+  const { patch, entry } = automaticScoreEntry({ gameId: 'automatic', game: initial, uid: 'scorer', expectedRevision: 0,
+    engineVersion: 1, action: { schemaVersion: 1, type: 'play', elapsedMs: 0, runAward: 'ordinary',
+      play: { schemaVersion: 1, type: 'pitch', pitch: 'ball' } } });
+  const current = { ...initial, ...patch };
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'games', 'automatic'), current);
+    await setDoc(doc(context.firestore(), 'scoreEvents', 'automatic_1'), { ...entry, recordedAt: serverTimestamp() });
+  });
+  for (const uid of ['admin', 'organizer', 'scorer']) {
+    const db = dbFor(uid), changed = { balls: 3, scoreRevision: 2, scoredBy: uid };
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'games', 'automatic'), changed);
+    batch.set(doc(db, 'scoreEvents', 'automatic_2'), { ...scoreHistoryEntry('automatic', current, changed, uid), recordedAt: serverTimestamp() });
+    await assertFails(batch.commit());
+    await assertFails(updateDoc(doc(db, 'games', 'automatic'), { automaticScoring: deleteField() }));
+    await assertFails(updateDoc(doc(db, 'games', 'automatic'), { 'automaticScoring.homeScore': 50 }));
+    await assertFails(deleteDoc(doc(db, 'scoreEvents', 'automatic_1')));
+    await assertSucceeds(getDoc(doc(db, 'scoreEvents', 'automatic_1')));
+  }
+  await assertFails(getDoc(doc(dbFor('other'), 'scoreEvents', 'automatic_1')));
+  await assertFails(getDoc(doc(dbFor('player'), 'scoreEvents', 'automatic_1')));
+});
 async function addRosterVersion(batch, db, uid) {
   const ref = doc(db, 'config', 'rosterRevision');
   const before = await getDoc(ref);

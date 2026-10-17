@@ -12,3 +12,13 @@
 !roster-version.mjs
 !schedule-version.mjs
 !schedule-history.mjs
+!automatic-scoring.mjs
+!game-rules.mjs
+!play-rules.mjs
+!pitch-rules.mjs
+!runner-rules.mjs
+!league-rules.mjs
+!base-occupancy.mjs
+!score-history.mjs
+!score-state.mjs
+!score-replay.mjs

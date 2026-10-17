@@ -33,8 +33,24 @@ and completion reason. It applies half-inning transitions, strict run caps,
 scheduled-final/extra unlimited innings, mercy, ties, walk-offs, and extra runners.
 Complete-game tests include minimum, standard, and maximum out/strike thresholds.
 
-These components are not connected to the live-scoring UI or persistence and do
-not yet cover all league variants. Pitch-only strikeouts assume the batter is
+`automatic-scoring.mjs` produces matching game patches and score events, and
+recomputes complete saved action histories to detect altered actions, missing
+events, discontinuities, or mismatched displayed scores. Existing snapshot replay
+remains compatible with these events. `server/game-scoring-service.mjs` persists
+the patch and immutable event in one transaction with current-role authorization,
+assigned-scorer checks, expected revision checks, and existing team/field checks.
+It requires an explicit engine version and a clean scheduled game to start;
+manually scored games are not implicitly migrated. Subsequent writes require the
+last event, engine state, displayed score, scorer, and rules snapshot to agree.
+
+The persistence service is internal only: no HTTP route or live-scoring UI calls
+it yet. Its caller must supply the identity from revoked-token-aware verification.
+Candidate Firestore rules deny direct manual score writes to automatic games,
+including organizers. They are emulator-tested, not deployed to production.
+The service and these rules must be released together before enabling the UI.
+No production games were converted or written during development.
+
+The engine does not yet cover all league variants. Pitch-only strikeouts assume the batter is
 retired. Uncaught-third-strike advancement requires explicit runner outcomes;
 eligibility and league-specific exceptions still need policy validation before
 UI integration. Player identities and statistics are not yet attached to these
@@ -82,9 +98,10 @@ mercy, and final-inning policies instead of silently applying these semantics.
 3. Extend tested ending rules with the policy fields needed for league differences
    (hard stop versus finish inning, cap exceptions, declared last innings, mercy
    timing). Do not migrate already-scored legacy games implicitly.
-4. Record actions and derived before/after states atomically with score revision
-   checks and assigned-scorer authorization. Verify replay by recomputing actions,
-   rather than trusting their saved result. Preserve legacy snapshot histories.
+4. Expose the tested atomic service behind verified HTTP identity, strict payload
+   validation, bounded requests, and suitable scoring rate limits. Connect the
+   client with session fencing and uncertain-result recovery. Deploy candidate
+   direct-write restrictions together with the service; retain legacy histories.
 5. Add corrections and replay-derived player statistics with explicit player
    attribution and roster validation. Corrections must retain their audit trail.
 6. Connect scoring controls and mobile views. Test full games under multiple
