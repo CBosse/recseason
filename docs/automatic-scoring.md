@@ -43,8 +43,18 @@ It requires an explicit engine version and a clean scheduled game to start;
 manually scored games are not implicitly migrated. Subsequent writes require the
 last event, engine state, displayed score, scorer, and rules snapshot to agree.
 
-The persistence service is internal only: no HTTP route or live-scoring UI calls
-it yet. Its caller must supply the identity from revoked-token-aware verification.
+`POST /api/games/plays` now calls the service with identity from revoked-token-aware
+Firebase verification. Its exact payload is `gameId`, `expectedRevision`,
+`engineVersion`, and `action`. Nested actions are schema-checked before service
+execution; state-dependent legality is checked by the engine inside the
+transaction. Requests share the API's 1 KiB body limit and 16-request concurrency
+bound. Scoring has a separate durable per-user one-second throttle, with
+`Retry-After: 1`. Responses expose only status and revision, or bounded error codes.
+
+Real emulator account tests cover stale retries, identity spoofing, role removal,
+scorer reassignment, disabled accounts, and rate limiting. No live-scoring UI calls
+this endpoint yet. Production rejects scoring unless the runtime environment
+explicitly sets `RECSEASON_AUTOMATIC_SCORING=v1`; local emulators enable it.
 Candidate Firestore rules deny direct manual score writes to automatic games,
 including organizers. They are emulator-tested, not deployed to production.
 The service and these rules must be released together before enabling the UI.
@@ -98,9 +108,8 @@ mercy, and final-inning policies instead of silently applying these semantics.
 3. Extend tested ending rules with the policy fields needed for league differences
    (hard stop versus finish inning, cap exceptions, declared last innings, mercy
    timing). Do not migrate already-scored legacy games implicitly.
-4. Expose the tested atomic service behind verified HTTP identity, strict payload
-   validation, bounded requests, and suitable scoring rate limits. Connect the
-   client with session fencing and uncertain-result recovery. Deploy candidate
+4. Connect the client to the tested HTTP service with session fencing and
+   uncertain-result recovery. Deploy candidate
    direct-write restrictions together with the service; retain legacy histories.
 5. Add corrections and replay-derived player statistics with explicit player
    attribution and roster validation. Corrections must retain their audit trail.

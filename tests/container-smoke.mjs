@@ -26,7 +26,7 @@ try {
   assert.equal(docker(['exec', name, 'id', '-u']), '1000', 'Runtime must be non-root.');
   docker(['exec', name, 'node', '--input-type=module', '-e', "await import('./server/game-scoring-service.mjs')"]);
   assert.equal((await fetch(`${endpoint}/healthz`, { headers: { Origin: 'https://foreign.test' } })).status, 403);
-  for (const route of ['parent-invitations/accept', 'game-reminders', 'game-cancellations', 'game-reschedules', 'game-reschedules/status', 'teams/delete', 'fields/delete']) {
+  for (const route of ['parent-invitations/accept', 'game-reminders', 'game-cancellations', 'game-reschedules', 'game-reschedules/status', 'teams/delete', 'fields/delete', 'games/plays']) {
     const response = await fetch(`${endpoint}/api/${route}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     assert.equal(response.status, 401);
     assert.deepEqual(await response.json(), { error: 'authentication-required' });

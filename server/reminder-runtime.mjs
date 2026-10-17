@@ -8,6 +8,8 @@ import { gameReminderStatus } from './reminder-status.mjs';
 import { acceptParentInvitation } from './parent-invitation-service.mjs';
 import { deleteEmptyTeam } from './team-deletion-service.mjs';
 import { deleteUnusedField } from './field-deletion-service.mjs';
+import { recordAutomaticPlay } from './game-scoring-service.mjs';
+import { automaticScoringEnabled } from './scoring-request.mjs';
 
 export function openReminderRuntime(projectId) {
   const emulator = process.env.FIREBASE_AUTH_EMULATOR_HOST;
@@ -23,6 +25,12 @@ export function openReminderRuntime(projectId) {
     acceptParent: request => acceptParentInvitation({ db, auth, ...request }),
     removeTeam: request => deleteEmptyTeam({ db, ...request }),
     removeField: request => deleteUnusedField({ db, ...request }),
+    recordPlay: request => {
+      if (!automaticScoringEnabled(projectId, process.env.RECSEASON_AUTOMATIC_SCORING)) {
+        throw Object.assign(new Error('Automatic scoring is disabled.'), { code: 'scoring-disabled' });
+      }
+      return recordAutomaticPlay({ db, ...request });
+    },
     enqueue: request => enqueueGameReminder({ db, store, ...request }),
     status: request => gameReminderStatus({ db, ...request }),
     enqueueCancellation: request => enqueueGameCancellation({ db, store, ...request }),
@@ -33,9 +41,9 @@ export function openReminderRuntime(projectId) {
       const ref = db.collection('notificationLimits').doc(uid);
       const snapshot = await tx.get(ref);
       const now = Date.now();
-      const field = operation === 'delete-field' ? 'nextFieldDeletionAt' : operation === 'delete-team' ? 'nextTeamDeletionAt' : operation === 'accept-parent' ? 'nextParentInvitationAt' : operation === 'status' ? 'nextStatusAt' : 'nextRequestAt';
+      const field = operation === 'record-play' ? 'nextScoringAt' : operation === 'delete-field' ? 'nextFieldDeletionAt' : operation === 'delete-team' ? 'nextTeamDeletionAt' : operation === 'accept-parent' ? 'nextParentInvitationAt' : operation === 'status' ? 'nextStatusAt' : 'nextRequestAt';
       if (snapshot.exists && snapshot.data()[field] > now) return false;
-      tx.set(ref, { [field]: now + 60000 }, { merge: true });
+      tx.set(ref, { [field]: now + (operation === 'record-play' ? 1000 : 60000) }, { merge: true });
       return true;
     }),
   });

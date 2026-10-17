@@ -11,8 +11,8 @@ docker build --tag recseason-api:test .
 node tests/container-smoke.mjs
 ```
 
-The Docker context is an allowlist: server modules, the server entrypoint, five
-shared domain modules plus schedule history, and the npm manifests. It excludes `.tools`, `.git`, local
+The Docker context is an allowlist: server modules, the server entrypoint,
+explicit shared domain and scoring modules, and the npm manifests. It excludes `.tools`, `.git`, local
 credentials, emulator data, frontend assets, and tests. Dependencies are installed
 from the lockfile with development dependencies and install scripts excluded.
 The process runs as the image's non-root `node` user. CI verifies it with a
@@ -21,6 +21,22 @@ read-only filesystem and no Linux capabilities, cloud credentials, or database.
 `GET /healthz` reports process liveness only. It does not prove Auth permissions,
 Firestore permissions, database availability, or end-to-end acceptance. All API
 mutations still require a Firebase ID token; the probe cannot access private data.
+
+## Automatic Scoring Gate
+
+`POST /api/games/plays` is tested with local Auth and Firestore emulators. Production
+scoring is disabled unless `RECSEASON_AUTOMATIC_SCORING=v1` is explicitly set.
+Do not set that flag for the initial API deployment. First deploy and verify the
+candidate rules that deny manual score writes to automatic games, complete the
+league-policy configuration, client session/error handling, corrections, and
+controlled-game acceptance tests described in `automatic-scoring.md`. Roll back
+by disabling the flag without removing the direct-write restriction.
+
+The endpoint accepts only the game ID, expected score revision, engine version,
+and versioned action. Identity comes from the verified bearer token. Each user
+has an independent durable scoring throttle of one request per second; notice
+and deletion throttles remain unchanged. A timeout is not proof of a failed write:
+refresh the game and history before deciding whether to submit again.
 
 ## Production Release Gates
 

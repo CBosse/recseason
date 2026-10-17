@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
+import { initializeApp, deleteApp } from 'firebase/app';
+import { getAuth, connectAuthEmulator, signInWithEmailAndPassword } from 'firebase/auth';
 import { openReminderRuntime } from '../server/reminder-runtime.mjs';
 import { recordAutomaticPlay } from '../server/game-scoring-service.mjs';
 import { replayAutomaticHistory } from '../automatic-scoring.mjs';
@@ -14,6 +17,7 @@ const rulesSnapshot = { profileId: 'synthetic', schemaVersion: 1, revision: 1, n
 const action = { schemaVersion: 1, type: 'play', elapsedMs: 0,
   play: { schemaVersion: 1, type: 'pitch', pitch: 'strike' }, runAward: 'ordinary' };
 let sequence = 0;
+let clientApp, server;
 const create = async patch => {
   const gameId = `${prefix}-${sequence++}`;
   await db.doc(`games/${gameId}`).set({ status: 'scheduled', homeTeamId: `${prefix}-home`, awayTeamId: `${prefix}-away`,
@@ -72,5 +76,44 @@ try {
     assert.equal((await db.doc(`scoreEvents/${changed.gameId}_2`).get()).exists, false);
   }
   await expectError({ ...invalid, db: { databaseId: '(default)' } }, 'invalid-request');
-  console.log('PASS: automatic scoring transactions, concurrent scorers, rollback, frozen rules, current roles, append-only events, final rejection and full action replay. Local data only.');
-} finally { await runtime.close(); }
+  await runtime.auth.createUser({ uid: scorer, email: `${scorer}@example.test`, password: 'Synthetic123!' });
+  clientApp = initializeApp({ apiKey: 'demo-key', projectId: 'demo-recseason' }, prefix);
+  const auth = getAuth(clientApp); connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  const credential = await signInWithEmailAndPassword(auth, `${scorer}@example.test`, 'Synthetic123!');
+  const token = await credential.user.getIdToken();
+  server = createServer(runtime.handler);
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const httpGame = await create();
+  const body = { gameId: httpGame.gameId, expectedRevision: 0, engineVersion: 1, action };
+  const send = (payload = body, bearer = token) => fetch(`http://127.0.0.1:${server.address().port}/api/games/plays`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}`, Origin: 'http://127.0.0.1:8081' }, body: JSON.stringify(payload) });
+  const clearLimit = () => db.doc(`notificationLimits/${scorer}`).delete();
+  assert.equal((await send(body, 'invalid')).status, 401);
+  assert.equal((await send({ ...body, verifiedUid: organizer })).status, 400);
+  assert.equal((await send({ ...body, expectedRevision: 1 })).status, 409);
+  await clearLimit();
+  const saved = await send(); assert.equal(saved.status, 200); assert.deepEqual(await saved.json(), { status: 'live', revision: 1 });
+  const limit = (await db.doc(`notificationLimits/${scorer}`).get()).data();
+  assert.ok(Number.isSafeInteger(limit.nextScoringAt));
+  assert.equal(limit.nextRequestAt, undefined);
+  // Seed a future limit so the rejection is deterministic even on a slow runner.
+  await db.doc(`notificationLimits/${scorer}`).update({ nextScoringAt: Date.now() + 60000 });
+  const throttled = await send(); assert.equal(throttled.status, 429); assert.equal(throttled.headers.get('retry-after'), '1');
+  await clearLimit(); assert.equal((await send()).status, 409);
+  await clearLimit(); await db.doc(`users/${scorer}`).update({ role: 'parent' });
+  assert.equal((await send({ ...body, expectedRevision: 1 })).status, 403);
+  await db.doc(`users/${scorer}`).update({ role: 'scorekeeper' });
+  await clearLimit(); await db.doc(`games/${httpGame.gameId}`).update({ scorekeeperId: organizer });
+  assert.equal((await send({ ...body, expectedRevision: 1 })).status, 403);
+  await db.doc(`games/${httpGame.gameId}`).update({ scorekeeperId: scorer });
+  await clearLimit();
+  const completed = await send({ ...body, expectedRevision: 1 });
+  assert.equal(completed.status, 200); assert.deepEqual(await completed.json(), { status: 'completed', revision: 2 });
+  await runtime.auth.updateUser(scorer, { disabled: true });
+  assert.equal((await send()).status, 401);
+  console.log('PASS: automatic scoring transactions, full replay, verified HTTP identity, strict requests, independent throttling, stale retries, revoked roles, reassignment and disabled accounts. Local data only.');
+} finally {
+  if (server) await new Promise(resolve => server.close(resolve));
+  if (clientApp) await deleteApp(clientApp);
+  await runtime.close();
+}
