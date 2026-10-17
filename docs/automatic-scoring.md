@@ -27,26 +27,61 @@ The reducer returns runs and a half-ended signal; it rejects further plays in a
 completed half. Tests replay a full half from actions, including four walks and
 three strikeouts, and cover steals, caught stealing, and configured foul outs.
 
-These components are not connected to the live-scoring UI or persistence and are
-not a complete automatic game engine. Pitch-only strikeouts assume the batter is
+`game-rules.mjs` adds a version-1 game reducer and full action replay. It owns a
+validated copy of the game's rules snapshot, inning totals, counts, elapsed time,
+and completion reason. It applies half-inning transitions, strict run caps,
+scheduled-final/extra unlimited innings, mercy, ties, walk-offs, and extra runners.
+Complete-game tests include minimum, standard, and maximum out/strike thresholds.
+
+These components are not connected to the live-scoring UI or persistence and do
+not yet cover all league variants. Pitch-only strikeouts assume the batter is
 retired. Uncaught-third-strike advancement requires explicit runner outcomes;
 eligibility and league-specific exceptions still need policy validation before
 UI integration. Player identities and statistics are not yet attached to these
 base-position outcomes.
 
+## Version-1 Game Semantics
+
+- Actions carry nondecreasing elapsed milliseconds measured by the scorer's
+  game clock. Replay never reads wall-clock time. A clock-only action can record
+  elapsed time without inventing a pitch.
+- The time limit means finish the current inning, with the home side receiving
+  its opportunity. A leading home side need not continue batting. A tied game
+  follows the tie policy, including extra innings after the time threshold.
+- The unlimited-final setting applies to the scheduled final inning and all
+  extra innings, including timed extras. It does not retroactively uncap a
+  shortened inning when the time threshold is reached during that inning.
+- Run caps truncate runs even on home runs. Other cap policies need explicit
+  profile configuration before release to leagues using them.
+- Ordinary walk-offs award only the winning run. An explicit `home-run` award
+  requires every existing runner and the batter to reach home and awards the
+  full play, subject to the strict run cap. This denotes an over-the-fence home
+  run, not an inferred award from arbitrary runner destinations.
+- Mercy starts in the configured inning. An away lead cannot end the game until
+  the home half ends. A qualifying home lead ends the game after the top half or
+  after a play in the bottom half.
+- Extra runners start on second in both halves. This currently records occupied
+  bases only; lineup-based runner identity is pending.
+- Completing a half resets counts and bases. A final game rejects further
+  actions; correction replay is not yet connected. An unresolved tie at inning
+  99 fails explicitly rather than inventing a result or overflowing storage.
+
+These are explicit engine semantics, not a claim of universal league rules.
+Before UI integration, configuration must represent alternative time, run-cap,
+mercy, and final-inning policies instead of silently applying these semantics.
+
 ## Remaining Implementation
 
-1. Extend the versioned play contract into a pure game reducer. Use the game's immutable
-   rule snapshot and explicitly recorded elapsed time, never wall-clock reads
-   during replay. Define how unsupported league policies are reported.
-2. Apply the play reducer's runs and half-ended signal to game totals and inning
-   transitions. Add policy validation for uncaught third strikes, foul bunts,
+1. Connect game-engine versions and policy semantics to frozen game configuration;
+   explicitly reject or configure unsupported league variants. Add clock pause,
+   resume, and scorer-authority validation rather than trusting arbitrary client
+   elapsed values at the persistence boundary.
+2. Add policy validation for uncaught third strikes, foul bunts,
    appeals, and other league-specific exceptions. Do not assume every hit advances
    every runner equally.
-3. Enforce run limits, unlimited final innings, mercy, time limits, ties,
-   extra-inning runners, and walk-offs. Make timing and inning-completion
-   semantics explicit; add policy fields where the existing profile cannot
-   represent league differences without ambiguity.
+3. Extend tested ending rules with the policy fields needed for league differences
+   (hard stop versus finish inning, cap exceptions, declared last innings, mercy
+   timing). Do not migrate already-scored legacy games implicitly.
 4. Record actions and derived before/after states atomically with score revision
    checks and assigned-scorer authorization. Verify replay by recomputing actions,
    rather than trusting their saved result. Preserve legacy snapshot histories.
