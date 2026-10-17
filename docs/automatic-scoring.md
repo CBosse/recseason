@@ -12,18 +12,37 @@ league settings, read the clock, or write data. Invalid rules, counts, and actio
 are rejected. Tests cover every legal count for thresholds 1 through 12 under
 both foul policies, deterministic sequences, reset counts, and invalid input.
 
-This component is not connected to the live-scoring UI and is not a complete
-automatic game engine. In particular, a returned strikeout is not yet an applied
-out, and a walk does not yet move runners.
+`runner-rules.mjs` applies forced walk advancement and explicit runner outcomes.
+It validates participant coverage, destinations, collisions, backward movement,
+and surviving-runner order. Recorded outcome order determines whether a run
+precedes an inning-ending tag out. An inning-ending force out or batter out before
+first suppresses all runs on that play. Out classifications are explicit scorer
+judgments; this is not a fielding or umpiring simulation. Fourth-out appeals and
+retouch appeals are not implemented.
+
+`play-rules.mjs` combines both components using version-1 pitch and runner actions.
+Walks advance forced runners, ordinary strikeouts apply outs, and completed
+batter plays reset counts. Non-batter plays preserve counts unless the half ends.
+The reducer returns runs and a half-ended signal; it rejects further plays in a
+completed half. Tests replay a full half from actions, including four walks and
+three strikeouts, and cover steals, caught stealing, and configured foul outs.
+
+These components are not connected to the live-scoring UI or persistence and are
+not a complete automatic game engine. Pitch-only strikeouts assume the batter is
+retired. Uncaught-third-strike advancement requires explicit runner outcomes;
+eligibility and league-specific exceptions still need policy validation before
+UI integration. Player identities and statistics are not yet attached to these
+base-position outcomes.
 
 ## Remaining Implementation
 
-1. Version the action contract and pure game reducer. Use the game's immutable
+1. Extend the versioned play contract into a pure game reducer. Use the game's immutable
    rule snapshot and explicitly recorded elapsed time, never wall-clock reads
    during replay. Define how unsupported league policies are reported.
-2. Apply forced walks, explicit runner destinations, outs, runs, and half-inning
-   transitions. Reject duplicate runners, impossible destinations, and invalid
-   action order. Do not assume every hit advances every runner equally.
+2. Apply the play reducer's runs and half-ended signal to game totals and inning
+   transitions. Add policy validation for uncaught third strikes, foul bunts,
+   appeals, and other league-specific exceptions. Do not assume every hit advances
+   every runner equally.
 3. Enforce run limits, unlimited final innings, mercy, time limits, ties,
    extra-inning runners, and walk-offs. Make timing and inning-completion
    semantics explicit; add policy fields where the existing profile cannot
