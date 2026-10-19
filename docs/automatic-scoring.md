@@ -51,9 +51,18 @@ transaction. Requests share the API's 1 KiB body limit and 16-request concurrenc
 bound. Scoring has a separate durable per-user one-second throttle, with
 `Retry-After: 1`. Responses expose only status and revision, or bounded error codes.
 
+`automatic-scoring-client.mjs` validates a play against the frozen game before
+sending, captures its payload before asynchronous token retrieval, and checks the
+session before and after each asynchronous boundary. It sends no ambient cookies,
+rejects redirects, and has a 20-second timeout. It never retries automatically.
+Unknown responses carry a refresh-required result, while a known throttle carries
+a bounded retry delay. Successful replies must match the expected next revision.
+
 Real emulator account tests cover stale retries, identity spoofing, role removal,
-scorer reassignment, disabled accounts, and rate limiting. No live-scoring UI calls
-this endpoint yet. Production rejects scoring unless the runtime environment
+scorer reassignment, disabled accounts, and rate limiting. An integrated client
+test loses a response after the server commits, verifies that repeating the stale
+request cannot add a duplicate event, then resumes from a freshly loaded game.
+No live-scoring UI calls this endpoint yet. Production rejects scoring unless the runtime environment
 explicitly sets `RECSEASON_AUTOMATIC_SCORING=v1`; local emulators enable it.
 Candidate Firestore rules deny direct manual score writes to automatic games,
 including organizers. They are emulator-tested, not deployed to production.
@@ -108,8 +117,9 @@ mercy, and final-inning policies instead of silently applying these semantics.
 3. Extend tested ending rules with the policy fields needed for league differences
    (hard stop versus finish inning, cap exceptions, declared last innings, mercy
    timing). Do not migrate already-scored legacy games implicitly.
-4. Connect the client to the tested HTTP service with session fencing and
-   uncertain-result recovery. Deploy candidate
+4. Connect the tested API client to the scorer UI, with single-flight controls,
+   authoritative refresh after saves or uncertain results, and fresh access checks.
+   Deploy candidate
    direct-write restrictions together with the service; retain legacy histories.
 5. Add corrections and replay-derived player statistics with explicit player
    attribution and roster validation. Corrections must retain their audit trail.

@@ -6,6 +6,7 @@ import { getAuth, connectAuthEmulator, signInWithEmailAndPassword } from 'fireba
 import { openReminderRuntime } from '../server/reminder-runtime.mjs';
 import { recordAutomaticPlay } from '../server/game-scoring-service.mjs';
 import { replayAutomaticHistory } from '../automatic-scoring.mjs';
+import { automaticScoringEndpoint, requestAutomaticPlay } from '../automatic-scoring-client.mjs';
 
 if (process.env.FIREBASE_AUTH_EMULATOR_HOST !== '127.0.0.1:9099' || process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8180') throw new Error('Local emulators required.');
 const runtime = openReminderRuntime('demo-recseason'), { db } = runtime;
@@ -109,9 +110,31 @@ try {
   await clearLimit();
   const completed = await send({ ...body, expectedRevision: 1 });
   assert.equal(completed.status, 200); assert.deepEqual(await completed.json(), { status: 'completed', revision: 2 });
+  const uncertainGame = await create();
+  const initialGame = (await db.doc(`games/${uncertainGame.gameId}`).get()).data();
+  const clientRequest = { endpoint: automaticScoringEndpoint(true), gameId: uncertainGame.gameId,
+    game: initialGame, action, user: credential.user, isCurrent: () => true };
+  const proxy = (url, init) => {
+    assert.equal(url, automaticScoringEndpoint(true));
+    return fetch(`http://127.0.0.1:${server.address().port}/api/games/plays`, init);
+  };
+  await clearLimit();
+  let attempts = 0;
+  await assert.rejects(requestAutomaticPlay({ ...clientRequest, fetcher: async (url, init) => {
+    attempts++; const response = await proxy(url, init); assert.equal(response.status, 200);
+    throw new Error('Simulated lost response after commit');
+  } }), error => error.code === 'unconfirmed' && error.needsRefresh);
+  assert.equal(attempts, 1);
+  assert.equal((await db.doc(`games/${uncertainGame.gameId}`).get()).data().scoreRevision, 1);
+  await clearLimit();
+  await assert.rejects(requestAutomaticPlay({ ...clientRequest, fetcher: proxy }), error => error.code === 'refresh-required' && error.needsRefresh);
+  assert.equal((await db.collection('scoreEvents').where('gameId', '==', uncertainGame.gameId).get()).size, 1);
+  await clearLimit();
+  const refreshedGame = (await db.doc(`games/${uncertainGame.gameId}`).get()).data();
+  assert.deepEqual(await requestAutomaticPlay({ ...clientRequest, game: refreshedGame, fetcher: proxy }), { status: 'completed', revision: 2 });
   await runtime.auth.updateUser(scorer, { disabled: true });
   assert.equal((await send()).status, 401);
-  console.log('PASS: automatic scoring transactions, full replay, verified HTTP identity, strict requests, independent throttling, stale retries, revoked roles, reassignment and disabled accounts. Local data only.');
+  console.log('PASS: automatic scoring transactions, full replay, verified HTTP identity, lost-response client recovery without duplicate plays, stale retries, throttling, revoked roles, reassignment and disabled accounts. Local data only.');
 } finally {
   if (server) await new Promise(resolve => server.close(resolve));
   if (clientApp) await deleteApp(clientApp);
