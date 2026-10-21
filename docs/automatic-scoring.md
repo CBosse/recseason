@@ -80,6 +80,22 @@ Focused tests cover action-derived frames, labels, corrupt histories, removed en
 markers, and legacy compatibility. The emulator browser check verified navigation
 to the two-run home-run action and its runner order on October 21, 2026.
 
+`automaticCorrectionEntry` implements append-only correction generation in the
+domain layer. A correction targets an original play or clock revision, replaces or
+voids it, and requires a reason. It first verifies the complete saved history, then
+recomputes all effective actions. Incompatible downstream runner plays, decreasing
+clock values, or plays after a newly earlier final result reject the correction.
+Previously voided actions can be restored by another correction. Original events
+remain unchanged; each correction records both old and recomputed states. Voiding
+the final out can reopen a game; voiding every action leaves an initialized live
+game rather than silently removing its scoring history. Playback validates and
+labels correction revisions. Tests cover these behaviors, score/inning totals,
+stale revisions, reasons, tampering, and unchanged original events.
+
+Correction persistence, organizer authorization, the HTTP contract, and scorer
+controls are not connected yet. The current API still accepts only play and clock
+actions. No production or emulator game has been corrected by this domain change.
+
 The engine does not yet cover all league variants. Pitch-only strikeouts assume the batter is
 retired. Uncaught-third-strike advancement requires explicit runner outcomes;
 eligibility and league-specific exceptions still need policy validation before
@@ -136,7 +152,8 @@ an organizer repair workflow remains to be added.
 - Extra runners start on second in both halves. This currently records occupied
   bases only; lineup-based runner identity is pending.
 - Completing a half resets counts and bases. A final game rejects further
-  actions; correction replay is not yet connected. An unresolved tie at inning
+  ordinary actions; domain corrections can recompute its result but have no write
+  endpoint or UI yet. An unresolved tie at inning
   99 fails explicitly rather than inventing a result or overflowing storage.
 
 These are explicit engine semantics, not a claim of universal league rules.
@@ -158,8 +175,9 @@ mercy, and final-inning policies instead of silently applying these semantics.
 4. Finish production readiness of the local scorer UI and its session safeguards.
    Deploy candidate
    direct-write restrictions together with the service; retain legacy histories.
-5. Add corrections and replay-derived player statistics with explicit player
-   attribution and roster validation. Corrections must retain their audit trail.
+5. Connect the domain correction implementation to atomic, organizer-authorized
+   persistence and scorer controls. Add replay-derived player statistics with
+   explicit player attribution and roster validation. Retain correction audit trails.
 6. Expand browser acceptance beyond the local preview. Test full games under multiple
    custom profiles, concurrent scorers, refresh, account switches, corrections,
    archived players, and end-to-end standings updates before release.

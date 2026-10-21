@@ -21,6 +21,7 @@ export function scoringPlayback(game, entries) {
 }
 
 function describeScoringAction(action) {
+  if (action.type === 'correction') return `Correction to #${action.targetRevision}: ${action.replacement === null ? 'Voided action' : describeScoringAction(action.replacement)}`;
   const time = `${action.elapsedMs / 1000}s`;
   if (action.type === 'clock') return `Clock: ${time}`;
   if (action.play.type === 'pitch') return `${action.play.pitch[0].toUpperCase()}${action.play.pitch.slice(1)} at ${time}`;
