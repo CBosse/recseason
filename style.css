@@ -988,6 +988,22 @@ body {
 .rule-profile-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid #d6ded9; margin-bottom: 10px; }
 .rule-profile-row span { min-width: 0; overflow-wrap: anywhere; }
 .game-editor-dialog [hidden] { display: none !important; }
+.automatic-editor { overflow-wrap: anywhere; }
+.automatic-editor h2 { margin-bottom: 8px; }
+.automatic-score { font-size: 20px; font-weight: 700; margin: 14px 0 8px; }
+.automatic-editor details { margin: 16px 0; }
+.automatic-editor summary { cursor: pointer; font-weight: 600; }
+.automatic-rules { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 12px; font-size: 13px; margin-top: 12px; }
+.automatic-rules dd { margin: 0; }
+.automatic-toggle { display: flex; align-items: center; gap: 8px; margin: 14px 0; font-size: 14px; }
+.automatic-toggle input { width: 18px; height: 18px; flex-shrink: 0; }
+.automatic-pitches { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.automatic-pitches button { min-width: 80px; min-height: 40px; }
+.automatic-runners { display: grid; gap: 12px; margin-top: 12px; }
+.automatic-runners fieldset { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; min-width: 0; border: 1px solid #bbb; padding: 12px; }
+.automatic-runners label { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 12px; }
+.automatic-runners input, .automatic-runners select { width: 100%; min-width: 0; padding: 8px; font: inherit; }
+@media (max-width: 480px) { .automatic-runners fieldset { grid-template-columns: 1fr; } .automatic-editor { padding: 16px; } }
 @media (max-width: 480px) { .game-editor-grid { grid-template-columns: 1fr; } }
 
 /* ── Responsive ───────────────────────────────────────────────────────────── */

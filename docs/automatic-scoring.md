@@ -1,7 +1,8 @@
 # Custom Automatic Scoring Engine
 
 The user authorized a custom, thoroughly tested engine for league-specific rules.
-Existing manual scoring and snapshot replay remain available and unchanged.
+Existing manual scoring remains available for non-automatic games. Snapshot replay
+also displays automatic-game events; manual edits cannot overwrite engine state.
 
 ## Implemented Foundation
 
@@ -62,18 +63,45 @@ Real emulator account tests cover stale retries, identity spoofing, role removal
 scorer reassignment, disabled accounts, and rate limiting. An integrated client
 test loses a response after the server commits, verifies that repeating the stale
 request cannot add a duplicate event, then resumes from a freshly loaded game.
-No live-scoring UI calls this endpoint yet. Production rejects scoring unless the runtime environment
+The local-only scorer UI now calls this endpoint. Production rejects scoring unless the runtime environment
 explicitly sets `RECSEASON_AUTOMATIC_SCORING=v1`; local emulators enable it.
 Candidate Firestore rules deny direct manual score writes to automatic games,
 including organizers. They are emulator-tested, not deployed to production.
-The service and these rules must be released together before enabling the UI.
+The service and these rules must be released together before enabling production UI.
 No production games were converted or written during development.
 
 The engine does not yet cover all league variants. Pitch-only strikeouts assume the batter is
 retired. Uncaught-third-strike advancement requires explicit runner outcomes;
 eligibility and league-specific exceptions still need policy validation before
-UI integration. Player identities and statistics are not yet attached to these
+production release. Player identities and statistics are not yet attached to these
 base-position outcomes.
+
+## Local Scorer Preview
+
+`automatic-scoring-editor.mjs` exposes ball, strike, foul, explicit runner outcomes
+and their chronological order, over-the-fence home runs, and elapsed-time entry.
+Starting requires confirmation of the displayed frozen version-1 rules. Elapsed
+time is manually entered, not a running or pause-aware clock. Completed games
+are read-only. This preview is available only in emulator mode for clean scheduled
+games with rules snapshots, or games already using automatic scoring.
+
+`automatic-scoring-session.mjs` keeps save and server reload single-flight, applies
+the throttle delay, and blocks another play after an uncertain response until an
+authoritative refresh succeeds. Session and assignment checks prevent late results
+from being consumed after access changes. Unit tests cover these transitions,
+explicit runner ordering, and guards against manual score overwrite.
+
+Browser acceptance on October 21, 2026 used synthetic emulator data: one inning,
+two balls per walk, two strikes per out, and one out per half. Two balls placed a
+runner on first; an explicit two-run home run made the score 2-0; four strikes
+completed both halves. The final score survived server reload, scoring controls
+were disabled, and all seven events appeared in snapshot history. The editor was
+visually checked at desktop and 390px mobile width with no horizontal overflow.
+This is a focused preview check, not acceptance of all league policies or roles.
+
+Malformed scheduling records are now omitted with a visible warning instead of
+crashing the shared game subscription's sort. Records are not changed or deleted;
+an organizer repair workflow remains to be added.
 
 ## Version-1 Game Semantics
 
@@ -102,7 +130,7 @@ base-position outcomes.
   99 fails explicitly rather than inventing a result or overflowing storage.
 
 These are explicit engine semantics, not a claim of universal league rules.
-Before UI integration, configuration must represent alternative time, run-cap,
+Before production release, configuration must represent alternative time, run-cap,
 mercy, and final-inning policies instead of silently applying these semantics.
 
 ## Remaining Implementation
@@ -117,12 +145,11 @@ mercy, and final-inning policies instead of silently applying these semantics.
 3. Extend tested ending rules with the policy fields needed for league differences
    (hard stop versus finish inning, cap exceptions, declared last innings, mercy
    timing). Do not migrate already-scored legacy games implicitly.
-4. Connect the tested API client to the scorer UI, with single-flight controls,
-   authoritative refresh after saves or uncertain results, and fresh access checks.
+4. Finish production readiness of the local scorer UI and its session safeguards.
    Deploy candidate
    direct-write restrictions together with the service; retain legacy histories.
 5. Add corrections and replay-derived player statistics with explicit player
    attribution and roster validation. Corrections must retain their audit trail.
-6. Connect scoring controls and mobile views. Test full games under multiple
+6. Expand browser acceptance beyond the local preview. Test full games under multiple
    custom profiles, concurrent scorers, refresh, account switches, corrections,
    archived players, and end-to-end standings updates before release.

@@ -4,6 +4,9 @@ import { allocateMatchups, validateScheduleConfig, remainingMatchups } from './s
 import { cancellationUpdate, reschedulingUpdate } from './game-status.mjs';
 import { currentScheduleChange, scheduleChangeUpdate, scheduleEvent } from './schedule-history.mjs';
 import { canScore, liveScoreEntry, openScoreEditor } from './live-scoring.mjs';
+import { automaticScoringEndpoint, requestAutomaticPlay } from './automatic-scoring-client.mjs';
+import { openAutomaticScoring } from './automatic-scoring-editor.mjs';
+import { gameList } from './game-list.mjs';
 import { createSubscriptions, writeResult } from './data-lifecycle.mjs';
 import { scoreUpdate, standings } from './results.mjs';
 import { newPlayerProfile } from './accounts.mjs';
@@ -45,6 +48,7 @@ import {
   updateDoc,
   getDocs,
   getDoc,
+  getDocFromServer,
   query,
   where,
   runTransaction,
@@ -140,6 +144,7 @@ function clearSessionData() {
   document.getElementById('field-editor-dialog')?.remove();
   document.getElementById('roster-editor-dialog')?.remove();
   document.getElementById('score-editor-dialog')?.remove();
+  document.getElementById('automatic-scoring-dialog')?.remove();
   document.getElementById('game-editor-dialog')?.remove();
   document.getElementById('attendance-dialog')?.remove();
   document.getElementById('reminder-dialog')?.remove();
@@ -483,8 +488,9 @@ function startListeners() {
   }, err => showDbError(err));
 
   onSnapshot(collection(db, 'games'), snap => {
-    state.games = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    state.games.sort((a, b) => a.date !== b.date ? a.date.localeCompare(b.date) : a.time.localeCompare(b.time));
+    const list = gameList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    state.games = list.games;
+    if (list.invalidIds.length) showBanner(`${list.invalidIds.length} game records have invalid scheduling data and were omitted. Organizer review is required.`);
     state._ready.games = true; checkReady();
   }, err => showDbError(err));
 
@@ -1185,6 +1191,7 @@ async function cancelGame(game) {
 
 function showInlineScoreEdit(li, game) {
   if (!canEdit()) return;
+  if (game.automaticScoring) { editAutomaticScore(game); return; }
   if (game.lineScore) { editInning(game); return; }
   const matchupSpan = li.querySelector('.game-matchup');
   const scoreNode   = matchupSpan.querySelector('.score-display, .score-vs');
@@ -1220,6 +1227,7 @@ function showInlineScoreEdit(li, game) {
       const snapshot = await transaction.get(ref);
       if (!canEdit() || currentUser.uid !== uid) throw new Error('Your session changed.');
       if (!snapshot.exists() || snapshot.data().status === 'cancelled') throw new Error('This game was removed or cancelled. Refresh the schedule.');
+      if (snapshot.data().automaticScoring !== undefined) throw new Error('Use play scoring for this automatic game.');
       if ((snapshot.data().scoreRevision ?? 0) !== (game.scoreRevision ?? 0)) throw new Error('The score changed in another session. Reopen the editor.');
       const patch = { ...updates, scoreRevision: (snapshot.data().scoreRevision ?? 0) + 1, scoredBy: uid };
       transaction.update(ref, patch);
@@ -1526,15 +1534,21 @@ function renderScorekeeperView() {
       finally { history.disabled = false; }
     };
     row.append(title, status);
-    if (game.status !== 'completed') row.append(button);
+    if (game.status !== 'completed' && !game.automaticScoring) row.append(button);
+    if (localMode && game.rulesSnapshot && (game.automaticScoring || (game.status === 'scheduled' && !hasRecordedScore(game)))) {
+      const automatic = document.createElement('button'); automatic.className = 'btn btn-primary btn-sm'; automatic.textContent = game.automaticScoring ? 'Play scoring' : 'Start play scoring';
+      automatic.onclick = () => editAutomaticScore(game);
+      row.append(automatic);
+    }
     const inning = document.createElement('button'); inning.className = 'btn btn-ghost btn-sm'; inning.textContent = 'Record inning';
     inning.onclick = () => editInning(game);
-    if (game.status !== 'completed' || canEdit()) row.append(inning);
+    if (!game.automaticScoring && (game.status !== 'completed' || canEdit())) row.append(inning);
     row.append(history); container.append(row);
   }
 }
 
 function editInning(game) {
+  if (game.automaticScoring) return;
   if (!canScore(currentUser, game) || (game.status === 'completed' && !canEdit())) return;
   const uid = currentUser.uid;
   openInningEditor(game, values => runTransaction(db, async transaction => {
@@ -1547,6 +1561,25 @@ function editInning(game) {
     transaction.update(ref, patch);
     transaction.set(doc(db, 'scoreEvents', `${game.id}_${patch.scoreRevision}`), { ...scoreHistoryEntry(game.id, current.data(), patch, uid, values.reason), recordedAt: serverTimestamp() });
   }));
+}
+
+async function editAutomaticScore(game) {
+  if (!localMode || !canScore(currentUser, game)) return;
+  const user = auth.currentUser, generation = authGeneration;
+  const isCurrent = () => auth.currentUser === user && authGeneration === generation && currentUser?.uid === user?.uid &&
+    canScore(currentUser, state.games.find(item => item.id === game.id));
+  const load = async () => {
+    if (!isCurrent()) throw new Error('Your scoring session changed.');
+    const snapshot = await getDocFromServer(doc(db, 'games', game.id));
+    if (!isCurrent() || !snapshot.exists() || !canScore(currentUser, snapshot.data())) throw new Error('Your scoring access changed.');
+    return { ...snapshot.data(), id: snapshot.id };
+  };
+  try {
+    const fresh = await load();
+    openAutomaticScoring({ game: fresh, load, isCurrent, save: (current, action) => requestAutomaticPlay({
+      endpoint: automaticScoringEndpoint(localMode), gameId: game.id, game: current, action, user, isCurrent,
+    }) });
+  } catch (error) { showDbError(error); }
 }
 
 function renderLeagueView() {

@@ -2,6 +2,7 @@ import { parseScore } from './results.mjs';
 
 export function inningScoreUpdate(game, values, expectedRevision) {
   if (!game || !['scheduled', 'live', 'completed'].includes(game.status)) throw new Error('This game is not available for scoring.');
+  if (game.automaticScoring !== undefined) throw new Error('Automatic games require corrections through their play history.');
   if ((game.scoreRevision ?? 0) !== expectedRevision) throw new Error('The score changed. Reopen the inning editor.');
   const inning = Number(values.inning);
   if (!Number.isInteger(inning) || inning < 1 || inning > 99) throw new Error('Choose an inning from 1 to 99.');

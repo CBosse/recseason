@@ -15,6 +15,7 @@ export function canScore(user, game) {
 
 export function liveScoreUpdate(game, values, user, expectedRevision) {
   if (!canScore(user, game)) throw new Error('You are not assigned to score this game.');
+  if (game.automaticScoring !== undefined) throw new Error('Use play scoring for this automatic game.');
   if (!['scheduled', 'live'].includes(game.status)) throw new Error('This game is no longer open for live scoring.');
   if ((game.scoreRevision ?? 0) !== expectedRevision) throw new Error('The score changed in another session. Close and reopen the editor.');
   if (!['live', 'completed'].includes(values.status)) throw new Error('Choose a valid game status.');
