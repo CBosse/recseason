@@ -76,8 +76,8 @@ export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellat
       return reply(202, { created: result.created, existing: result.existing, recipients: result.recipients, playersWithoutRecipient: result.playersWithoutRecipient });
     } catch (error) {
       if (scoringRequest) {
-        const code = ['permission-denied', 'game-unavailable', 'game-incompatible', 'history-inconsistent', 'stale-revision', 'invalid-action', 'invalid-request', 'scoring-disabled'].includes(error.code) ? error.code : 'temporarily-unavailable';
-        return reply(code === 'permission-denied' ? 403 : ['temporarily-unavailable', 'scoring-disabled'].includes(code) ? 503 : ['invalid-action', 'invalid-request'].includes(code) ? 400 : 409, { error: code });
+        const code = ['permission-denied', 'game-unavailable', 'game-incompatible', 'history-inconsistent', 'stale-revision', 'invalid-action', 'invalid-request', 'invalid-correction', 'correction-conflict', 'scoring-disabled'].includes(error.code) ? error.code : 'temporarily-unavailable';
+        return reply(code === 'permission-denied' ? 403 : ['temporarily-unavailable', 'scoring-disabled'].includes(code) ? 503 : ['invalid-action', 'invalid-request', 'invalid-correction'].includes(code) ? 400 : 409, { error: code });
       }
       if (fieldRequest) {
         const code = ['permission-denied', 'field-unavailable', 'field-in-use', 'stale-revision'].includes(error.code) ? error.code : 'temporarily-unavailable';

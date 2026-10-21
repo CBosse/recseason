@@ -45,6 +45,27 @@ try {
   assert.deepEqual(replayAutomaticHistory(concurrent.gameId, final, events).at(-1), final.automaticScoring);
   await expectError({ ...concurrent, expectedRevision: 2 }, 'game-unavailable');
 
+  const correction = { schemaVersion: 1, type: 'correction', targetRevision: 2, replacement: null, reason: 'Wrong final out' };
+  const correctionRequest = { ...concurrent, expectedRevision: 2, action: correction };
+  await expectError(correctionRequest, 'permission-denied');
+  const corrections = await Promise.allSettled([1, 2].map(() => recordAutomaticPlay({ ...correctionRequest, verifiedUid: organizer })));
+  assert.equal(corrections.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal(corrections.find(result => result.status === 'rejected').reason.code, 'stale-revision');
+  let corrected = (await db.doc(`games/${concurrent.gameId}`).get()).data();
+  assert.equal(corrected.status, 'live'); assert.equal(corrected.scoreRevision, 3);
+  const correctedEvents = (await db.collection('scoreEvents').where('gameId', '==', concurrent.gameId).get()).docs.map(doc => doc.data());
+  assert.equal(correctedEvents.length, 3);
+  for (const event of events) assert.deepEqual(correctedEvents.find(item => item.revision === event.revision), event);
+  assert.deepEqual(replayAutomaticHistory(concurrent.gameId, corrected, correctedEvents).at(-1), corrected.automaticScoring);
+  await recordAutomaticPlay({ ...concurrent, expectedRevision: 3 });
+  corrected = (await db.doc(`games/${concurrent.gameId}`).get()).data();
+  assert.equal(corrected.status, 'completed');
+  await db.doc(`users/${organizer}`).update({ role: 'parent' });
+  await expectError({ ...correctionRequest, expectedRevision: 4, verifiedUid: organizer }, 'permission-denied');
+  await db.doc(`users/${organizer}`).update({ role: 'leagueManager' });
+  await expectError({ ...correctionRequest, expectedRevision: 4, verifiedUid: organizer }, 'invalid-correction');
+  assert.equal((await db.doc(`scoreEvents/${concurrent.gameId}_5`).get()).exists, false);
+
   const invalid = await create();
   await expectError({ ...invalid, action: { ...action, elapsedMs: -1 } }, 'invalid-action');
   assert.equal((await db.doc(`scoreEvents/${invalid.gameId}_1`).get()).exists, false);
@@ -69,6 +90,15 @@ try {
   await expectError({ ...corrupt, expectedRevision: 1 }, 'history-inconsistent');
   assert.equal((await db.doc(`scoreEvents/${corrupt.gameId}_2`).get()).exists, false);
   assert.equal((await db.doc(`games/${corrupt.gameId}`).get()).data().scoreRevision, 1);
+  await expectError({ ...corrupt, expectedRevision: 1, verifiedUid: organizer,
+    action: { ...correction, targetRevision: 1 } }, 'history-inconsistent');
+  const olderCorruption = await create();
+  await recordAutomaticPlay(olderCorruption);
+  await recordAutomaticPlay({ ...olderCorruption, expectedRevision: 1 });
+  await db.doc(`scoreEvents/${olderCorruption.gameId}_1`).update({ 'automatic.action.play.pitch': 'ball' });
+  await expectError({ ...olderCorruption, expectedRevision: 2, verifiedUid: organizer, action: correction }, 'history-inconsistent');
+  assert.equal((await db.doc(`scoreEvents/${olderCorruption.gameId}_3`).get()).exists, false);
+  assert.equal((await db.doc(`games/${olderCorruption.gameId}`).get()).data().status, 'completed');
   for (const target of ['rules', 'projection']) {
     const changed = await create(); await recordAutomaticPlay(changed);
     if (target === 'rules') await db.doc(`games/${changed.gameId}`).update({ 'rulesSnapshot.rules.innings': 2 });
@@ -110,6 +140,16 @@ try {
   await clearLimit();
   const completed = await send({ ...body, expectedRevision: 1 });
   assert.equal(completed.status, 200); assert.deepEqual(await completed.json(), { status: 'completed', revision: 2 });
+  await clearLimit();
+  const correctionBody = { ...body, expectedRevision: 2, action: correction };
+  assert.equal((await send(correctionBody)).status, 403);
+  await db.doc(`users/${scorer}`).update({ role: 'leagueManager' });
+  await clearLimit();
+  const correctedResponse = await send(correctionBody);
+  assert.equal(correctedResponse.status, 200); assert.deepEqual(await correctedResponse.json(), { status: 'live', revision: 3 });
+  await clearLimit(); assert.equal((await send(correctionBody)).status, 409);
+  assert.equal((await db.collection('scoreEvents').where('gameId', '==', httpGame.gameId).get()).size, 3);
+  await db.doc(`users/${scorer}`).update({ role: 'scorekeeper' });
   const uncertainGame = await create();
   const initialGame = (await db.doc(`games/${uncertainGame.gameId}`).get()).data();
   const clientRequest = { endpoint: automaticScoringEndpoint(true), gameId: uncertainGame.gameId,
@@ -134,7 +174,7 @@ try {
   assert.deepEqual(await requestAutomaticPlay({ ...clientRequest, game: refreshedGame, fetcher: proxy }), { status: 'completed', revision: 2 });
   await runtime.auth.updateUser(scorer, { disabled: true });
   assert.equal((await send()).status, 401);
-  console.log('PASS: automatic scoring transactions, full replay, verified HTTP identity, lost-response client recovery without duplicate plays, stale retries, throttling, revoked roles, reassignment and disabled accounts. Local data only.');
+  console.log('PASS: automatic scoring and organizer-only correction transactions, concurrent correction protection, immutable original events, full-history validation, verified HTTP identity, lost-response recovery, stale retries, throttling, revoked roles, reassignment and disabled accounts. Local data only.');
 } finally {
   if (server) await new Promise(resolve => server.close(resolve));
   if (clientApp) await deleteApp(clientApp);

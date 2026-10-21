@@ -92,9 +92,18 @@ game rather than silently removing its scoring history. Playback validates and
 labels correction revisions. Tests cover these behaviors, score/inning totals,
 stale revisions, reasons, tampering, and unchanged original events.
 
-Correction persistence, organizer authorization, the HTTP contract, and scorer
-controls are not connected yet. The current API still accepts only play and clock
-actions. No production or emulator game has been corrected by this domain change.
+The scoring endpoint now accepts exact-schema correction actions as well as plays
+and clock entries. Corrections require a current site administrator, commissioner,
+or league manager; an assigned scorekeeper alone cannot correct a game. The same
+verified identity, production opt-in, request limits, and scoring throttle apply.
+The transaction reads the complete game history, independently verifies it,
+updates the game, and creates its next immutable event together. It supports live
+and completed automatic games, never converts legacy games, and rejects stale
+revisions or incompatible downstream actions. Tests exercise concurrent corrections,
+reopening and scoring again, preserved original events, revoked organizer roles,
+older-event corruption, HTTP authorization, and duplicate retries in emulators.
+Correction controls and client-side preview/confirmation are not connected yet.
+No production game has been corrected and the API has not been deployed.
 
 The engine does not yet cover all league variants. Pitch-only strikeouts assume the batter is
 retired. Uncaught-third-strike advancement requires explicit runner outcomes;
@@ -152,8 +161,8 @@ an organizer repair workflow remains to be added.
 - Extra runners start on second in both halves. This currently records occupied
   bases only; lineup-based runner identity is pending.
 - Completing a half resets counts and bases. A final game rejects further
-  ordinary actions; domain corrections can recompute its result but have no write
-  endpoint or UI yet. An unresolved tie at inning
+  ordinary actions; organizer-authorized corrections can recompute its result,
+  but scorer correction controls are pending. An unresolved tie at inning
   99 fails explicitly rather than inventing a result or overflowing storage.
 
 These are explicit engine semantics, not a claim of universal league rules.
@@ -175,8 +184,8 @@ mercy, and final-inning policies instead of silently applying these semantics.
 4. Finish production readiness of the local scorer UI and its session safeguards.
    Deploy candidate
    direct-write restrictions together with the service; retain legacy histories.
-5. Connect the domain correction implementation to atomic, organizer-authorized
-   persistence and scorer controls. Add replay-derived player statistics with
+5. Connect the tested correction endpoint to client preview and scorer controls.
+   Add replay-derived player statistics with
    explicit player attribution and roster validation. Retain correction audit trails.
 6. Expand browser acceptance beyond the local preview. Test full games under multiple
    custom profiles, concurrent scorers, refresh, account switches, corrections,

@@ -77,10 +77,26 @@ test('scoring HTTP hides failures, checks authentication, and supplies its own r
     await fixture(async (send, calls) => { assert.equal((await send()).status, 401); assert.equal(calls.length, 0); }, { verifyToken });
   }
   for (const [code, status] of [['permission-denied', 403], ['game-unavailable', 409], ['game-incompatible', 409],
-    ['history-inconsistent', 409], ['stale-revision', 409], ['invalid-action', 400], ['invalid-request', 400], ['scoring-disabled', 503], ['internal', 503]]) {
+    ['history-inconsistent', 409], ['stale-revision', 409], ['invalid-action', 400], ['invalid-request', 400], ['invalid-correction', 400], ['correction-conflict', 409], ['scoring-disabled', 503], ['internal', 503]]) {
     await fixture(async send => {
       const response = await send(); assert.equal(response.status, status);
       assert.deepEqual(await response.json(), { error: code === 'internal' ? 'temporarily-unavailable' : code });
     }, { recordPlay: async () => { throw Object.assign(new Error('secret'), { code }); } });
   }
+});
+
+test('correction HTTP validates target, reason and exact replacement without accepting nested corrections', async () => {
+  const action = { schemaVersion: 1, type: 'correction', targetRevision: 1, replacement: null, reason: 'Wrong pitch' };
+  const body = { ...valid, expectedRevision: 2, action };
+  await fixture(async (send, calls) => {
+    assert.equal((await send(body)).status, 200);
+    assert.deepEqual(calls[0], { ...body, verifiedUid: 'verified' });
+    assert.equal((await send({ ...body, action: { ...action, replacement: valid.action } })).status, 200);
+    for (const patch of [{ targetRevision: 0 }, { targetRevision: 3 }, { targetRevision: 1.5 },
+      { reason: '' }, { reason: ' ' }, { reason: 'x'.repeat(301) }, { extra: true }, { schemaVersion: 2 },
+      { replacement: action }, { replacement: {} }, { replacement: { ...valid.action, extra: true } }]) {
+      assert.equal((await send({ ...body, action: { ...action, ...patch } })).status, 400);
+    }
+    assert.equal(calls.length, 2);
+  });
 });

@@ -10,6 +10,14 @@ export function validScoringRequest(body) {
       typeof body.gameId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(body.gameId) || body.engineVersion !== 1 ||
       !Number.isSafeInteger(body.expectedRevision) || body.expectedRevision < 0 || body.expectedRevision >= Number.MAX_SAFE_INTEGER) return false;
   const action = body.action;
+  if (action?.type === 'correction') {
+    return Boolean(exact(action, ['schemaVersion', 'type', 'targetRevision', 'replacement', 'reason']) &&
+      action.schemaVersion === 1 && Number.isSafeInteger(action.targetRevision) && action.targetRevision > 0 &&
+      action.targetRevision <= body.expectedRevision && typeof action.reason === 'string' &&
+      action.reason.trim() === action.reason && action.reason.length > 0 && action.reason.length <= 300 &&
+      (action.replacement === null || (['play', 'clock'].includes(action.replacement?.type) &&
+        validScoringRequest({ ...body, action: action.replacement }))));
+  }
   if (!action || action.schemaVersion !== 1 || !Number.isSafeInteger(action.elapsedMs) || action.elapsedMs < 0) return false;
   if (action.type === 'clock') return Boolean(exact(action, ['schemaVersion', 'type', 'elapsedMs']));
   if (action.type !== 'play' || !exact(action, ['schemaVersion', 'type', 'elapsedMs', 'play', 'runAward']) ||
