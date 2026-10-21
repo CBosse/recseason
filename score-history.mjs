@@ -16,15 +16,17 @@ export function scoreHistoryEntry(gameId, before, patch, uid, reason = '') {
   return { gameId, revision: patch.scoreRevision, before: scoreState(before), after: scoreState({ ...before, ...patch }), scoredBy: uid, reason };
 }
 
-export function openScoreHistory(game, entries) {
+export function openScoreHistory(game, entries, replay = scoreReplay(game, entries)) {
   document.getElementById('score-history-dialog')?.remove();
   const dialog = document.createElement('dialog'); dialog.id = 'score-history-dialog'; dialog.className = 'game-editor-dialog';
   dialog.setAttribute('aria-labelledby', 'score-history-title');
   const title = document.createElement('h2'); title.id = 'score-history-title'; title.textContent = `${game.homeName} vs ${game.awayName}: score history`;
-  const replay = scoreReplay(game, entries);
   const playback = document.createElement('section'); playback.className = 'score-replay';
+  if (replay.verifiedActions) {
+    const verified = document.createElement('p'); verified.textContent = 'Play history verified against frozen game rules.'; playback.append(verified);
+  }
   if (replay.frames.length) {
-    const label = document.createElement('label'); label.textContent = 'Recorded state';
+    const label = document.createElement('label'); label.textContent = replay.verifiedActions ? 'Recorded play' : 'Recorded state';
     const slider = document.createElement('input'); slider.type = 'range'; slider.min = '0'; slider.max = String(replay.frames.length - 1); slider.step = '1'; slider.value = slider.max;
     label.append(slider);
     const state = document.createElement('p'); state.setAttribute('role', 'status'); state.className = 'score-replay-state';
@@ -35,7 +37,7 @@ export function openScoreHistory(game, entries) {
     const render = () => {
       const frame = replay.frames[Number(slider.value)]; const s = frame.state;
       state.textContent = `${frame.baseline ? 'Starting snapshot' : '#' + frame.revision}: ${s.homeScore ?? 0}-${s.awayScore ?? 0}, ${s.status}, ${s.half} ${s.inning}. Balls ${s.balls}, strikes ${s.strikes}, outs ${s.outs}. Runners: ${baseLabel(s.bases)}.`;
-      reason.textContent = frame.reason;
+      reason.textContent = [frame.action, frame.reason].filter(Boolean).join('. ');
       previous.disabled = slider.value === '0'; next.disabled = slider.value === slider.max;
     };
     previous.onclick = () => { slider.value = String(Number(slider.value) - 1); render(); };

@@ -70,6 +70,16 @@ including organizers. They are emulator-tested, not deployed to production.
 The service and these rules must be released together before enabling production UI.
 No production games were converted or written during development.
 
+`scoring-playback.mjs` now connects action replay to the history viewer. Automatic
+histories must fully recompute against frozen rules and match the saved game before
+any playback frames are displayed. Missing, altered, or mixed histories produce
+an explicit verification warning instead of falling back to trusted snapshots.
+Playback identifies pitches, elapsed-time entries, and ordered runner outcomes.
+Legacy games retain their existing snapshot replay and incomplete-history warnings.
+Focused tests cover action-derived frames, labels, corrupt histories, removed engine
+markers, and legacy compatibility. The emulator browser check verified navigation
+to the two-run home-run action and its runner order on October 21, 2026.
+
 The engine does not yet cover all league variants. Pitch-only strikeouts assume the batter is
 retired. Uncaught-third-strike advancement requires explicit runner outcomes;
 eligibility and league-specific exceptions still need policy validation before

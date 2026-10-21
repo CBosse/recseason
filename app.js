@@ -7,6 +7,7 @@ import { canScore, liveScoreEntry, openScoreEditor } from './live-scoring.mjs';
 import { automaticScoringEndpoint, requestAutomaticPlay } from './automatic-scoring-client.mjs';
 import { openAutomaticScoring } from './automatic-scoring-editor.mjs';
 import { gameList } from './game-list.mjs';
+import { scoringPlayback } from './scoring-playback.mjs';
 import { createSubscriptions, writeResult } from './data-lifecycle.mjs';
 import { scoreUpdate, standings } from './results.mjs';
 import { newPlayerProfile } from './accounts.mjs';
@@ -1529,7 +1530,10 @@ function renderScorekeeperView() {
       history.disabled = true;
       try {
         const entries = await getDocs(query(collection(db, 'scoreEvents'), where('gameId', '==', game.id)));
-        if (currentUser?.uid === uid && canScore(currentUser, game)) openScoreHistory(game, entries.docs.map(d => d.data()));
+        if (currentUser?.uid === uid && canScore(currentUser, game)) {
+          const events = entries.docs.map(d => d.data());
+          openScoreHistory(game, events, scoringPlayback(game, events));
+        }
       } catch (error) { showDbError(error); }
       finally { history.disabled = false; }
     };
