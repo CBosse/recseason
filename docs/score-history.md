@@ -23,12 +23,33 @@ with its before/after state, not as mutable game metadata. History and recorded-
 replay show it alongside the corresponding revision. Database workflow tests verify
 that the description persists with the scoring transaction.
 
-Per-inning totals and recorded-state replay are implemented. Structured play types,
-batter/runner identities, automatic runner advancement, correction of an individual
-play with recomputation of later plays, and derived player statistics remain unfinished.
+Per-inning totals and recorded-state replay are implemented. The local automatic
+scoring preview additionally supports structured plays, automatic runner advancement,
+action-derived replay, and organizer corrections with recomputation of later plays;
+see [Automatic Scoring](automatic-scoring.md) for its release gates and limitations.
+Batter/runner identities and derived player statistics remain unfinished.
 Notes do not supply those missing semantics. Scored games cannot be deleted or have
 their team IDs changed; raw organizer status changes still need further hardening.
 The identity check covers both the previous and proposed game state, so replacing
 teams in the same transaction as the first score is rejected even with an otherwise
 valid score event and schedule revision. Correct an unscored matchup separately
 before recording its first play.
+
+## Recovery Coverage
+
+The encrypted recovery workflow includes a finished automatic game with ordered
+runner outcomes, a replacement correction, a voided final strike, and its
+restoration. After restoring into the isolated emulator `recovery` database, it
+reads native Firestore values, recomputes every audit frame, compares the complete
+engine history, checks event timestamps, and derives another valid correction from
+the restored history. This covers nested outcome arrays and null replacements,
+not just score totals. The workflow retains wrong-passphrase and nonempty-target
+rejection checks.
+
+REST verification normalizes omitted empty map fields and array values before
+comparison because Firestore may omit those containers when returning a document.
+It still detects different field names, types, values, array order, and extra data;
+the encrypted backup checksum is not rewritten. This is a local recovery rehearsal,
+not a production disaster-recovery certification. The 500-document backup limit,
+off-device retention, Auth/config recovery, and operational restoration procedures
+still need completion before a live season.

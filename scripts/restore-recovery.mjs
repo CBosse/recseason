@@ -1,5 +1,5 @@
 import { readFile, stat } from 'node:fs/promises';
-import { isDeepStrictEqual } from 'node:util';
+import { sameStoredFields } from './firestore-value-equality.mjs';
 import { backupCollections, recoveryDatabase, recoveryWrites } from './backup-format.mjs';
 import { readBackup } from './backup-encryption.mjs';
 
@@ -24,6 +24,6 @@ if (writes.length) await request(`${root}:commit`, { writes });
 for (const document of backup.documents) {
   const urlPath = document.path.split('/').map(encodeURIComponent).join('/');
   const restored = await request(`${root}/${urlPath}`);
-  if (!isDeepStrictEqual(restored.fields || {}, document.fields)) throw new Error('Restored data does not match the backup.');
+  if (!sameStoredFields(restored.fields || {}, document.fields)) throw new Error(`Restored data does not match the backup at ${document.path}.`);
 }
 console.log(`PASS: restored and verified ${writes.length} documents in the local recovery database. Production unchanged.`);
