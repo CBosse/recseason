@@ -141,8 +141,11 @@ New encrypted app backups include `notificationJobs` and `notificationLimits`.
 The recovery rehearsal preserves all seven states, event IDs, recipients, messages,
 provenance, receipts, revision counters, leases, attempts, and next-attempt times.
 Accepted/uncertain states are never reset to pending. Older eleven/twelve-collection
-backups remain readable, but contain no queue coverage. Current snapshots still have
-a 500-document limit across all collections; exports fail explicitly above that size.
+backups remain readable, but contain no queue coverage. Snapshots allow up to 100,000
+documents, within the 32 MiB encrypted-plaintext limit. Recovery uses bounded,
+create-only batches and a matching checkpoint for explicit resume. All batches and
+read-back verification must finish before the recovered data is used; notification
+workers remain disconnected throughout. See the README for the recovery commands.
 
 ### Notification Recovery Gate
 

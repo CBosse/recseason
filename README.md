@@ -190,13 +190,23 @@ With a fresh local Firestore emulator on port 8180 and
 `node scripts/restore-recovery.mjs <backup-file>` with the same passphrase environment
 variable to decrypt in memory and restore into the isolated
 `demo-recseason` project's `recovery` database. The script refuses other endpoints,
-nonempty app collections, overwrites, invalid checksums, and snapshots above 500
-documents. It verifies every restored document after one atomic create-only commit.
+nonempty app collections on a new restore, overwrites, invalid checksums, and
+snapshots above 100,000 documents. Creates are split into batches of at most 400
+documents and 4 MiB of document-write JSON. Each batch atomically advances a
+`_recovery/checkpoint` record with its backup identity and completed document count.
+The whole restore is not atomic: do not use the recovery database until verification
+finishes and its checkpoint is complete. Keep other writers disconnected.
+After an interruption, use `node scripts/restore-recovery.mjs <backup-file> --resume`.
+Resume requires the same backup, verifies all previously restored documents, rejects
+missing/changed/extra app data, and creates only the remaining documents. It never
+adopts an existing database without its matching checkpoint. Completed restores can
+also be reverified with `--resume` without rewriting data.
 Encrypted input is authenticated before any database request. Files above 48 MiB
 and encrypted plaintext above 32 MiB are rejected. No decrypted file is written.
 `npm run test:recovery` tests encrypted synthetic data, a wrong passphrase before
-restore, all seven notification states with receipts/leases/retry metadata, and an
-overwrite attempt; it runs in CI. A five-document production export was successfully restored
+restore, more than 800 documents, a lost commit response followed by CLI resume,
+corrected scoring history, all seven notification states with receipts/leases/retry
+metadata, and an overwrite attempt; it runs in CI. A five-document production export was successfully restored
 and verified locally on September 26, 2026. Production was not modified.
 
 This is an app-data recovery tool, not complete disaster recovery. Auth accounts,

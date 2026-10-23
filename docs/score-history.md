@@ -50,6 +50,8 @@ REST verification normalizes omitted empty map fields and array values before
 comparison because Firestore may omit those containers when returning a document.
 It still detects different field names, types, values, array order, and extra data;
 the encrypted backup checksum is not rewritten. This is a local recovery rehearsal,
-not a production disaster-recovery certification. The 500-document backup limit,
-off-device retention, Auth/config recovery, and operational restoration procedures
-still need completion before a live season.
+not a production disaster-recovery certification. The former 500-document ceiling
+has been replaced with bounded create-only batches and an explicit, verified resume
+checkpoint. Backups retain limits of 100,000 documents and 32 MiB encrypted plaintext.
+Capacity planning, off-device retention, Auth/config recovery, and operational
+restoration procedures still need completion before a live season.

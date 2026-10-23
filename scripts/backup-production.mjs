@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { backupCollections, createBackup } from './backup-format.mjs';
+import { backupCollections, createBackup, maxBackupDocuments } from './backup-format.mjs';
 import { encryptBackup, requireBackupPassphrase } from './backup-encryption.mjs';
 
 const passphrase = requireBackupPassphrase(process.env.RECSEASON_BACKUP_PASSPHRASE);
@@ -25,6 +25,7 @@ for (const collection of backupCollections) {
     for (const document of page.documents || []) {
       if (!document.name.startsWith(`${root}/`)) throw new Error('Unexpected database in backup response.');
       documents.push({ path: document.name.slice(root.length + 1), fields: document.fields || {} });
+      if (documents.length > maxBackupDocuments) throw new Error('Backup document limit exceeded; no backup was saved.');
     }
     pageToken = page.nextPageToken;
   } while (pageToken);

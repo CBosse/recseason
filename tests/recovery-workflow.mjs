@@ -9,6 +9,8 @@ import { nextRulesProfile } from '../league-rules.mjs';
 import { scheduleChangeUpdate, scheduleEvent } from '../schedule-history.mjs';
 import { Firestore } from '@google-cloud/firestore';
 import { automaticScoreEntry, automaticCorrectionEntry, replayAutomaticHistory } from '../automatic-scoring.mjs';
+import { restoreBatches } from '../scripts/recovery-run.mjs';
+import { localRecoveryIO } from '../scripts/recovery-io.mjs';
 
 function typed(value) {
   if (value === null) return { nullValue: null };
@@ -62,6 +64,7 @@ const event = scheduleEvent('game', scheduleChangeUpdate(previousGame, movedGame
 const eventFields = typed(event.data).mapValue.fields;
 eventFields.change.mapValue.fields.changedAt = { timestampValue: '2026-09-26T00:00:00Z' };
 const backup = createBackup([
+  ...Array.from({ length: 805 }, (_, index) => ({ path: `teams/recovery-volume-${index}`, fields: { name: { stringValue: `Synthetic ${index}` } } })),
   ...scoringDocuments,
   { path: `scheduleEvents/${event.id}`, fields: eventFields },
   { path: 'ruleProfiles/recovery-division', fields: typed(rulesProfile).mapValue.fields },
@@ -76,10 +79,20 @@ await mkdir('.tools/backups', { recursive: true });
 const path = '.tools/backups/recovery-test.encrypted.json';
 const passphrase = randomBytes(32).toString('base64');
 await writeFile(path, JSON.stringify(await encryptBackup(backup, passphrase)));
-const run = (secret = passphrase) => execFileSync(process.execPath, ['scripts/restore-recovery.mjs', path], { encoding: 'utf8', stdio: 'pipe', env: { ...process.env, RECSEASON_BACKUP_PASSPHRASE: secret } });
+const run = (secret = passphrase, resume = false) => execFileSync(process.execPath, ['scripts/restore-recovery.mjs', path, ...(resume ? ['--resume'] : [])], { encoding: 'utf8', stdio: 'pipe', env: { ...process.env, RECSEASON_BACKUP_PASSPHRASE: secret } });
 assert.throws(() => run('incorrect-test-passphrase'), error => error.stderr?.includes('authentication failed'));
-assert.match(run(), new RegExp(`restored and verified ${backup.documents.length} documents`));
+let dropped = false;
+await assert.rejects(restoreBatches(backup, { io: localRecoveryIO(async (url, init) => {
+  const response = await fetch(url, init);
+  if (init.method === 'POST' && response.ok && !dropped) {
+    await response.json(); dropped = true; throw new Error('Simulated lost recovery commit response');
+  }
+  return response;
+}) }), /Simulated lost recovery commit response/);
+assert.equal(dropped, true);
 assert.throws(run, error => error.stderr?.includes('Recovery database is not empty'));
+assert.match(run(passphrase, true), new RegExp(`restored and verified ${backup.documents.length} documents`));
+assert.match(run(passphrase, true), new RegExp(`restored and verified ${backup.documents.length} documents`));
 const recovery = new Firestore({ projectId: 'demo-recseason', databaseId: 'recovery' });
 try {
   const restoredGame = (await recovery.doc(`games/${scoringId}`).get()).data();
@@ -98,6 +111,7 @@ try {
   assert.deepEqual(replayAutomaticHistory(scoringId, { ...restoredGame, ...continued.patch }, [...restoredEvents, continued.entry]).at(-1), continued.patch.automaticScoring);
 } finally { await recovery.terminate(); }
 console.log('PASS: encrypted typed-value recovery, wrong-passphrase rejection before writes, and refusal to overwrite an existing recovery database.');
+console.log('PASS: more than 800 documents restored across multiple bounded atomic batches; explicit resume verifies the same completed checkpoint without rewriting documents.');
 console.log('PASS: all seven notification states, immutable event data, receipts, leases, retry times, versions, and request limits survive isolated recovery unchanged.');
 console.log('PASS: league rule profile schema, revision, optional policies and nested mercy rule survive encrypted recovery.');
 console.log('PASS: schedule event revision, before/after arrangements, former official and timestamp survive encrypted recovery.');

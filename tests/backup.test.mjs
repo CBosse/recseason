@@ -18,7 +18,8 @@ test('backup rejects corruption, unexpected sources, paths, duplicates and overs
   assert.throws(() => validateBackup({ ...backup, source: 'another-project' }), /source/);
   for (const path of ['users/../x', 'unknown/id', 'users/']) assert.throws(() => createBackup([{ path, fields: {} }], date));
   assert.throws(() => createBackup([...docs, ...docs], date), /duplicate/);
-  assert.throws(() => createBackup(Array.from({ length: 501 }, (_, i) => ({ path: `games/${i}`, fields: {} })), date), /500/);
+  assert.equal(createBackup(Array.from({ length: 501 }, (_, i) => ({ path: `games/${i}`, fields: {} })), date).documents.length, 501);
+  assert.throws(() => createBackup(Array.from({ length: 100001 }, (_, i) => ({ path: `games/${i}`, fields: {} })), date), /100000/);
 });
 
 test('prior app-only backup manifests remain readable without silently adding queue coverage', () => {
