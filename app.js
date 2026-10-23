@@ -8,6 +8,7 @@ import { automaticScoringEndpoint, requestAutomaticPlay } from './automatic-scor
 import { openAutomaticScoring } from './automatic-scoring-editor.mjs';
 import { gameList } from './game-list.mjs';
 import { scoringPlayback } from './scoring-playback.mjs';
+import { openCorrectionEditor } from './correction-editor.mjs';
 import { createSubscriptions, writeResult } from './data-lifecycle.mjs';
 import { scoreUpdate, standings } from './results.mjs';
 import { newPlayerProfile } from './accounts.mjs';
@@ -50,6 +51,7 @@ import {
   getDocs,
   getDoc,
   getDocFromServer,
+  getDocsFromServer,
   query,
   where,
   runTransaction,
@@ -146,6 +148,7 @@ function clearSessionData() {
   document.getElementById('roster-editor-dialog')?.remove();
   document.getElementById('score-editor-dialog')?.remove();
   document.getElementById('automatic-scoring-dialog')?.remove();
+  document.getElementById('correction-dialog')?.remove();
   document.getElementById('game-editor-dialog')?.remove();
   document.getElementById('attendance-dialog')?.remove();
   document.getElementById('reminder-dialog')?.remove();
@@ -1548,6 +1551,10 @@ function renderScorekeeperView() {
     inning.onclick = () => editInning(game);
     if (!game.automaticScoring && (game.status !== 'completed' || canEdit())) row.append(inning);
     row.append(history); container.append(row);
+    if (localMode && canEdit() && game.automaticScoring) {
+      const correction = document.createElement('button'); correction.className = 'btn btn-ghost btn-sm'; correction.textContent = 'Correct play';
+      correction.onclick = () => editCorrection(game); row.append(correction);
+    }
   }
 }
 
@@ -1565,6 +1572,25 @@ function editInning(game) {
     transaction.update(ref, patch);
     transaction.set(doc(db, 'scoreEvents', `${game.id}_${patch.scoreRevision}`), { ...scoreHistoryEntry(game.id, current.data(), patch, uid, values.reason), recordedAt: serverTimestamp() });
   }));
+}
+
+async function editCorrection(game) {
+  if (!localMode || !canEdit()) return;
+  const user = auth.currentUser, generation = authGeneration;
+  const isCurrent = () => auth.currentUser === user && authGeneration === generation && currentUser?.uid === user?.uid && canEdit();
+  const load = async () => {
+    if (!isCurrent()) throw new Error('Your scoring session changed.');
+    const snapshot = await getDocFromServer(doc(db, 'games', game.id));
+    const history = await getDocsFromServer(query(collection(db, 'scoreEvents'), where('gameId', '==', game.id)));
+    if (!isCurrent() || !snapshot.exists()) throw new Error('Your scoring session or game changed.');
+    return { game: { ...snapshot.data(), id: snapshot.id }, entries: history.docs.map(item => item.data()) };
+  };
+  try {
+    const initial = await load();
+    openCorrectionEditor({ initial, load, isCurrent, uid: user.uid, save: (current, entries, action) => requestAutomaticPlay({
+      endpoint: automaticScoringEndpoint(localMode), gameId: game.id, game: current, entries, action, user, isCurrent,
+    }) });
+  } catch (error) { showDbError(error); }
 }
 
 async function editAutomaticScore(game) {
@@ -2157,8 +2183,13 @@ function formatTime(timeStr) {
 
 function showBanner(msg, type = 'error') {
   const el = document.getElementById('db-banner');
+  clearTimeout(el._t);
   el.textContent = msg; el.className = `db-banner--${type}`; el.style.display = 'block';
-  if (type !== 'error') { clearTimeout(el._t); el._t = setTimeout(() => { el.style.display = 'none'; }, 6000); }
+  el.setAttribute('role', 'status');
+  const close = document.createElement('button'); close.type = 'button'; close.textContent = '\u00d7';
+  close.setAttribute('aria-label', 'Dismiss notification'); close.title = 'Dismiss notification';
+  close.onclick = () => { clearTimeout(el._t); el.style.display = 'none'; }; el.append(close);
+  if (type !== 'error') el._t = setTimeout(() => { el.style.display = 'none'; }, 6000);
 }
 
 function escHtml(str) {

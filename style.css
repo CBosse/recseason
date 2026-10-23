@@ -925,7 +925,7 @@ body {
   position: fixed;
   top: 0; left: 0; right: 0;
   z-index: 1000;
-  padding: 12px 20px;
+  padding: 12px 48px 12px 20px;
   font-size: 13px;
   font-weight: 600;
   text-align: center;
@@ -933,6 +933,7 @@ body {
 }
 
 .db-banner--error { background: #b1361b; color: #fff; }
+#db-banner button { position: absolute; right: 8px; top: 8px; width: 32px; height: 32px; color: inherit; background: transparent; border: 0; font-size: 24px; cursor: pointer; }
 .db-banner--success { background: #1e6b4a; color: #fff; }
 
 #loading-overlay {
@@ -989,6 +990,9 @@ body {
 .rule-profile-row span { min-width: 0; overflow-wrap: anywhere; }
 .game-editor-dialog [hidden] { display: none !important; }
 .automatic-editor { overflow-wrap: anywhere; }
+.correction-fields > label { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.correction-fields > label > input, .correction-fields > label > select, .correction-fields textarea { width: 100%; padding: 8px; font: inherit; }
+#correction-dialog .game-editor-actions { flex-wrap: wrap; }
 .automatic-editor h2 { margin-bottom: 8px; }
 .automatic-score { font-size: 20px; font-weight: 700; margin: 14px 0 8px; }
 .automatic-editor details { margin: 16px 0; }

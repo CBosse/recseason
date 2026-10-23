@@ -102,7 +102,26 @@ and completed automatic games, never converts legacy games, and rejects stale
 revisions or incompatible downstream actions. Tests exercise concurrent corrections,
 reopening and scoring again, preserved original events, revoked organizer roles,
 older-event corruption, HTTP authorization, and duplicate retries in emulators.
-Correction controls and client-side preview/confirmation are not connected yet.
+Local organizer correction controls are now connected. `correction-preview.mjs`
+derives each editable action's starting state from the effective history, including
+earlier corrections, while retaining the original action for restoration.
+`correction-editor.mjs` supports void, restore, pitch, clock, and ordered runner-play
+replacements. A reason, successful recomputation preview, and explicit confirmation
+are required; editing any input clears the preview and confirmation. The shared
+scoring client validates the complete history and captures the request before token
+refresh. Single-flight save/reload, uncertain-response blocking, and current-session
+checks also apply to corrections. The controls remain emulator-only.
+
+Browser acceptance on October 21, rechecked October 23, 2026, voided the synthetic
+game's final strike, replaced its home run with a one-run runner play, then restored
+both original actions. The result returned to 2-0 final; verified replay retained
+the seven original events and four correction events. Changing a confirmed reason
+disabled Save. Mobile testing at 390px found and fixed clipped footer buttons and
+a persistent warning obscuring the menu; footer controls now wrap and notification
+banners can be dismissed. Unit tests cover effective-action contexts, detached
+originals, history validation before sending, captured payloads, and uncertain
+responses. Broader role-switch, concurrency, and rule-policy browser coverage is
+still required before production release.
 No production game has been corrected and the API has not been deployed.
 
 The engine does not yet cover all league variants. Pitch-only strikeouts assume the batter is
@@ -162,7 +181,7 @@ an organizer repair workflow remains to be added.
   bases only; lineup-based runner identity is pending.
 - Completing a half resets counts and bases. A final game rejects further
   ordinary actions; organizer-authorized corrections can recompute its result,
-  but scorer correction controls are pending. An unresolved tie at inning
+  with local organizer preview and confirmation. An unresolved tie at inning
   99 fails explicitly rather than inventing a result or overflowing storage.
 
 These are explicit engine semantics, not a claim of universal league rules.
@@ -184,8 +203,8 @@ mercy, and final-inning policies instead of silently applying these semantics.
 4. Finish production readiness of the local scorer UI and its session safeguards.
    Deploy candidate
    direct-write restrictions together with the service; retain legacy histories.
-5. Connect the tested correction endpoint to client preview and scorer controls.
-   Add replay-derived player statistics with
+5. Complete production acceptance for the local correction workflow, including
+   concurrent organizers and session changes. Add replay-derived player statistics with
    explicit player attribution and roster validation. Retain correction audit trails.
 6. Expand browser acceptance beyond the local preview. Test full games under multiple
    custom profiles, concurrent scorers, refresh, account switches, corrections,

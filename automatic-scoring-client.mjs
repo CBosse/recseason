@@ -1,4 +1,4 @@
-import { automaticScoreEntry } from './automatic-scoring.mjs';
+import { automaticScoreEntry, automaticCorrectionEntry } from './automatic-scoring.mjs';
 
 const productionEndpoint = null;
 const path = '/api/games/plays';
@@ -7,7 +7,7 @@ const failure = (message, code, needsRefresh = false, retryAfterMs = 0) =>
   Object.assign(new Error(message), { code, needsRefresh, retryAfterMs });
 const uncertain = () => failure('The play could not be confirmed. Refresh the game and history before submitting again.', 'unconfirmed', true);
 
-export async function requestAutomaticPlay({ endpoint, gameId, game, action, user, isCurrent, fetcher = fetch }) {
+export async function requestAutomaticPlay({ endpoint, gameId, game, entries, action, user, isCurrent, fetcher = fetch }) {
   if (!endpoint) throw failure('Automatic scoring is not enabled for this league service.', 'scoring-disabled');
   let url;
   try { url = new URL(endpoint); } catch { throw failure('Invalid scoring endpoint.', 'invalid-request'); }
@@ -19,7 +19,8 @@ export async function requestAutomaticPlay({ endpoint, gameId, game, action, use
   const expectedRevision = game?.scoreRevision ?? 0;
   // Validate against the frozen rules and capture the payload before token refresh
   // yields control, so UI edits cannot change the play being submitted.
-  automaticScoreEntry({ gameId, game, action, uid: user.uid, expectedRevision, engineVersion: 1 });
+  const validate = action?.type === 'correction' ? automaticCorrectionEntry : automaticScoreEntry;
+  validate({ gameId, game, entries, action, uid: user.uid, expectedRevision, engineVersion: 1 });
   const body = JSON.stringify({ gameId, expectedRevision, engineVersion: 1, action });
   if (new TextEncoder().encode(body).length > 1024) throw failure('The play exceeds the request limit.', 'invalid-request');
   let token;
@@ -55,10 +56,11 @@ export async function requestAutomaticPlay({ endpoint, gameId, game, action, use
       'game-unavailable': 'This game is no longer open for scoring. Refresh the game.',
       'game-incompatible': 'This game cannot start automatic scoring. Refresh and review its rules and scoring history.',
       'history-inconsistent': 'The score and history do not agree. Stop scoring and ask a league organizer to review them.',
+      'correction-conflict': 'This correction conflicts with later actions. Refresh and review the play history.',
     };
     throw failure(messages[result?.error] ?? 'The game changed. Refresh before recording another play.', 'refresh-required', true);
   }
-  if (response.status === 400 && ['invalid-request', 'invalid-action'].includes(result?.error)) {
+  if (response.status === 400 && ['invalid-request', 'invalid-action', 'invalid-correction'].includes(result?.error)) {
     throw failure('The play was rejected. Check the action and current game state.', result.error, true);
   }
   if (response.status === 503 && result?.error === 'scoring-disabled') throw failure('Automatic scoring is not enabled for this league service.', 'scoring-disabled');
