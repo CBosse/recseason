@@ -12,6 +12,7 @@
 !roster-version.mjs
 !schedule-version.mjs
 !schedule-history.mjs
+!field-data.mjs
 !automatic-scoring.mjs
 !game-rules.mjs
 !play-rules.mjs
