@@ -16,10 +16,25 @@ organizer role, field, schedule revision, season configuration and all field gam
 before committing; changed schedule revisions reject the entire edit. Request
 payloads cannot supply daylight windows or the acting identity.
 
-This is a service checkpoint, not a deployed security boundary. The current editor
+The verified HTTP route is `POST /api/fields/update`, with exactly `fieldId`,
+`expectedScheduleRevision` and `values`. Identity comes from a revocation-checked
+Firebase token. The endpoint has its own durable per-user 60-second throttle,
+1 KiB body limit and shared 16-request concurrency limit. Conflicts return 409,
+revoked roles 403, invalid inputs 400, and unavailable daylight 503. No provider
+response or booking details are exposed in errors.
+
+The server daylight resolver uses ZIP coordinates from [Zippopotam.us](https://www.zippopotam.us/)
+and [Sunrise-Sunset.org v2](https://sunrise-sunset.org/api) for location-local times.
+It verifies dates, coordinates, timezone/offset consistency and event order, rounds
+sunrise up and sunset down to whole minutes, and rejects polar/overnight windows.
+Responses are bounded to 64 KiB; redirects are rejected. All lookups in one edit
+share a 12-second deadline. Up to 256 verified windows are cached for 24 hours.
+ZIP coordinates are an approximation, not a surveyed field location; precise
+field coordinates and organizer verification remain a pilot requirement.
+
+This is an API checkpoint, not a deployed security boundary. The current editor
 still uses its client-side checks and existing publication transaction. Remaining
-work: provide the trusted location/timezone/daylight resolver, expose the service
-through the verified HTTP boundary, connect the editor, then deny direct field
+work: connect the editor, then deny direct field
 updates in candidate rules and deploy API/client/rules together. Do not claim the
 direct-write availability gap is closed until those steps are verified.
 
@@ -27,3 +42,6 @@ direct-write availability gap is closed until those steps are verified.
 including safe narrowing, conflicting narrowing, exact boundaries, stale requests,
 lost access during daylight lookup, concurrent edits and historical games. It uses
 synthetic daylight only and never calls an external provider or production data.
+The provider adapter has separate deterministic tests; a manual read-only lookup
+for ZIP 02108 on October 26, 2026 returned 07:11-17:45 successfully. This does not
+prove provider uptime, season-scale cold-cache latency, or field-level accuracy.

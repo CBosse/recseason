@@ -1,4 +1,4 @@
-import { fieldUpdate, fieldFitsGame, fieldWindow } from '../field-editor.mjs';
+import { fieldUpdate, fieldFitsGame, fieldWindow } from '../field-data.mjs';
 import { nextScheduleRevision } from '../schedule-version.mjs';
 
 const validId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
