@@ -45,6 +45,20 @@ after(async () => { await env?.cleanup(); });
 const leagueRuleValues = { name: 'Youth division', rules: { innings: 6, ballsForWalk: 5, strikesForOut: 4, outsPerHalf: 4, startingBalls: 1, startingStrikes: 1,
   foulAtStrikeLimit: 'strikeout', runsPerHalf: 5, unlimitedFinalInning: true, mercy: { runs: 10, afterInning: 4 }, timeLimitMinutes: 75, tiePolicy: 'extra-innings', extraInningRunner: 'second' } };
 
+test('direct field deletion is denied even for organizers advancing the schedule revision', async () => {
+  await env.withSecurityRulesDisabled(async context => setDoc(doc(context.firestore(), 'fields', 'unused-delete-test'), { name: 'Unused' }));
+  for (const uid of ['admin', 'organizer', 'scorer', 'player']) {
+    const db = dbFor(uid);
+    await assertFails(deleteDoc(doc(db, 'fields', 'unused-delete-test')));
+    const marker = await getDoc(doc(db, 'config', 'scheduleRevision'));
+    const batch = writeBatch(db);
+    batch.delete(doc(db, 'fields', 'unused-delete-test'));
+    batch.set(doc(db, 'config', 'scheduleRevision'), { revision: (marker.data()?.revision ?? 0) + 1, updatedBy: uid });
+    await assertFails(batch.commit());
+  }
+  assert.equal((await getDoc(doc(dbFor('admin'), 'fields', 'unused-delete-test'))).exists(), true);
+});
+
 test('only organizers persist validated rule profiles, with public reads and no deletion', async () => {
   const value = nextRulesProfile(null, leagueRuleValues, 0);
   for (const uid of ['scorer', 'player', 'parent', 'manager', 'captain']) await assertFails(setDoc(doc(dbFor(uid), 'ruleProfiles', `forbidden-${uid}`), value));

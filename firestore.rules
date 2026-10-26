@@ -99,7 +99,7 @@ service cloud.firestore {
     match /fields/{id} {
       allow read: if true;
       allow create, update: if organizer() && scheduleAdvanced() && validField(request.resource.data);
-      allow delete: if organizer() && scheduleAdvanced();
+      allow delete: if false;
     }
     function validField(d) {
       return d.keys().hasOnly(['name', 'availableDays', 'openTime', 'closeTime', 'hasLights', 'zipCode']) &&

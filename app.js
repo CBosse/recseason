@@ -9,6 +9,7 @@ import { openAutomaticScoring } from './automatic-scoring-editor.mjs';
 import { gameList } from './game-list.mjs';
 import { scoringPlayback } from './scoring-playback.mjs';
 import { openCorrectionEditor } from './correction-editor.mjs';
+import { fieldDeletionEndpoint, requestFieldDeletion } from './field-deletion-client.mjs';
 import { createSubscriptions, writeResult } from './data-lifecycle.mjs';
 import { scoreUpdate, standings } from './results.mjs';
 import { newPlayerProfile } from './accounts.mjs';
@@ -632,10 +633,13 @@ async function saveField(field) {
 }
 async function deleteField(id) {
   return firestoreWrite((async () => {
-    const uid = currentUser.uid;
-    const snapshot = await scheduleSnapshot();
-    if (snapshot.games.docs.some(d => d.data().fieldId === id)) throw new Error('This field has game history and cannot be removed.');
-    await publishSchedule(snapshot, [doc(db, 'fields', id)], [], uid);
+    const user = auth.currentUser, generation = authGeneration;
+    const isCurrent = () => auth.currentUser === user && authGeneration === generation && currentUser?.uid === user?.uid && canEdit();
+    if (!isCurrent()) throw new Error('Your field removal access changed.');
+    const snapshot = await getDocFromServer(doc(db, 'config', 'scheduleRevision'));
+    if (!isCurrent()) throw new Error('Your field removal access changed.');
+    await requestFieldDeletion({ endpoint: fieldDeletionEndpoint(localMode), fieldId: id,
+      expectedScheduleRevision: snapshot.data()?.revision ?? 0, user, isCurrent });
   })());
 }
 
@@ -1779,12 +1783,14 @@ function renderFieldsSection() {
           <span class="name"><span class="field-lights-icon">${field.hasLights ? '💡' : '🌙'}</span>${escHtml(field.name)}</span>
           <span class="sub">${dayStr || 'No days'} · ${escHtml(field.openTime)} – ${escHtml(field.closeTime)}${field.zipCode ? ' · ZIP ' + escHtml(field.zipCode) : ''}</span>
         </span>
-        ${canEdit() ? `<button class="btn btn-ghost btn-sm edit-field-btn">Edit</button><button class="remove-btn">Remove</button>` : ''}`;
+        ${canEdit() ? `<button class="btn btn-ghost btn-sm edit-field-btn">Edit</button><button class="remove-btn" ${fieldDeletionEndpoint(localMode) ? '' : 'disabled title="Field removal awaits league service deployment"'}>Remove</button>` : ''}`;
       li.querySelector('.edit-field-btn')?.addEventListener('click', () => editField(field));
-      li.querySelector('.remove-btn')?.addEventListener('click', () => {
+      li.querySelector('.remove-btn')?.addEventListener('click', async event => {
+        if (!fieldDeletionEndpoint(localMode)) return;
         if (state.games.some(g => g.fieldId === field.id)) { showBanner('This field has game history and cannot be removed.', 'error'); return; }
         if (!canEdit() || !confirm('Remove this field?')) return;
-        deleteField(field.id);
+        const button = event.currentTarget; button.disabled = true;
+        try { await deleteField(field.id); } finally { if (button.isConnected) button.disabled = false; }
       });
       list.appendChild(li);
     });

@@ -7,6 +7,7 @@ import { getFirestore, connectFirestoreEmulator, runTransaction, doc, terminate 
 import { openReminderRuntime } from '../server/reminder-runtime.mjs';
 import { deleteUnusedField } from '../server/field-deletion-service.mjs';
 import { nextScheduleRevision } from '../schedule-version.mjs';
+import { requestFieldDeletion, fieldDeletionEndpoint } from '../field-deletion-client.mjs';
 
 if (process.env.FIREBASE_AUTH_EMULATOR_HOST !== '127.0.0.1:9099' || process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8180') throw new Error('Local emulators required.');
 const runtime = openReminderRuntime('demo-recseason'), { db } = runtime;
@@ -71,6 +72,21 @@ try {
   const deleted = await send(); assert.equal(deleted.status, 200); assert.deepEqual(await deleted.json(), { status: 'deleted' });
   assert.equal((await db.doc(`fields/${unused.fieldId}`).get()).exists, false);
   assert.equal((await send()).status, 429);
+  await clearLimit();
+  const lost = await fixture();
+  let attempts = 0;
+  const clientRequest = { endpoint: fieldDeletionEndpoint(true), fieldId: lost.fieldId,
+    expectedScheduleRevision: lost.expectedScheduleRevision, user: credential.user, isCurrent: () => true };
+  const proxy = (url, init) => { assert.equal(url, fieldDeletionEndpoint(true)); return fetch(`http://127.0.0.1:${server.address().port}/api/fields/delete`, init); };
+  await assert.rejects(requestFieldDeletion({ ...clientRequest, fetcher: async (url, init) => {
+    attempts++; const result = await proxy(url, init); assert.equal(result.status, 200);
+    throw new Error('Lost response after removal');
+  } }), /not be confirmed/);
+  assert.equal(attempts, 1); assert.equal((await db.doc(`fields/${lost.fieldId}`).get()).exists, false);
+  assert.equal(await revision(), lost.expectedScheduleRevision + 1);
+  await clearLimit();
+  await assert.rejects(requestFieldDeletion({ ...clientRequest, fetcher: proxy }), /already removed/);
+  assert.equal(await revision(), lost.expectedScheduleRevision + 1);
   await clearLimit(); await db.doc(`users/${uid}`).update({ role: 'parent' });
   assert.equal((await send()).status, 403);
   await runtime.auth.updateUser(uid, { disabled: true });
