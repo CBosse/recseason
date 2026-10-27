@@ -32,11 +32,14 @@ share a 12-second deadline. Up to 256 verified windows are cached for 24 hours.
 ZIP coordinates are an approximation, not a surveyed field location; precise
 field coordinates and organizer verification remain a pilot requirement.
 
-This is an API checkpoint, not a deployed security boundary. The current editor
-still uses its client-side checks and existing publication transaction. Remaining
-work: connect the editor, then deny direct field
-updates in candidate rules and deploy API/client/rules together. Do not claim the
-direct-write availability gap is closed until those steps are verified.
+The local editor now sends changes through this API. It reads the schedule revision
+and current field from the server, rejects a changed field or session, and requires
+closing/reopening after stale or uncertain results. Pending submissions remain
+single-flight. Production editing is disabled until an API endpoint is configured.
+Candidate rules deny direct updates of existing fields, including organizer batches
+that advance the schedule revision; creation remains validated and revision-guarded.
+Deploy API/client/rules together. These rules are not yet deployed to production,
+so the production direct-write gap is not claimed as closed.
 
 `tests/field-update-workflow.mjs` exercises the real Firestore emulator transaction,
 including safe narrowing, conflicting narrowing, exact boundaries, stale requests,

@@ -5,6 +5,7 @@ import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator, signInWithEmailAndPassword } from 'firebase/auth';
 import { openReminderRuntime } from '../server/reminder-runtime.mjs';
 import { updateFieldAvailability } from '../server/field-update-service.mjs';
+import { requestFieldUpdate, fieldUpdateEndpoint } from '../field-update-client.mjs';
 
 if (process.env.FIREBASE_AUTH_EMULATOR_HOST !== '127.0.0.1:9099' || process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8180') throw new Error('Local emulators required.');
 const runtime = openReminderRuntime('demo-recseason'), { db } = runtime;
@@ -104,6 +105,17 @@ try {
   assert.equal(await revision(), body.expectedScheduleRevision + 1);
   assert.equal((await send()).status, 429);
   await clearLimit(); assert.equal((await send()).status, 409);
+  await clearLimit();
+  const lostRevision = await revision(); let attempts = 0;
+  await assert.rejects(requestFieldUpdate({ endpoint: fieldUpdateEndpoint(true), fieldId, expectedScheduleRevision: lostRevision,
+    values: { ...field, name: 'Saved despite lost reply' }, user: credential.user, isCurrent: () => true, fetcher: async (url, init) => {
+      attempts++; assert.equal(url, fieldUpdateEndpoint(true));
+      const response = await fetch(`http://127.0.0.1:${server.address().port}/api/fields/update`, init);
+      assert.equal(response.status, 200); throw new Error('Lost successful response');
+    } }), error => error.requiresRefresh === true);
+  assert.equal(attempts, 1); assert.equal(await revision(), lostRevision + 1);
+  assert.equal((await fieldRef.get()).data().name, 'Saved despite lost reply');
+  await fieldRef.set(field);
   await clearLimit(); await gameRef.set(game);
   body = { fieldId, expectedScheduleRevision: await revision(), values: { ...field, closeTime: '19:00' } };
   assert.equal((await send()).status, 409);

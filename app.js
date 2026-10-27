@@ -10,6 +10,7 @@ import { gameList } from './game-list.mjs';
 import { scoringPlayback } from './scoring-playback.mjs';
 import { openCorrectionEditor } from './correction-editor.mjs';
 import { fieldDeletionEndpoint, requestFieldDeletion } from './field-deletion-client.mjs';
+import { fieldUpdateEndpoint, requestFieldUpdate } from './field-update-client.mjs';
 import { createSubscriptions, writeResult } from './data-lifecycle.mjs';
 import { scoreUpdate, standings } from './results.mjs';
 import { newPlayerProfile } from './accounts.mjs';
@@ -17,7 +18,7 @@ import { openGameEditor, validateGame, hasRecordedScore } from './game-editor.mj
 import { firebaseConfig, databaseId } from './firebase-config.js';
 import { useLocalEmulators } from './local-runtime.mjs';
 import { openRosterEditor, checkedRosterUpdate, checkedArchiveUpdate } from './roster-editor.mjs';
-import { fieldUpdate, fieldFitsGame, fieldWindow, openFieldEditor } from './field-editor.mjs';
+import { fieldUpdate, fieldWindow, openFieldEditor } from './field-editor.mjs';
 import { invitationProfilePatch } from './invitations.mjs';
 import { parentInvitationEndpoint, requestParentAcceptance } from './parent-invitation-client.mjs';
 import { teamDeletionEndpoint, requestTeamDeletion, openTeamRemoval } from './team-deletion-client.mjs';
@@ -1783,7 +1784,7 @@ function renderFieldsSection() {
           <span class="name"><span class="field-lights-icon">${field.hasLights ? '💡' : '🌙'}</span>${escHtml(field.name)}</span>
           <span class="sub">${dayStr || 'No days'} · ${escHtml(field.openTime)} – ${escHtml(field.closeTime)}${field.zipCode ? ' · ZIP ' + escHtml(field.zipCode) : ''}</span>
         </span>
-        ${canEdit() ? `<button class="btn btn-ghost btn-sm edit-field-btn">Edit</button><button class="remove-btn" ${fieldDeletionEndpoint(localMode) ? '' : 'disabled title="Field removal awaits league service deployment"'}>Remove</button>` : ''}`;
+        ${canEdit() ? `<button class="btn btn-ghost btn-sm edit-field-btn" ${fieldUpdateEndpoint(localMode) ? '' : 'disabled title="Field editing awaits league service deployment"'}>Edit</button><button class="remove-btn" ${fieldDeletionEndpoint(localMode) ? '' : 'disabled title="Field removal awaits league service deployment"'}>Remove</button>` : ''}`;
       li.querySelector('.edit-field-btn')?.addEventListener('click', () => editField(field));
       li.querySelector('.remove-btn')?.addEventListener('click', async event => {
         if (!fieldDeletionEndpoint(localMode)) return;
@@ -1798,24 +1799,25 @@ function renderFieldsSection() {
 }
 
 function editField(field) {
-  if (!canEdit()) return;
-  const uid = currentUser.uid;
+  if (!canEdit() || !fieldUpdateEndpoint(localMode)) return;
+  const user = auth.currentUser, generation = authGeneration;
+  const isCurrent = () => auth.currentUser === user && authGeneration === generation && currentUser?.uid === user?.uid && canEdit();
+  let needsRefresh = false;
   openFieldEditor(field, async values => {
-    if (!canEdit() || currentUser?.uid !== uid) throw new Error('Your session changed.');
-    const snapshot = await scheduleSnapshot();
-    const existingField = snapshot.fields.docs.find(d => d.id === field.id);
-    if (!existingField || Object.keys(values).some(key => JSON.stringify(existingField.data()[key] ?? '') !== JSON.stringify(field[key] ?? ''))) throw new Error('This field changed. Close and reopen the editor.');
-    const games = snapshot.games.docs.map(d => d.data()).filter(g => g.fieldId === field.id && ['scheduled', 'live'].includes(g.status));
-    for (const game of games) {
-      if (!fieldFitsGame(values, game, snapshot.config.gameDuration)) throw new Error(`The game on ${game.date} at ${game.time} no longer fits. Reschedule it first.`);
-      if (!values.hasLights) {
-        const zip = await fetchZipInfo(values.zipCode);
-        const sun = zip && await fetchSunriseSunset(zip.lat, zip.lng, game.date, zip.timezone);
-        const mins = time => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
-        if (!sun || game.time < sun.sunrise || mins(game.time) + Number(game.durationMinutes ?? snapshot.config.gameDuration) > mins(sun.sunset)) throw new Error(`Daylight cannot accommodate the game on ${game.date}. Reschedule it first.`);
-      }
+    if (needsRefresh) throw new Error('Close and reopen the field editor before trying again.');
+    if (!isCurrent()) throw new Error('Your session changed.');
+    const revision = await getDocFromServer(doc(db, 'config', 'scheduleRevision'));
+    if (!isCurrent()) throw new Error('Your session changed.');
+    const existingField = await getDocFromServer(doc(db, 'fields', field.id));
+    if (!isCurrent()) throw new Error('Your session changed.');
+    if (!existingField.exists() || Object.keys(values).some(key => JSON.stringify(existingField.data()[key] ?? '') !== JSON.stringify(field[key] ?? ''))) throw new Error('This field changed. Close and reopen the editor.');
+    try {
+      await requestFieldUpdate({ endpoint: fieldUpdateEndpoint(localMode), fieldId: field.id,
+        expectedScheduleRevision: scheduleRevision(revision.data()), values, user, isCurrent });
+    } catch (error) {
+      if (error.requiresRefresh) needsRefresh = true;
+      throw error;
     }
-    await publishSchedule(snapshot, [], [{ ref: doc(db, 'fields', field.id), data: values }], uid);
   });
 }
 

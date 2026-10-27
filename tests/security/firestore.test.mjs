@@ -335,12 +335,12 @@ test('schedule writes require a matching revision advance and stale batches fail
   await assertFails(reset.commit());
 });
 
-test('fields and season settings require the shared schedule revision', async () => {
+test('field creation and season settings require the shared schedule revision', async () => {
   const db = dbFor('admin');
   await assertFails(setDoc(doc(db, 'fields', 'main'), { name: 'Main' }));
   await assertFails(setDoc(doc(db, 'config', 'schedule'), { gameDuration: 90 }));
   const fields = writeBatch(db);
-  fields.set(doc(db, 'fields', 'main'), { name: 'Main', availableDays: [0, 6], openTime: '08:00', closeTime: '22:00', hasLights: true, zipCode: '' });
+  fields.set(doc(db, 'fields', 'new-field'), { name: 'New', availableDays: [0, 6], openTime: '08:00', closeTime: '22:00', hasLights: true, zipCode: '' });
   fields.set(doc(db, 'config', 'scheduleRevision'), { revision: 3, updatedBy: 'admin' });
   await assertSucceeds(fields.commit());
   const stale = writeBatch(db);
@@ -351,6 +351,21 @@ test('fields and season settings require the shared schedule revision', async ()
   fresh.set(doc(db, 'config', 'schedule'), { gameDuration: 90, bufferMinutes: 15, rounds: 1, startDate: '2026-01-01', endDate: '2026-12-31' });
   fresh.set(doc(db, 'config', 'scheduleRevision'), { revision: 4, updatedBy: 'admin' });
   await assertSucceeds(fresh.commit());
+});
+
+test('direct field edits are denied even with an organizer schedule revision', async () => {
+  const before = (await getDoc(doc(dbFor('admin'), 'fields', 'main'))).data();
+  for (const uid of ['admin', 'organizer', 'scorer', 'player']) {
+    const db = dbFor(uid), ref = doc(db, 'config', 'scheduleRevision');
+    const version = (await getDoc(ref)).data().revision;
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'fields', 'main'), { closeTime: '18:00' });
+    batch.set(ref, { revision: version + 1, updatedBy: uid });
+    await assertFails(batch.commit());
+    await assertFails(updateDoc(doc(db, 'fields', 'main'), { name: 'Bypass' }));
+    assert.equal((await getDoc(ref)).data().revision, version);
+  }
+  assert.deepEqual((await getDoc(doc(dbFor('admin'), 'fields', 'main'))).data(), before);
 });
 
 test('organizer season writes enforce date and numeric bounds at the database boundary', async () => {
