@@ -4,7 +4,7 @@ import { nextScheduleRevision } from '../schedule-version.mjs';
 const validId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 const fail = code => Object.assign(new Error('Field update could not be completed.'), { code });
 const keys = ['name', 'availableDays', 'openTime', 'closeTime', 'hasLights', 'zipCode'];
-const active = game => !['final', 'cancelled'].includes(game.status);
+const active = game => !['completed', 'cancelled'].includes(game.status);
 const minutes = time => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
 
 function validateBooking(field, game, duration, sun) {

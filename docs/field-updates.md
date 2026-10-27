@@ -5,7 +5,7 @@ updates of existing fields in the named `recseason` database. It validates the
 complete six-field payload, reads all bookings for that field, and commits the
 field and schedule revision together. Both scheduled and live games must still
 fit their weekday, opening/closing hours, and saved duration (or season default).
-Final and cancelled games retain their historical arrangements without blocking
+Completed (`status: 'completed'`) and cancelled games retain their historical arrangements without blocking
 future availability changes. Unknown statuses and malformed active bookings fail
 closed rather than being silently ignored.
 

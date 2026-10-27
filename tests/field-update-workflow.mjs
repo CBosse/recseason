@@ -6,6 +6,7 @@ import { getAuth, connectAuthEmulator, signInWithEmailAndPassword } from 'fireba
 import { openReminderRuntime } from '../server/reminder-runtime.mjs';
 import { updateFieldAvailability } from '../server/field-update-service.mjs';
 import { requestFieldUpdate, fieldUpdateEndpoint } from '../field-update-client.mjs';
+import { replayGameActions } from '../game-rules.mjs';
 
 if (process.env.FIREBASE_AUTH_EMULATOR_HOST !== '127.0.0.1:9099' || process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8180') throw new Error('Local emulators required.');
 const runtime = openReminderRuntime('demo-recseason'), { db } = runtime;
@@ -31,7 +32,7 @@ try {
   for (const patch of [{ closeTime: '19:00' }, { openTime: '18:30' }, { availableDays: [2] }]) {
     await rejects(await request({ ...field, ...patch }), 'booking-conflict');
   }
-  for (const patch of [{ date: '2026-02-30' }, { status: 'unknown' }, { time: 'bad' }, { durationMinutes: 0 }]) {
+  for (const patch of [{ date: '2026-02-30' }, { status: 'unknown' }, { status: 'final' }, { time: 'bad' }, { durationMinutes: 0 }]) {
     await gameRef.set({ ...game, ...patch });
     await rejects(await request(), 'booking-conflict');
   }
@@ -81,8 +82,18 @@ try {
   const results = await Promise.allSettled([updateFieldAvailability(concurrent), updateFieldAvailability(concurrent)]);
   assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
   assert.equal(await revision(), concurrent.expectedScheduleRevision + 1);
-  await gameRef.update({ status: 'final' }); await extraGame.update({ status: 'cancelled' });
+  const finalState = replayGameActions({ profileId: 'field-regression', schemaVersion: 1, revision: 1, name: 'One inning', rules: {
+    innings: 1, ballsForWalk: 1, strikesForOut: 1, outsPerHalf: 1, startingBalls: 0, startingStrikes: 0,
+    foulAtStrikeLimit: 'dead-ball', runsPerHalf: null, unlimitedFinalInning: false, mercy: null, timeLimitMinutes: null,
+    tiePolicy: 'allow-tie', extraInningRunner: 'none',
+  } }, Array.from({ length: 2 }, () => ({ schemaVersion: 1, type: 'play', elapsedMs: 0,
+    play: { schemaVersion: 1, type: 'pitch', pitch: 'strike' }, runAward: 'ordinary' }))).at(-1);
+  assert.equal(finalState.status, 'completed');
+  await gameRef.update({ status: finalState.status }); await extraGame.update({ status: 'cancelled' });
+  const historicalGame = (await gameRef.get()).data(), cancelledGame = (await extraGame.get()).data();
   await updateFieldAvailability(await request({ ...unlit, openTime: '10:00', closeTime: '11:00' }));
+  assert.deepEqual((await gameRef.get()).data(), historicalGame);
+  assert.deepEqual((await extraGame.get()).data(), cancelledGame);
   await rejects(await request({ ...field, injected: true }), 'invalid-request');
   await rejects(await request({ ...field, name: 42 }), 'invalid-request');
   await rejects(await request({ ...field, openTime: ['08:00'] }), 'invalid-request');
