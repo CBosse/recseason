@@ -13,6 +13,7 @@
 !schedule-version.mjs
 !schedule-history.mjs
 !field-data.mjs
+!profile-access.mjs
 !automatic-scoring.mjs
 !game-rules.mjs
 !play-rules.mjs
