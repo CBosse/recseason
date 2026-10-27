@@ -1,8 +1,9 @@
 import { validScoringRequest } from './scoring-request.mjs';
 import { validFieldUpdateRequest } from './field-update-request.mjs';
+import { validProfileAccessRequest } from './profile-access-request.mjs';
 const validId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 
-export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellation, cancellationStatus, enqueueReschedule, rescheduleStatus, acceptParent, removeTeam, removeField, updateField, recordPlay, admit, origins }) {
+export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellation, cancellationStatus, enqueueReschedule, rescheduleStatus, acceptParent, removeTeam, removeField, updateField, updateAccess, recordPlay, admit, origins }) {
   const allowed = new Set(origins);
   let active = 0;
   return async (req, res) => {
@@ -23,7 +24,8 @@ export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellat
     const fieldRequest = req.url === '/api/fields/delete';
     const fieldUpdateRequest = req.url === '/api/fields/update';
     const scoringRequest = req.url === '/api/games/plays';
-    if (!fieldUpdateRequest && !scoringRequest && !fieldRequest && !teamRequest && !parentRequest && !statusRequest && !cancellation && !reschedule && req.url !== '/api/game-reminders') return reply(404, { error: 'not-found' });
+    const accessRequest = req.url === '/api/accounts/access';
+    if (!accessRequest && !fieldUpdateRequest && !scoringRequest && !fieldRequest && !teamRequest && !parentRequest && !statusRequest && !cancellation && !reschedule && req.url !== '/api/game-reminders') return reply(404, { error: 'not-found' });
     if (req.method === 'OPTIONS') {
       res.setHeader('Access-Control-Allow-Methods', 'POST');
       res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
@@ -40,7 +42,7 @@ export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellat
       const chunks = [];
       for await (const chunk of req) {
         bytes += chunk.length;
-        if (bytes > 1024) return reply(413, { error: 'body-too-large' });
+        if (bytes > (accessRequest ? 16384 : 1024)) return reply(413, { error: 'body-too-large' });
         chunks.push(chunk);
       }
       let body;
@@ -48,13 +50,18 @@ export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellat
       catch { return reply(400, { error: 'invalid-request' }); }
       const idField = fieldRequest ? 'fieldId' : teamRequest ? 'teamId' : parentRequest ? 'invitationId' : 'gameId';
       const keys = fieldRequest ? ['fieldId', 'expectedScheduleRevision'] : teamRequest ? ['teamId', 'expectedRosterRevision', 'expectedScheduleRevision'] : [idField];
-      if (fieldUpdateRequest ? !validFieldUpdateRequest(body) : scoringRequest ? !validScoringRequest(body) : (!body || Array.isArray(body) || Object.keys(body).length !== keys.length || Object.keys(body).some(key => !keys.includes(key)) ||
+      if (accessRequest ? !validProfileAccessRequest(body) : fieldUpdateRequest ? !validFieldUpdateRequest(body) : scoringRequest ? !validScoringRequest(body) : (!body || Array.isArray(body) || Object.keys(body).length !== keys.length || Object.keys(body).some(key => !keys.includes(key)) ||
           !validId(body[idField]) || ((teamRequest || fieldRequest) && ![body.expectedScheduleRevision, ...(teamRequest ? [body.expectedRosterRevision] : [])].every(value => Number.isSafeInteger(value) && value >= 0)))) return reply(400, { error: 'invalid-request' });
       let identity;
       try { identity = await verifyToken(bearer[1]); }
       catch { return reply(401, { error: 'authentication-required' }); }
       if (!validId(identity?.uid)) return reply(401, { error: 'authentication-required' });
-      if (!await admit(identity.uid, fieldUpdateRequest ? 'update-field' : scoringRequest ? 'record-play' : fieldRequest ? 'delete-field' : teamRequest ? 'delete-team' : parentRequest ? 'accept-parent' : statusRequest ? 'status' : 'enqueue')) { res.setHeader('Retry-After', scoringRequest ? '1' : '60'); return reply(429, { error: 'rate-limited' }); }
+      if (!await admit(identity.uid, accessRequest ? 'update-access' : fieldUpdateRequest ? 'update-field' : scoringRequest ? 'record-play' : fieldRequest ? 'delete-field' : teamRequest ? 'delete-team' : parentRequest ? 'accept-parent' : statusRequest ? 'status' : 'enqueue')) { res.setHeader('Retry-After', scoringRequest ? '1' : '60'); return reply(429, { error: 'rate-limited' }); }
+      if (accessRequest) {
+        const result = await updateAccess({ verifiedUid: identity.uid, targetUid: body.targetUid, expectedAccess: body.expectedAccess,
+          expectedRosterRevision: body.expectedRosterRevision, access: body.access });
+        return reply(200, { status: result.status });
+      }
       if (fieldUpdateRequest) {
         const result = await updateField({ verifiedUid: identity.uid, fieldId: body.fieldId, expectedScheduleRevision: body.expectedScheduleRevision, values: body.values });
         return reply(200, { status: result.status });
@@ -81,6 +88,10 @@ export function reminderHandler({ verifyToken, enqueue, status, enqueueCancellat
       const result = await (reschedule ? enqueueReschedule : cancellation ? enqueueCancellation : enqueue)({ verifiedUid: identity.uid, gameId: body.gameId });
       return reply(202, { created: result.created, existing: result.existing, recipients: result.recipients, playersWithoutRecipient: result.playersWithoutRecipient });
     } catch (error) {
+      if (accessRequest) {
+        const code = ['permission-denied', 'self-demotion', 'account-unavailable', 'stale-profile', 'stale-roster', 'invalid-links', 'invalid-request'].includes(error.code) ? error.code : 'temporarily-unavailable';
+        return reply(code === 'permission-denied' ? 403 : code === 'invalid-request' ? 400 : code === 'temporarily-unavailable' ? 503 : 409, { error: code });
+      }
       if (fieldUpdateRequest) {
         const code = ['permission-denied', 'field-unavailable', 'booking-conflict', 'daylight-unavailable', 'stale-revision', 'invalid-request'].includes(error.code) ? error.code : 'temporarily-unavailable';
         return reply(code === 'permission-denied' ? 403 : code === 'invalid-request' ? 400 : ['daylight-unavailable', 'temporarily-unavailable'].includes(code) ? 503 : 409, { error: code });
