@@ -74,7 +74,7 @@ service cloud.firestore {
       allow create: if signedIn() && request.auth.uid == uid && validProfile(request.resource.data) &&
         request.resource.data.email == request.auth.token.email && request.resource.data.role == 'player' &&
         request.resource.data.linkedTeamId == null && request.resource.data.linkedPlayerId == null && request.resource.data.linkedPlayerIds == [];
-      allow update: if validProfile(request.resource.data) && (admin() || (signedIn() && request.auth.uid == uid &&
+      allow update: if validProfile(request.resource.data) && ((admin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'emailReminders'])) || (signedIn() && request.auth.uid == uid &&
         (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'emailReminders']) || acceptsInvitation(uid))));
       allow delete: if false;
     }

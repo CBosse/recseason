@@ -1375,3 +1375,12 @@ body {
   border-color: #1e6b4a;
   box-shadow: 0 0 0 2px rgba(30,107,74,0.12);
 }
+/* Keep long rosters usable inside the account editor. */
+.access-children-list { max-height: 240px; overflow: auto; }
+.access-children-list label { display: flex; align-items: start; gap: 8px; padding: 6px 0; overflow-wrap: anywhere; }
+.access-children-list input { flex: 0 0 auto; }
+#profile-access-dialog [hidden] { display: none; }
+#profile-access-dialog p { overflow-wrap: anywhere; }
+#profile-access-dialog fieldset { margin: 16px 0 0; padding: 12px; border: 1px solid #d8ddd9; border-radius: 6px; min-width: 0; }
+#profile-access-dialog fieldset > label { display: grid; gap: 6px; margin-bottom: 8px; font-size: 13px; }
+#profile-access-dialog input[type="search"] { width: 100%; min-width: 0; box-sizing: border-box; padding: 8px; border: 1px solid #b9c2bc; border-radius: 4px; font: inherit; }

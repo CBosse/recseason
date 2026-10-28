@@ -6,6 +6,7 @@ import { getAuth, connectAuthEmulator, signInWithEmailAndPassword } from 'fireba
 import { openReminderRuntime } from '../server/reminder-runtime.mjs';
 import { updateProfileAccess } from '../server/profile-access-service.mjs';
 import { profileAccess } from '../profile-access.mjs';
+import { requestProfileAccess, profileAccessEndpoint } from '../profile-access-client.mjs';
 import { deleteEmptyTeam } from '../server/team-deletion-service.mjs';
 
 if (process.env.FIREBASE_AUTH_EMULATOR_HOST !== '127.0.0.1:9099' || process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8180') throw new Error('Local emulators required.');
@@ -99,6 +100,16 @@ try {
   assert.equal((await send()).status, 429);
   await clearLimit(); assert.equal((await send()).status, 409);
   assert.equal(await revision(), body.expectedRosterRevision + 1);
+  await clearLimit();
+  const lostVersion = await revision(); let attempts = 0;
+  await assert.rejects(requestProfileAccess({ endpoint: profileAccessEndpoint(true), targetUid: target, expectedAccess: parent,
+    expectedRosterRevision: lostVersion, access: parent, user: credential.user, isCurrent: () => true, fetcher: async (url, init) => {
+      attempts++; assert.equal(url, profileAccessEndpoint(true));
+      const result = await fetch(`http://127.0.0.1:${server.address().port}/api/accounts/access`, init);
+      assert.equal(result.status, 200); throw new Error('Lost successful response');
+    } }), error => error.requiresRefresh === true);
+  assert.equal(attempts, 1); assert.equal(await revision(), lostVersion + 1);
+  assert.deepEqual(profileAccess((await userRef.get()).data()), parent);
   await clearLimit(); await db.doc(`players/${children[29]}`).update({ archived: true });
   assert.equal((await send(await payload(parent))).status, 409);
   await clearLimit(); await db.doc(`users/${actor}`).update({ role: 'leagueManager' });

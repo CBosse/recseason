@@ -20,6 +20,7 @@ import { rsvpSchedule } from '../rsvps.mjs';
 import { attendanceUpdate } from '../attendance.mjs';
 import { scheduleRevision, nextScheduleRevision } from '../schedule-version.mjs';
 import { gamesConflict } from '../scheduling.mjs';
+import { profileAccess } from '../profile-access.mjs';
 
 const apps = [];
 async function session(role) {
@@ -29,7 +30,7 @@ async function session(role) {
   const db = getFirestore(app, 'recseason'); connectFirestoreEmulator(db, '127.0.0.1', 8180);
   const credential = await signInWithEmailAndPassword(auth, `${role.toLowerCase()}@recseason.test`, 'LocalDemo123!');
   const profile = (await getDoc(doc(db, 'users', credential.user.uid))).data();
-  return { db, user: { uid: credential.user.uid, ...profile } };
+  return { db, authUser: credential.user, user: { uid: credential.user.uid, ...profile } };
 }
 try {
   const admin = await session('siteAdmin');
@@ -157,6 +158,11 @@ try {
   const table = standings(teams, games);
   assert.equal(table.find(row => row.name === 'Riverside').Pts, 3);
   console.log('PASS: authenticated admin, player, parent, manager and scorer workflows in named recseason database.');
+  const accessRuntime = openReminderRuntime('demo-recseason');
+  const accessServer = createServer(accessRuntime.handler);
+  await new Promise(resolve => accessServer.listen(0, '127.0.0.1', resolve));
+  const accessRevision = (await accessRuntime.db.doc('config/rosterRevision').get()).data()?.revision ?? 0;
+  const expectedAccess = profileAccess((await getDoc(doc(admin.db, 'users', parent.user.uid))).data());
   let stop;
   let timer;
   const profileChanged = new Promise((resolve, reject) => {
@@ -167,13 +173,18 @@ try {
     }, reject);
   });
   try {
-    await updateDoc(doc(admin.db, 'users', parent.user.uid), { role: 'visitor', linkedPlayerIds: [] });
+    const response = await fetch(`http://127.0.0.1:${accessServer.address().port}/api/accounts/access`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await admin.authUser.getIdToken()}` },
+      body: JSON.stringify({ targetUid: parent.user.uid, expectedAccess, expectedRosterRevision: accessRevision,
+        access: { role: 'visitor', linkedTeamId: null, linkedPlayerId: null, linkedPlayerIds: [] } }),
+    });
+    assert.equal(response.status, 200);
     const changed = await profileChanged;
     assert.equal(changed.accessChanged, true);
     assert.deepEqual(changed.user.linkedPlayerIds, []);
     await assert.rejects(getDoc(doc(parent.db, 'players', 'child')), error => error.code === 'permission-denied');
     console.log('PASS: signed-in profile listener observes role revocation and private access is removed.');
-  } finally { clearTimeout(timer); stop?.(); }
+  } finally { clearTimeout(timer); stop?.(); await new Promise(resolve => accessServer.close(resolve)); await accessRuntime.close(); }
   const teamRef = doc(admin.db, 'teams', 'delete-race');
   await setDoc(teamRef, { name: 'Deletion race' });
   const rosterRef = doc(admin.db, 'config', 'rosterRevision');

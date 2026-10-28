@@ -517,8 +517,12 @@ test('organizer field writes reject malformed scheduling data even with a valid 
   await assertSucceeds(batch.commit());
 });
 
-test('admin can assign links while other roles cannot; unknown collections deny access', async () => {
-  await assertSucceeds(updateDoc(doc(dbFor('admin'), 'users', 'player'), { linkedTeamId: 'a' }));
+test('even administrators must use the service for access fields; preferences remain editable', async () => {
+  for (const patch of [{ linkedTeamId: 'a' }, { linkedPlayerId: 'p' }, { linkedPlayerIds: ['p'] }, { role: 'siteAdmin' }, { email: 'changed@example.test' }]) {
+    const target = patch.linkedPlayerId ? 'parent' : 'player';
+    await assertFails(updateDoc(doc(dbFor('admin'), 'users', target), patch));
+  }
+  await assertSucceeds(updateDoc(doc(dbFor('admin'), 'users', 'player'), { displayName: 'Updated name', emailReminders: false }));
   await assertFails(updateDoc(doc(dbFor('organizer'), 'users', 'player'), { role: 'siteAdmin' }));
   await assertFails(setDoc(doc(dbFor('admin'), 'unknown', 'record'), { value: 'not allowed' }));
 });

@@ -22,11 +22,16 @@ other routes retain their 1 KiB limit. Only the update status is returned, never
 profile details. Conflicts return 409, invalid input 400, lost administrator access
 403, and unknown failures 503. The container smoke test covers unauthenticated calls.
 
-This is an API checkpoint only. The existing admin UI and database rules still
-allow direct profile changes. Remaining work: a complete
-role/child editor, stale-form and account-switch browser acceptance, candidate rules
-that block direct access-field changes, and coordinated production deployment.
-Do not count the production profile-link integrity gap as closed yet.
+The local admin panel now uses a role-aware account-access dialog and the verified
+API. Player/captain team links are derived from the selected player; parents can
+select up to 30 children. Unavailable current selections remain visible until
+explicitly removed. Changing roles clears irrelevant links. Session changes and
+stale or uncertain saves require reopening; no automatic retry is performed.
+Candidate rules deny direct administrator role/link changes while retaining profile
+preferences and the existing validated invitation-acceptance workflow. Production
+editing stays disabled until the API endpoint is configured. Coordinated API/rules
+deployment and full role-change browser acceptance are still required; the production
+profile-link integrity gap is not yet claimed as closed.
 
 Tests cover role combinations, all 30 child references, archived/missing/mismatched
 records, access revocation, self-demotion, concurrent saves, unrelated preference

@@ -11,6 +11,9 @@ import { scoringPlayback } from './scoring-playback.mjs';
 import { openCorrectionEditor } from './correction-editor.mjs';
 import { fieldDeletionEndpoint, requestFieldDeletion } from './field-deletion-client.mjs';
 import { fieldUpdateEndpoint, requestFieldUpdate } from './field-update-client.mjs';
+import { profileAccess } from './profile-access.mjs';
+import { profileAccessEndpoint, requestProfileAccess } from './profile-access-client.mjs';
+import { openProfileAccessEditor } from './profile-access-editor.mjs';
 import { createSubscriptions, writeResult } from './data-lifecycle.mjs';
 import { scoreUpdate, standings } from './results.mjs';
 import { newPlayerProfile } from './accounts.mjs';
@@ -147,6 +150,7 @@ function clearSessionData() {
   document.getElementById('score-history-dialog')?.remove();
   document.getElementById('invitation-dialog')?.remove();
   document.getElementById('field-editor-dialog')?.remove();
+  document.getElementById('profile-access-dialog')?.remove();
   document.getElementById('roster-editor-dialog')?.remove();
   document.getElementById('score-editor-dialog')?.remove();
   document.getElementById('automatic-scoring-dialog')?.remove();
@@ -690,8 +694,21 @@ function setRsvp(gameId, status, playerId, playerName, teamId) {
   }));
 }
 
-function saveUserProfile(uid, updates) {
-  return firestoreWrite(setDoc(doc(db, 'users', uid), updates, { merge: true }));
+function editUserAccess(target) {
+  if (currentUser?.role !== 'siteAdmin' || !profileAccessEndpoint(localMode)) return;
+  const user = auth.currentUser, generation = authGeneration, expectedAccess = profileAccess(target);
+  const isCurrent = () => auth.currentUser === user && authGeneration === generation && currentUser?.uid === user?.uid && currentUser?.role === 'siteAdmin';
+  let needsRefresh = false;
+  openProfileAccessEditor({ target, teams: state.teams, players: state.players, roleLabels: ROLE_LABELS, save: async access => {
+    if (needsRefresh) throw new Error('Close and reopen account access before trying again.');
+    if (!isCurrent()) throw new Error('Your administrator session changed.');
+    const revision = await getDocFromServer(doc(db, 'config', 'rosterRevision'));
+    if (!isCurrent()) throw new Error('Your administrator session changed.');
+    try {
+      await requestProfileAccess({ endpoint: profileAccessEndpoint(localMode), targetUid: target.id,
+        expectedAccess, expectedRosterRevision: revision.data()?.revision ?? 0, access, user, isCurrent });
+    } catch (error) { if (error.requiresRefresh) needsRefresh = true; throw error; }
+  } });
 }
 
 function genId(prefix) {
@@ -1889,15 +1906,6 @@ function renderAdminView() {
   }
   noMsg.style.display = 'none';
 
-  const teamOptions = '<option value="">— none —</option>' +
-    state.teams.map(t => `<option value="${t.id}">${escHtml(t.name)}</option>`).join('');
-
-  const playerOptions = '<option value="">— none —</option>' +
-    state.players.map(p => {
-      const t = state.teams.find(t => t.id === p.teamId);
-      return `<option value="${p.id}">${escHtml(p.name)}${t ? ' (' + escHtml(t.name) + ')' : ''}</option>`;
-    }).join('');
-
   container.innerHTML = state.allUsers.map(user => `
     <div class="admin-user-row" data-uid="${escHtml(user.id)}">
       <div class="admin-user-info">
@@ -1905,18 +1913,8 @@ function renderAdminView() {
         <div class="admin-user-email">${escHtml(user.email || '')}</div>
       </div>
       <div class="admin-user-controls">
-        <select class="admin-role-sel">
-          ${Object.keys(ROLE_LABELS).filter(r => r !== 'visitor').map(r =>
-            `<option value="${r}"${user.role === r ? ' selected' : ''}>${ROLE_LABELS[r]}</option>`
-          ).join('')}
-        </select>
-        <select class="admin-team-sel" title="Linked team">
-          ${teamOptions.replace(`value="${user.linkedTeamId}"`, `value="${user.linkedTeamId}" selected`)}
-        </select>
-        <select class="admin-player-sel" title="Linked player">
-          ${playerOptions.replace(`value="${user.linkedPlayerId}"`, `value="${user.linkedPlayerId}" selected`)}
-        </select>
-        <button class="btn btn-primary btn-sm admin-save-user-btn">Save</button>
+        <span>${escHtml(ROLE_LABELS[user.role] ?? user.role)}</span>
+        <button class="btn btn-primary btn-sm admin-save-user-btn" ${profileAccessEndpoint(localMode) ? '' : 'disabled title="Account access editing awaits league service deployment"'}>Edit access</button>
       </div>
     </div>`).join('');
 
@@ -1924,11 +1922,8 @@ function renderAdminView() {
     btn.addEventListener('click', () => {
       const row      = btn.closest('.admin-user-row');
       const uid      = row.dataset.uid;
-      const role     = row.querySelector('.admin-role-sel').value;
-      const teamId   = row.querySelector('.admin-team-sel').value   || null;
-      const playerId = row.querySelector('.admin-player-sel').value || null;
-      saveUserProfile(uid, { role, linkedTeamId: teamId, linkedPlayerId: playerId })
-        .then(saved => { if (saved) showBanner(`${ROLE_LABELS[role]} saved.`, 'success'); });
+      const target = state.allUsers.find(user => user.id === uid);
+      if (target) editUserAccess(target);
     });
   });
 }
