@@ -58,3 +58,12 @@ test('buffer applies while cancelled games do not block bookings', () => {
   assert.doesNotThrow(() => validateGame(game, { ...context, games: [{ ...other, status: 'cancelled' }] }));
   assert.doesNotThrow(() => validateGame(game, { ...context, config: { ...config, bufferMinutes: 0 }, games: [other] }));
 });
+
+test('game editor rejects overlapping scorekeeper assignments across official roles', () => {
+  const proposed = { ...game, umpireId: null, scorekeeperId: 'official' };
+  for (const role of ['umpireId', 'scorekeeperId']) {
+    const other = { ...game, id: 'other', fieldId: 'elsewhere', homeTeamId: 'c', awayTeamId: 'd', umpireId: null, [role]: 'official' };
+    assert.throws(() => validateGame(proposed, { ...context, games: [other] }), /Conflict/);
+    assert.doesNotThrow(() => validateGame(proposed, { ...context, games: [{ ...other, status: 'cancelled' }] }));
+  }
+});

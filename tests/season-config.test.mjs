@@ -15,3 +15,10 @@ test('buffer changes reject conflicts and default duration cannot silently exten
   assert.throws(() => validateSeasonChange({ ...config, gameDuration: 120 }, config, [{ ...game, durationMinutes: undefined }]), /explicit durations/);
   assert.doesNotThrow(() => validateSeasonChange({ ...config, gameDuration: 120 }, config, [game]));
 });
+
+test('season buffers cannot double-book a scorekeeper on otherwise independent games', () => {
+  const first = { ...game, scorekeeperId: 'official' };
+  const second = { ...game, id: 'later', time: '19:45', fieldId: 'other', homeTeamId: 'c', awayTeamId: 'd', umpireId: 'official' };
+  assert.doesNotThrow(() => validateSeasonChange(config, config, [first, second]));
+  assert.throws(() => validateSeasonChange({ ...config, bufferMinutes: 20 }, config, [first, second]), /conflict/);
+});

@@ -18,7 +18,7 @@ export function gamesConflict(a, b, duration, buffer = 0) {
   if (a.date !== b.date || a.status === 'cancelled' || b.status === 'cancelled') return false;
   const shared = a.fieldId === b.fieldId ||
     [a.homeTeamId, a.awayTeamId].some(id => id === b.homeTeamId || id === b.awayTeamId) ||
-    (a.umpireId && a.umpireId === b.umpireId);
+    [a.umpireId, a.scorekeeperId].some(id => id && [b.umpireId, b.scorekeeperId].includes(id));
   if (!shared) return false;
   const startA = minutes(a.time), startB = minutes(b.time);
   return startA < startB + (b.durationMinutes ?? duration) + buffer &&

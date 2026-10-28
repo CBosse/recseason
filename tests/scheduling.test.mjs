@@ -34,3 +34,28 @@ test('invalid configuration fails before slot generation', () => {
     assert.throws(() => validateScheduleConfig({ ...config, ...change }));
   }
 });
+
+test('official reservations cover both roles symmetrically and respect duration and buffer', () => {
+  for (const firstRole of ['umpireId', 'scorekeeperId']) {
+    for (const secondRole of ['umpireId', 'scorekeeperId']) {
+      const first = { ...game, [firstRole]: 'official', durationMinutes: 60 };
+      const second = { ...slot('f2', '19:10'), homeTeamId: 'c', awayTeamId: 'd', [secondRole]: 'official' };
+      assert.equal(gamesConflict(first, second, 90, 15), true);
+      assert.equal(gamesConflict(second, first, 90, 15), true);
+      assert.equal(gamesConflict(first, { ...second, time: '19:15' }, 90, 15), false);
+      assert.equal(gamesConflict(first, { ...second, status: 'cancelled' }, 90, 15), false);
+      assert.equal(gamesConflict(first, { ...second, date: '2026-06-02' }, 90, 15), false);
+      assert.equal(gamesConflict(first, { ...second, [secondRole]: 'another' }, 90, 15), false);
+    }
+  }
+});
+
+test('unassigned officials do not reserve independent games and generation respects assigned slots', () => {
+  const independent = { ...slot('f2', '18:00'), homeTeamId: 'c', awayTeamId: 'd' };
+  for (const empty of [undefined, null, '']) {
+    assert.equal(Boolean(gamesConflict({ ...game, umpireId: empty, scorekeeperId: empty }, { ...independent, umpireId: empty, scorekeeperId: empty }, 90)), false);
+  }
+  const reserved = { ...game, scorekeeperId: 'official' };
+  const result = allocateMatchups([pair('c', 'd')], [{ ...slot('f2', '18:00'), umpireId: 'official' }], 90, 0, [reserved]);
+  assert.equal(result.skipped, 1);
+});
