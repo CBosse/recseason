@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
+import { initializeApp, deleteApp } from 'firebase/app';
+import { getAuth, connectAuthEmulator, signInWithEmailAndPassword } from 'firebase/auth';
 import { openReminderRuntime } from '../server/reminder-runtime.mjs';
 import { createScheduledGame } from '../server/game-creation-service.mjs';
 
@@ -10,6 +13,7 @@ const revisionRef = db.doc('config/scheduleRevision');
 const revision = async () => (await revisionRef.get()).data()?.revision ?? 0;
 const field = { name: 'Creation field', hasLights: true, zipCode: '', availableDays: [0, 1, 2, 3, 4, 5, 6], openTime: '08:00', closeTime: '22:00' };
 let sequence = 0;
+let server, clientApp;
 try {
   const config = (await db.doc('config/schedule').get()).data();
   let date = config.startDate;
@@ -85,4 +89,32 @@ try {
   await rejects(await request({ scorekeeperId: scorer }), 'booking-conflict');
   await malformed.update({ status: 'cancelled' });
   console.log('PASS: server game creation validates current references, authorization, daylight, conflicts, stale requests, malformed bookings and concurrent creation.');
-} finally { await runtime.close(); }
+  await runtime.auth.createUser({ uid: prefix, email: `${prefix}@example.test`, password: 'LocalDemo123!' });
+  clientApp = initializeApp({ apiKey: 'demo-key', projectId: 'demo-recseason' }, prefix);
+  const auth = getAuth(clientApp); connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  const credential = await signInWithEmailAndPassword(auth, `${prefix}@example.test`, 'LocalDemo123!');
+  const token = await credential.user.getIdToken();
+  server = createServer(runtime.handler); await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const body = { gameId: `${prefix}-http`, expectedScheduleRevision: await revision(), values };
+  const send = data => fetch(`http://127.0.0.1:${server.address().port}/api/games/create`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(data),
+  });
+  assert.equal((await send({ ...body, verifiedUid: 'forged' })).status, 400);
+  const response = await send(body); assert.equal(response.status, 201);
+  assert.deepEqual(await response.json(), { status: 'created', gameId: body.gameId });
+  const versionAfterSave = await revision();
+  assert.equal((await send(body)).status, 429);
+  const limit = db.doc(`notificationLimits/${prefix}`);
+  await limit.set({ nextGameCreationAt: 0 }, { merge: true });
+  assert.equal((await send(body)).status, 409);
+  assert.equal(await revision(), versionAfterSave);
+  await limit.set({ nextGameCreationAt: 0 }, { merge: true }); await actor.update({ role: 'player' });
+  assert.equal((await send({ ...body, expectedScheduleRevision: await revision() })).status, 403);
+  await runtime.auth.updateUser(prefix, { disabled: true });
+  assert.equal((await send(body)).status, 401);
+  console.log('PASS: creation HTTP verifies real identity, rejects forged actors/stale requests, throttles retries and honors role revocation and disabled accounts.');
+} finally {
+  if (server) await new Promise(resolve => server.close(resolve));
+  if (clientApp) await deleteApp(clientApp);
+  await runtime.close();
+}

@@ -13,6 +13,7 @@ import { automaticScoringEnabled } from './scoring-request.mjs';
 import { updateFieldAvailability } from './field-update-service.mjs';
 import { createFieldDaylightResolver } from './field-daylight.mjs';
 import { updateProfileAccess } from './profile-access-service.mjs';
+import { createScheduledGame } from './game-creation-service.mjs';
 
 export function openReminderRuntime(projectId) {
   const emulator = process.env.FIREBASE_AUTH_EMULATOR_HOST;
@@ -30,6 +31,10 @@ export function openReminderRuntime(projectId) {
     removeTeam: request => deleteEmptyTeam({ db, ...request }),
     removeField: request => deleteUnusedField({ db, ...request }),
     updateAccess: request => updateProfileAccess({ db, ...request }),
+    createGame: request => {
+      const signal = AbortSignal.timeout(12000);
+      return createScheduledGame({ db, ...request, resolveDaylight: input => daylight({ ...input, signal }) });
+    },
     updateField: request => {
       const signal = AbortSignal.timeout(12000);
       return updateFieldAvailability({ db, ...request, resolveDaylight: input => daylight({ ...input, signal }) });
@@ -50,7 +55,7 @@ export function openReminderRuntime(projectId) {
       const ref = db.collection('notificationLimits').doc(uid);
       const snapshot = await tx.get(ref);
       const now = Date.now();
-      const field = operation === 'update-access' ? 'nextAccessUpdateAt' : operation === 'update-field' ? 'nextFieldUpdateAt' : operation === 'record-play' ? 'nextScoringAt' : operation === 'delete-field' ? 'nextFieldDeletionAt' : operation === 'delete-team' ? 'nextTeamDeletionAt' : operation === 'accept-parent' ? 'nextParentInvitationAt' : operation === 'status' ? 'nextStatusAt' : 'nextRequestAt';
+      const field = operation === 'create-game' ? 'nextGameCreationAt' : operation === 'update-access' ? 'nextAccessUpdateAt' : operation === 'update-field' ? 'nextFieldUpdateAt' : operation === 'record-play' ? 'nextScoringAt' : operation === 'delete-field' ? 'nextFieldDeletionAt' : operation === 'delete-team' ? 'nextTeamDeletionAt' : operation === 'accept-parent' ? 'nextParentInvitationAt' : operation === 'status' ? 'nextStatusAt' : 'nextRequestAt';
       if (snapshot.exists && snapshot.data()[field] > now) return false;
       tx.set(ref, { [field]: now + (operation === 'record-play' ? 1000 : 60000) }, { merge: true });
       return true;
