@@ -26,6 +26,7 @@ try {
   assert.equal(docker(['exec', name, 'id', '-u']), '1000', 'Runtime must be non-root.');
   docker(['exec', name, 'node', '--input-type=module', '-e', "await import('./server/game-scoring-service.mjs')"]);
   docker(['exec', name, 'node', '--input-type=module', '-e', "await import('./server/profile-access-service.mjs')"]);
+  docker(['exec', name, 'node', '--input-type=module', '-e', "await import('./server/game-creation-service.mjs')"]);
   assert.equal((await fetch(`${endpoint}/healthz`, { headers: { Origin: 'https://foreign.test' } })).status, 403);
   for (const route of ['parent-invitations/accept', 'game-reminders', 'game-cancellations', 'game-reschedules', 'game-reschedules/status', 'teams/delete', 'fields/delete', 'fields/update', 'accounts/access', 'games/plays']) {
     const response = await fetch(`${endpoint}/api/${route}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });

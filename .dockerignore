@@ -11,6 +11,7 @@
 !notification-status.mjs
 !roster-version.mjs
 !schedule-version.mjs
+!scheduling.mjs
 !schedule-history.mjs
 !field-data.mjs
 !profile-access.mjs
