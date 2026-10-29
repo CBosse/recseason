@@ -14,6 +14,7 @@ import { fieldUpdateEndpoint, requestFieldUpdate } from './field-update-client.m
 import { profileAccess } from './profile-access.mjs';
 import { profileAccessEndpoint, requestProfileAccess } from './profile-access-client.mjs';
 import { openProfileAccessEditor } from './profile-access-editor.mjs';
+import { gameCreationEndpoint, requestGameCreation } from './game-creation-client.mjs';
 import { createSubscriptions, writeResult } from './data-lifecycle.mjs';
 import { scoreUpdate, standings } from './results.mjs';
 import { newPlayerProfile } from './accounts.mjs';
@@ -1140,6 +1141,10 @@ async function editGame(game = {}) {
   if (!canEdit()) return;
   if (state.teams.length < 2 || !state.fields.length) { showBanner('Add two teams and a field first.', 'error'); return; }
   const uid = currentUser.uid;
+  const user = auth.currentUser, generation = authGeneration;
+  const isCurrent = () => auth.currentUser === user && authGeneration === generation && currentUser?.uid === uid && canEdit();
+  const newGameId = game.id ? null : doc(collection(db, 'games')).id;
+  let creationNeedsRefresh = false;
   let scorekeepers = [], ruleProfiles = [];
   try {
     const snap = await getDocs(query(collection(db, 'users'), where('role', '==', 'scorekeeper')));
@@ -1147,12 +1152,27 @@ async function editGame(game = {}) {
     const profiles = await getDocs(collection(db, 'ruleProfiles'));
     ruleProfiles = profiles.docs.map(d => ({ id: d.id, profile: validateRulesProfile(d.data()) })).sort((a, b) => a.profile.name.localeCompare(b.profile.name));
   } catch (err) { showDbError(err); return; }
-  if (!canEdit() || currentUser.uid !== uid) return;
+  if (!isCurrent()) return;
   openGameEditor({ game, teams: state.teams, fields: state.fields, config: state.scheduleConfig,
     scorekeepers, ruleProfiles,
     umpires: state.umpires.map(u => ({ id: u.id, name: u.name || u.displayName || u.email || u.id })),
     save: async values => {
-      if (!canEdit() || currentUser.uid !== uid) throw new Error('Your session changed. Reopen this game.');
+      if (!isCurrent()) throw new Error('Your session changed. Reopen this game.');
+      if (!game.id && localMode) {
+        if (creationNeedsRefresh) throw new Error('Close this form and check the schedule before adding another game.');
+        const revision = await getDocFromServer(doc(db, 'config', 'scheduleRevision'));
+        if (!isCurrent()) throw new Error('Your session changed. Reopen this game.');
+        const { id, ruleProfileId, ...creation } = values;
+        const selected = ruleProfileId ? ruleProfiles.find(item => item.id === ruleProfileId) : null;
+        if (ruleProfileId && !selected) throw new Error('Reopen this form to select current league rules.');
+        try {
+          await requestGameCreation({ endpoint: gameCreationEndpoint(localMode), gameId: newGameId,
+            expectedScheduleRevision: scheduleRevision(revision.data()), values: { ...creation, ruleProfileId: ruleProfileId || null,
+              ruleProfileRevision: selected?.profile.revision ?? null }, user, isCurrent });
+        } catch (error) { if (error.requiresRefresh) creationNeedsRefresh = true; throw error; }
+        showBanner('Game saved.', 'success');
+        return;
+      }
       const { ruleProfileId, ...gameValues } = values;
       const snapshot = await scheduleSnapshot();
       const fresh = snapshot.games;

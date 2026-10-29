@@ -5,6 +5,7 @@ import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator, signInWithEmailAndPassword } from 'firebase/auth';
 import { openReminderRuntime } from '../server/reminder-runtime.mjs';
 import { createScheduledGame } from '../server/game-creation-service.mjs';
+import { requestGameCreation, gameCreationEndpoint } from '../game-creation-client.mjs';
 
 if (process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:8180') throw new Error('Local emulator required.');
 const runtime = openReminderRuntime('demo-recseason'), { db } = runtime;
@@ -108,6 +109,18 @@ try {
   await limit.set({ nextGameCreationAt: 0 }, { merge: true });
   assert.equal((await send(body)).status, 409);
   assert.equal(await revision(), versionAfterSave);
+  await limit.set({ nextGameCreationAt: 0 }, { merge: true });
+  await db.doc(`games/${body.gameId}`).update({ status: 'cancelled' });
+  const lostId = `${prefix}-lost-response`, beforeLost = await revision();
+  let attempts = 0;
+  await assert.rejects(requestGameCreation({ endpoint: gameCreationEndpoint(true), gameId: lostId, expectedScheduleRevision: beforeLost, values,
+    user: credential.user, isCurrent: () => true, fetcher: async (_url, options) => {
+      attempts++;
+      const saved = await fetch(`http://127.0.0.1:${server.address().port}/api/games/create`, options);
+      assert.equal(saved.status, 201); await saved.json(); throw new Error('Simulated lost response');
+    } }), { requiresRefresh: true });
+  assert.equal(attempts, 1); assert.equal(await revision(), beforeLost + 1);
+  assert.equal((await db.doc(`games/${lostId}`).get()).exists, true);
   await limit.set({ nextGameCreationAt: 0 }, { merge: true }); await actor.update({ role: 'player' });
   assert.equal((await send({ ...body, expectedScheduleRevision: await revision() })).status, 403);
   await runtime.auth.updateUser(prefix, { disabled: true });

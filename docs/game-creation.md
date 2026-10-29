@@ -22,6 +22,13 @@ uses a trusted daylight resolver with a 12-second deadline. Responses contain on
 creation status and game ID; conflicts return 409, unavailable daylight 503,
 invalid input 400, and insufficient permissions 403. Unknown errors stay private.
 
-Browser integration, server-side edits/regeneration, and coordinated rules
-deployment remain required. Direct browser writes are unchanged in this checkpoint;
-the production integrity gap is not closed yet.
+The local Add Game form now calls this API with one stable ID per open form.
+Client payloads are captured before token refresh; late responses from changed
+sessions are ignored. Uncertain or conflicting saves block resubmission until the
+form is closed and the schedule inspected; no automatic retry occurs. Shared
+input validation lives in `game-creation.mjs` without server-only dependencies.
+
+Production Add Game, existing-game edits and regeneration still use the previous
+browser path. Server-side edits/regeneration, full browser acceptance, and
+coordinated endpoint/rules deployment remain required. The production integrity
+gap is not closed yet.

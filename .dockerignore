@@ -12,6 +12,7 @@
 !roster-version.mjs
 !schedule-version.mjs
 !scheduling.mjs
+!game-creation.mjs
 !schedule-history.mjs
 !field-data.mjs
 !profile-access.mjs
