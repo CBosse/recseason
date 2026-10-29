@@ -46,6 +46,7 @@ export function openGameEditor({ game = {}, teams, fields, umpires, scorekeepers
     label.textContent = labelText;
     const input = document.createElement(options ? 'select' : 'input');
     input.name = name;
+    input.setAttribute('aria-label', labelText);
     if (options) options.forEach(option => input.add(new Option(option.name, option.id)));
     else input.type = type;
     if (type === 'checkbox') input.checked = Boolean(value);
