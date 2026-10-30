@@ -5,7 +5,7 @@ import { parentInvitationEndpoint, requestParentAcceptance } from '../parent-inv
 const options = () => ({ endpoint: parentInvitationEndpoint(true), invitationId: 'invite', user: { getIdToken: async () => 'token' }, isCurrent: () => true });
 
 test('parent client sends only invitation ID with token and no ambient credentials', async () => {
-  assert.equal(parentInvitationEndpoint(false), null);
+  assert.equal(parentInvitationEndpoint(false), 'https://recseason-api-327987648702.us-central1.run.app/api/parent-invitations/accept');
   for (const status of ['accepted', 'already-accepted']) {
     const result = await requestParentAcceptance({ ...options(), fetcher: async (url, init) => {
       assert.equal(url, 'http://127.0.0.1:8082/api/parent-invitations/accept');

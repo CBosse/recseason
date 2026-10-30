@@ -1,5 +1,4 @@
-// Enable production only after the authenticated backend is deployed and verified.
-const productionEndpoint = null;
+const productionEndpoint = 'https://recseason-api-327987648702.us-central1.run.app/api/parent-invitations/accept';
 const path = '/api/parent-invitations/accept';
 
 export function parentInvitationEndpoint(localMode) {
